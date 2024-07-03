@@ -1,0 +1,248 @@
+[
+    {
+      "category": "Starters",
+      "name": "Chilli Soya",
+      "description": "",
+      "is_veg": true,
+      "price": 149
+    },
+    {
+      "category": "Starters",
+      "name": "Fish Fry [5 Pieces]",
+      "description": "",
+      "is_veg": false,
+      "price": 199
+    },
+    {
+      "category": "Main Course",
+      "name": "Plain Dal",
+      "description": "",
+      "is_veg": true,
+      "price": 49
+    },
+    {
+      "category": "Main Course",
+      "name": "Dal Fry",
+      "description": "",
+      "is_veg": true,
+      "price": 99
+    },
+    {
+      "category": "Main Course",
+      "name": "Dal Makhani",
+      "description": "",
+      "is_veg": true,
+      "price": 99
+    },
+    {
+      "category": "Main Course",
+      "name": "Dalma",
+      "description": "",
+      "is_veg": true,
+      "price": 149
+    },
+    {
+      "category": "Main Course",
+      "name": "Chana Dal",
+      "description": "Chana dal, dal, gajar, soyabean, aloo and methi.",
+      "is_veg": true,
+      "price": 149
+    },
+    {
+      "category": "Main Course",
+      "name": "Dahi Baingan",
+      "description": "",
+      "is_veg": true,
+      "price": 99
+    },
+    {
+      "category": "Main Course",
+      "name": "Aloo Phool Gobi",
+      "description": "",
+      "is_veg": true,
+      "price": 99
+    },
+    {
+      "category": "Main Course",
+      "name": "Chilli Paneer Gravy",
+      "description": "",
+      "is_veg": true,
+      "price": 249
+    },
+    {
+      "category": "Main Course",
+      "name": "Chilli Mushroom Gravy",
+      "description": "",
+      "is_veg": true,
+      "price": 299
+    },
+    {
+      "category": "Main Course",
+      "name": "Paneer Curry",
+      "description": "",
+      "is_veg": true,
+      "price": 149
+    },
+    {
+      "category": "Main Course",
+      "name": "Aloo Bharta",
+      "description": "",
+      "is_veg": true,
+      "price": 40
+    },
+    {
+      "category": "Main Course",
+      "name": "Mushroom Curry",
+      "description": "",
+      "is_veg": true,
+      "price": 199
+    },
+    {
+      "category": "Main Course",
+      "name": "Mushroom Rai",
+      "description": "",
+      "is_veg": true,
+      "price": 149
+    },
+    {
+      "category": "Main Course",
+      "name": "Charu Pani",
+      "description": "",
+      "is_veg": true,
+      "price": 49
+    },
+    {
+      "category": "Main Course",
+      "name": "Chicken Kassa",
+      "description": "",
+      "is_veg": false,
+      "price": 199
+    },
+    {
+      "category": "Main Course",
+      "name": "Chicken Curry",
+      "description": "",
+      "is_veg": false,
+      "price": 230
+    },
+    {
+      "category": "Main Course",
+      "name": "Mutton Kassa",
+      "description": "",
+      "is_veg": false,
+      "price": 229
+    },
+    {
+      "category": "Main Course",
+      "name": "Mutton Curry",
+      "description": "",
+      "is_veg": false,
+      "price": 245
+    },
+    {
+      "category": "Main Course",
+      "name": "Fish Curry",
+      "description": "",
+      "is_veg": false,
+      "price": 190
+    },
+    {
+      "category": "Main Course",
+      "name": "Fish Besara",
+      "description": "",
+      "is_veg": false,
+      "price": 149
+    },
+    {
+      "category": "Main Course",
+      "name": "Macha Ghanta",
+      "description": "",
+      "is_veg": false,
+      "price": 175
+    },
+    {
+      "category": "Main Course",
+      "name": "Chingudi Dalma",
+      "description": "",
+      "is_veg": false,
+      "price": 199
+    },
+    {
+      "category": "Main Course",
+      "name": "Prawns Curry",
+      "description": "",
+      "is_veg": false,
+      "price": 329
+    },
+    {
+      "category": "Main Course",
+      "name": "Prawns Kassa",
+      "description": "",
+      "is_veg": false,
+      "price": 299
+    },
+    {
+      "category": "Rice",
+      "name": "Rice",
+      "description": "",
+      "is_veg": true,
+      "price": 40
+    },
+    {
+      "category": "Rice",
+      "name": "Classic Curd Rice",
+      "description": "",
+      "is_veg": true,
+      "price": 69
+    },
+    {
+      "category": "Rice",
+      "name": "Ghee Rice",
+      "description": "",
+      "is_veg": true,
+      "price": 49
+    },
+    {
+      "category": "Rice",
+      "name": "Jeera Rice",
+      "description": "",
+      "is_veg": true,
+      "price": 95
+    },
+    {
+      "category": "Rice",
+      "name": "Pakhala",
+      "description": "",
+      "is_veg": true,
+      "price": 70
+    },
+    {
+      "category": "Accompaniments",
+      "name": "Raita",
+      "description": "",
+      "is_veg": true,
+      "price": 69
+    },
+    {
+      "category": "Accompaniments",
+      "name": "Ou Khatta",
+      "description": "",
+      "is_veg": true,
+      "price": 75
+    },
+    {
+      "category": "Accompaniments",
+      "name": "Ambula Rai Khatta",
+      "description": "",
+      "is_veg": true,
+      "price": 49
+    },
+    {
+      "category": "Accompaniments",
+      "name": "Badi Chura",
+      "description": "",
+      "is_veg": true,
+      "price": 39
+    }
+  ]
+  
