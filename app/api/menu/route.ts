@@ -11,7 +11,7 @@ const fetchSheetData = async (sheetId: string, apiKey: string) => {
 export async function GET() {
 	const { GOOGLE_SHEETS_API_KEY, GOOGLE_SHEET_ID } = process.env;
 
-	console.log(GOOGLE_SHEETS_API_KEY, GOOGLE_SHEET_ID);
+	// console.log(GOOGLE_SHEETS_API_KEY, GOOGLE_SHEET_ID);
 
 	if (!GOOGLE_SHEETS_API_KEY || !GOOGLE_SHEET_ID) {
 		return NextResponse.json(

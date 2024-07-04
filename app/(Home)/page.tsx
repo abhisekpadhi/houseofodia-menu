@@ -13,14 +13,11 @@ type TMenuApiItem = {
 	name: string;
 	description: string;
 	price: number;
+	is_veg: boolean;
 };
 
 type TMenu = {
-	[category: string]: {
-		name: string;
-		description: string;
-		price: number;
-	}[];
+	[category: string]: Omit<TMenuApiItem, 'category'>[];
 };
 
 const Menu: React.FC = () => {
@@ -41,6 +38,7 @@ const Menu: React.FC = () => {
 						name: item.name,
 						description: item.description,
 						price: item.price,
+						is_veg: item.is_veg,
 					});
 				});
 				setMenu(result);
@@ -117,7 +115,12 @@ const Menu: React.FC = () => {
 
 interface MenuItemProps {
 	category: string;
-	items: { name: string; description: string; price: number }[];
+	items: {
+		name: string;
+		description: string;
+		price: number;
+		is_veg: boolean;
+	}[];
 }
 
 const MenuItem: React.FC<MenuItemProps> = ({ category, items }) => {
@@ -129,11 +132,27 @@ const MenuItem: React.FC<MenuItemProps> = ({ category, items }) => {
 				<div
 					key={category + index}
 					className='flex justify-between items-center border-b border-gray-700 py-2'>
-					<div className='pr-2'>
-						<h3 className='font-semibold'>{item.name}</h3>
-						<p className='text-gray-400 text-sm'>
-							{item.description}
-						</p>
+					<div className='flex pr-2 flex-col'>
+						<div className='flex items-center'>
+							{item.is_veg && (
+								<img
+									src='/veg.svg'
+									className='w-6 mx-auto py-2 mx-0'
+								/>
+							)}
+							{!item.is_veg && (
+								<img
+									src='/non_veg.svg'
+									className='w-6 mx-auto py-2'
+								/>
+							)}
+							<h3 className='font-semibold ml-2'>{item.name}</h3>
+						</div>
+						<div>
+							<p className='text-gray-400 text-sm'>
+								{item.description}
+							</p>
+						</div>
 					</div>
 					<div className='text-yellow-500 font-bold'>
 						{item.price}
