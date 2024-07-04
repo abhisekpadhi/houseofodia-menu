@@ -135,15 +135,12 @@ const MenuItem: React.FC<MenuItemProps> = ({ category, items }) => {
 					<div className='flex pr-2 flex-col'>
 						<div className='flex items-center'>
 							{item.is_veg && (
-								<img
-									src='/veg.svg'
-									className='w-6 mx-auto py-2 mx-0'
-								/>
+								<img src='/veg.svg' className='w-6 py-2 mx-0' />
 							)}
 							{!item.is_veg && (
 								<img
 									src='/non_veg.svg'
-									className='w-6 mx-auto py-2'
+									className='w-6 mx-0 py-2'
 								/>
 							)}
 							<h3 className='font-semibold ml-2'>{item.name}</h3>
