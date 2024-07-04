@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import axios from 'axios';
 
+export const dynamic = 'force-dynamic'; // Opt out of caching
+
 const fetchSheetData = async (sheetId: string, apiKey: string) => {
 	const response = await axios.get(
 		`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/menu_grouped_by_category?key=${apiKey}`
