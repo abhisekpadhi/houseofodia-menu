@@ -3,15 +3,21 @@ import axios from 'axios';
 
 export const dynamic = 'force-dynamic'; // Opt out of caching
 
-const fetchSheetData = async (sheetId: string, apiKey: string) => {
-	const response = await axios.get(
-		`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/menu_grouped_by_category?key=${apiKey}`
-	);
+const fetchSheetData = async (
+	sheetId: string,
+	apiKey: string,
+	sheetName: string
+) => {
+	const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${sheetName}?key=${apiKey}`;
+
+	const response = await axios.get(url);
+
 	return response.data.values;
 };
 
 export async function GET() {
-	const { GOOGLE_SHEETS_API_KEY, GOOGLE_SHEET_ID } = process.env;
+	const { GOOGLE_SHEETS_API_KEY, GOOGLE_SHEET_ID, GOOGLE_SHEET_NAME } =
+		process.env;
 
 	// console.log(GOOGLE_SHEETS_API_KEY, GOOGLE_SHEET_ID);
 
@@ -25,16 +31,18 @@ export async function GET() {
 	try {
 		const data = await fetchSheetData(
 			GOOGLE_SHEET_ID,
-			GOOGLE_SHEETS_API_KEY
+			GOOGLE_SHEETS_API_KEY,
+			GOOGLE_SHEET_NAME
 		);
 		const [header, ...rows] = data;
 
-		const jsonData = rows.map((row: any) => ({
-			category: row[0],
-			name: row[1],
-			description: row[2],
-			is_veg: row[3].toLowerCase() === 'true',
-			price: Number(row[4]),
+		const jsonData = rows.map((row: any[]) => ({
+			status: row.length > 1 ? row[0] : 'OFF',
+			category: row.length > 2 ? row[1] : '',
+			name: row.length > 3 ? row[2] : '',
+			description: row.length > 4 ? row[3] : '',
+			is_veg: row.length > 5 ? row[4].toLowerCase() === 'veg' : false,
+			price: row.length > 6 ? parseInt(row[5]) : 0,
 		}));
 
 		return NextResponse.json(jsonData);

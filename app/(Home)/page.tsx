@@ -9,6 +9,7 @@ import axios from 'axios';
 
 const niconne = Niconne({ subsets: ['latin'], weight: '400' });
 type TMenuApiItem = {
+	status: string;
 	category: string;
 	name: string;
 	description: string;
@@ -34,12 +35,16 @@ const Menu: React.FC = () => {
 					if (!result[item.category]) {
 						result[item.category] = [];
 					}
-					result[item.category].push({
-						name: item.name,
-						description: item.description,
-						price: item.price,
-						is_veg: item.is_veg,
-					});
+					// only show menu items that are switched on
+					if (item.status.toLowerCase() === 'on') {
+						result[item.category].push({
+							status: item.status,
+							name: item.name,
+							description: item.description,
+							price: item.price,
+							is_veg: item.is_veg,
+						});
+					}
 				});
 				setMenu(result);
 				setLoading(false);
