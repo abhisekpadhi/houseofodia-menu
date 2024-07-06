@@ -37,12 +37,12 @@ export async function GET() {
 		const [header, ...rows] = data;
 
 		const jsonData = rows.map((row: any[]) => ({
-			status: row.length > 1 ? row[0] : 'OFF',
-			category: row.length > 2 ? row[1] : '',
-			name: row.length > 3 ? row[2] : '',
-			description: row.length > 4 ? row[3] : '',
-			is_veg: row.length > 5 ? row[4].toLowerCase() === 'veg' : false,
-			price: row.length > 6 ? parseInt(row[5]) : 0,
+			status: row.length > 0 ? row[0] : 'OFF',
+			category: row.length > 1 ? row[1] : '',
+			name: row.length > 2 ? row[2] : '',
+			description: row.length > 3 ? row[3] : '',
+			is_veg: row.length > 4 ? row[4].toLowerCase() === 'veg' : false,
+			price: row.length > 5 ? parseInt(row[5]) : 0,
 		}));
 
 		return NextResponse.json(jsonData);
