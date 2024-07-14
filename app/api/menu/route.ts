@@ -42,7 +42,7 @@ export async function GET() {
 			name: row.length > 2 ? row[2] : '',
 			description: row.length > 3 ? row[3] : '',
 			is_veg: row.length > 4 ? row[4].toLowerCase() === 'veg' : false,
-			price: row.length > 5 ? parseInt(row[5]) : 0,
+			price: row.length > 5 ? `${row[5]}` : '0',
 		}));
 
 		return NextResponse.json(jsonData);

@@ -6,6 +6,7 @@ import clsx from 'clsx';
 import Separator from '../../components/ui/separator';
 import _menu from '../../src/data/menu.json';
 import axios from 'axios';
+import { useSearchParams } from 'next/navigation';
 
 const niconne = Niconne({ subsets: ['latin'], weight: '400' });
 type TMenuApiItem = {
@@ -13,7 +14,7 @@ type TMenuApiItem = {
 	category: string;
 	name: string;
 	description: string;
-	price: number;
+	price: string;
 	is_veg: boolean;
 };
 
@@ -22,8 +23,19 @@ type TMenu = {
 };
 
 const Menu: React.FC = () => {
+	const params = useSearchParams();
+
 	const [menu, setMenu] = React.useState<TMenu>({});
 	const [loading, setLoading] = React.useState<boolean>(true);
+	const [isWithLocation, setIsWithLocation] = React.useState<boolean>();
+
+	useEffect(() => {
+		if (params.get('with_location')) {
+			setIsWithLocation(
+				params.get('with_location').toLowerCase() === 'true'
+			);
+		}
+	}, []);
 
 	useEffect(() => {
 		const fetchMenu = async () => {
@@ -73,9 +85,9 @@ const Menu: React.FC = () => {
 							niconne.className,
 							'text-4xl font-niconne text-yellow-500'
 						)}>
-						House Of Odia
+						Menu
 					</h1>
-					<p className='text-gray-400 mt-2 tracking-wider'>MENU</p>
+					{/* <p className='text-gray-400 mt-2 tracking-wider'>MENU</p> */}
 					<img
 						src='/circle_separator.svg'
 						alt='separator'
@@ -114,6 +126,22 @@ const Menu: React.FC = () => {
 					className='w-8 mx-auto py-10'
 				/>
 			</div>
+			{isWithLocation && (
+				<button
+					onClick={() => {
+						window.open(
+							'https://maps.app.goo.gl/CioXF1YvSARA8KwP7'
+						);
+					}}
+					className='bg-white text-black font-bold text-lg py-2 px-4 rounded-full md:w-fit fixed bottom-5 flex justify-center items-center'>
+					<img
+						src='/gmap.svg'
+						alt='separator'
+						className='w-6 mx-auto mr-2 py-1'
+					/>
+					Location of restaurant
+				</button>
+			)}
 		</div>
 	);
 };
@@ -123,7 +151,7 @@ interface MenuItemProps {
 	items: {
 		name: string;
 		description: string;
-		price: number;
+		price: string;
 		is_veg: boolean;
 	}[];
 }
