@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server';
 import axios from 'axios';
+import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic'; // Opt out of caching
 
@@ -19,7 +19,6 @@ export async function GET() {
 	const { GOOGLE_SHEETS_API_KEY, GOOGLE_SHEET_ID, GOOGLE_SHEET_NAME } =
 		process.env;
 
-	// console.log(GOOGLE_SHEETS_API_KEY, GOOGLE_SHEET_ID);
 
 	if (!GOOGLE_SHEETS_API_KEY || !GOOGLE_SHEET_ID) {
 		return NextResponse.json(
@@ -38,7 +37,7 @@ export async function GET() {
 
 		const jsonData = rows.map((row: any[]) => ({
 			status: row.length > 0 ? row[0] : 'OFF',
-			category: row.length > 1 ? row[1] : '',
+			category: row.length > 1 ? `${row[1]}`.trim() : '',
 			name: row.length > 2 ? row[2] : '',
 			description: row.length > 3 ? row[3] : '',
 			is_veg: row.length > 4 ? row[4].toLowerCase() === 'veg' : false,

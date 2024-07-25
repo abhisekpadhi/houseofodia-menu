@@ -1,26 +1,16 @@
 'use client';
 
-import React, { useEffect } from 'react';
-import { Niconne } from 'next/font/google';
-import clsx from 'clsx';
-import Separator from '../../components/ui/separator';
-import _menu from '../../src/data/menu.json';
 import axios from 'axios';
+import clsx from 'clsx';
+import { Niconne } from 'next/font/google';
 import { useSearchParams } from 'next/navigation';
+import React, { useEffect } from 'react';
+import Separator from '@/components/ui/separator';
+import { TMenu, TMenuApiItem } from '@/src/models/common';
 
 const niconne = Niconne({ subsets: ['latin'], weight: '400' });
-type TMenuApiItem = {
-	status: string;
-	category: string;
-	name: string;
-	description: string;
-	price: string;
-	is_veg: boolean;
-};
 
-type TMenu = {
-	[category: string]: Omit<TMenuApiItem, 'category'>[];
-};
+
 
 const Menu: React.FC = () => {
 	const params = useSearchParams();
@@ -40,7 +30,7 @@ const Menu: React.FC = () => {
 	useEffect(() => {
 		const fetchMenu = async () => {
 			try {
-				console.log('>>> fetching menu <<<');
+
 				const response = await axios.get<TMenuApiItem[]>('/api/menu');
 				const result: TMenu = {};
 				response.data.forEach((item) => {
