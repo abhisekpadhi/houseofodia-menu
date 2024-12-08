@@ -102,6 +102,9 @@ const Receipt = () => {
           <span>₹{bill.payable}</span>
         </div>
         <p className="text-center mt-2">Thank you. Please visit again.</p>
+        <br />
+        <br />
+        <br />
       </div>
       <div className="p-4">
         <div className="flex justify-center mt-4 print:hidden">
