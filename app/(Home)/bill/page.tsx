@@ -54,7 +54,7 @@ const Receipt = () => {
         className="text-xs"
         style={{ maxWidth: "58mm", fontFamily: "Helvetica" }}
       >
-        <h1 className="text-center font-bold">T A N G I F Y</h1>
+        <h1 className="text-center font-bold">House Of Odia</h1>
         <p className="text-center">Estimate</p>
         <p className="text-center">Indiranagar, BLR, KA - 560075</p>
         <p className="text-center">Ph: 7855074030</p>
@@ -79,7 +79,7 @@ const Receipt = () => {
               <span>
                 {item.qty}x {item.name}
               </span>
-              <span>{item.price}</span>
+              <span>{item.price * item.qty}</span>
             </div>
           ))}
         </div>
