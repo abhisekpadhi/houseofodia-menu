@@ -107,10 +107,14 @@ const Menu: React.FC = () => {
 						)}
 					</div>
 					{Object.keys(menu).map((category) => {
-					    const filteredItems = menu[category].filter(item => 
-					        item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-					        item.description.toLowerCase().includes(searchTerm.toLowerCase())
-					    );
+					    const filteredItems = menu[category].filter(item => {
+        				const searchLower = searchTerm.toLowerCase();
+        				const wordsInName = item.name.toLowerCase().split(/\s+/); // Split by spaces
+        				return (
+            			wordsInName.some(word => word.startsWith(searchLower)) || // Check if any word starts with the search term
+            			item.description.toLowerCase().includes(searchLower)     // Check if description includes the search term
+        				);
+    					});
 					
 					    return filteredItems.length > 0 ? (
 					        <MenuItem
