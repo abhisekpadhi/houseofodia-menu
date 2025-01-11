@@ -106,16 +106,21 @@ const Menu: React.FC = () => {
 							</button>
 						)}
 					</div>
-					{Object.keys(menu).map((category) => (
-						<MenuItem
-							key={category + '_menu'}
-							category={category}
-							items={menu[category].filter(item => 
-								item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-								item.description.toLowerCase().includes(searchTerm.toLowerCase())
-							)}
-						/>
-					))}
+					{Object.keys(menu).map((category) => {
+					    const filteredItems = menu[category].filter(item => 
+					        item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+					        item.description.toLowerCase().includes(searchTerm.toLowerCase())
+					    );
+					
+					    return filteredItems.length > 0 ? (
+					        <MenuItem
+					            key={category + '_menu'}
+					            category={category}
+					            items={filteredItems}
+					        />
+					    ) : null;
+					})}
+
 					{/* <MenuItem
 						category='Thali'
 						items={[
