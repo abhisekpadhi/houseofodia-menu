@@ -4,7 +4,7 @@ import axios from 'axios';
 import clsx from 'clsx';
 import { Niconne } from 'next/font/google';
 import { useSearchParams } from 'next/navigation';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import Separator from '@/components/ui/separator';
 import { TMenu, TMenuApiItem } from '@/src/models/common';
 
@@ -14,7 +14,7 @@ const niconne = Niconne({ subsets: ['latin'], weight: '400' });
 
 const Menu: React.FC = () => {
 	const params = useSearchParams();
-
+	const [searchTerm, setSearchTerm] = useState('');
 	const [menu, setMenu] = React.useState<TMenu>({});
 	const [loading, setLoading] = React.useState<boolean>(true);
 	const [isWithLocation, setIsWithLocation] = React.useState<boolean>();
@@ -66,6 +66,10 @@ const Menu: React.FC = () => {
 			</div>
 		);
 	}
+	const changeSearchTerm = (e: any) => {
+	    e.preventDefault();
+		setSearchTerm(e.target.value);
+	};
 	return (
 		<div className='bg-black text-white min-h-screen flex px-4 pt-4'>
 			<div className='max-w-lg w-full'>
@@ -85,11 +89,31 @@ const Menu: React.FC = () => {
 					/>
 				</div>
 				<div className='space-y-8'>
+					<div className="relative w-full">
+						<input
+							className="w-full p-3 ps-10 text-sm rounded-lg bg-gray-800  text-white placeholder-gray-400 border-none outline-none focus:none"
+							type="text"
+							placeholder="Search menu items..."
+							value={searchTerm}
+							onChange={changeSearchTerm}
+						/>
+						{searchTerm && (
+							<button
+								onClick={() => setSearchTerm('')}
+								className="absolute right-2 top-1/2 -translate-y-1/2 bg-red-500 text-white px-4 py-2 rounded-lg hover:text-red-500 hover:bg-transparent hover:border-red-500"
+							>
+								Cancel
+							</button>
+						)}
+					</div>
 					{Object.keys(menu).map((category) => (
 						<MenuItem
 							key={category + '_menu'}
 							category={category}
-							items={menu[category]}
+							items={menu[category].filter(item => 
+								item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+								item.description.toLowerCase().includes(searchTerm.toLowerCase())
+							)}
 						/>
 					))}
 					{/* <MenuItem
