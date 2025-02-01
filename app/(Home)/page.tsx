@@ -83,9 +83,9 @@ const Menu: React.FC = () => {
             alt="separator"
             className="w-6 mx-auto py-2"
           />
-          <div className="bg-red-500 text-white text-center py-2 rounded">
+          {/* <div className="bg-red-500 text-white text-center py-2 rounded">
             Price of all items in the menu will increase next week.
-          </div>
+          </div> */}
         </div>
         <div className="space-y-8">
           <div className="relative w-full">
