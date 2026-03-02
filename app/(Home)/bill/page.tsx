@@ -26,6 +26,8 @@ const Receipt = () => {
     return <div>Loading...</div>;
   }
 
+  const discount = bill.subtotal - bill.payable;
+
   const onClickNewOrder = async () => {
     setProcessing(true);
     const updateResp = await axios.post<TBillNoUpdateResp>("/api/bill_no", {
@@ -54,10 +56,10 @@ const Receipt = () => {
         className="text-xs"
         style={{ maxWidth: "58mm", fontFamily: "Helvetica" }}
       >
-        <h1 className="text-center font-bold">House Of Odia</h1>
+        <h1 className="text-center font-bold">Tangify</h1>
         <p className="text-center">Estimate</p>
-        <p className="text-center">Indiranagar, BLR, KA - 560075</p>
-        <p className="text-center">Ph: 7855074030</p>
+        <p className="text-center">Sarjapura, BLR, KA - 562125</p>
+        <p className="text-center">Ph: 7760601643</p>
         <p className="text-center">FSSAI: 21224010000927</p>
         <Divider />
         <div className="flex justify-between">
@@ -88,6 +90,12 @@ const Receipt = () => {
           <span>SubTotal</span>
           <span>{bill.subtotal}</span>
         </div>
+        {discount > 0 && (
+          <div className="flex justify-between">
+            <span>Membership savings</span>
+            <span>-{discount}</span>
+          </div>
+        )}
         {/* <div className="flex justify-between">
         <span>CGST @2.5%</span>
         <span>21</span>

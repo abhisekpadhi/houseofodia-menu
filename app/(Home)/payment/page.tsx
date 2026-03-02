@@ -11,6 +11,9 @@ const Payment = () => {
   const router = useRouter();
   const [cart, setCart] = useState<TCart>({ items: [] });
   const [method, setMethod] = useState<string>("");
+  const [membership, setMembership] = useState<"none" | "monthly" | "yearly">(
+    "none"
+  );
 
   useEffect(() => {
     // fetch items from local storage
@@ -24,6 +27,10 @@ const Payment = () => {
 
   const handlePaymentMethod = (method: string) => {
     setMethod(method);
+  };
+
+  const handleMembershipSelect = (value: "monthly" | "yearly") => {
+    setMembership((prev) => (prev === value ? "none" : value));
   };
 
   const handleClear = () => {
@@ -44,12 +51,18 @@ const Payment = () => {
       )
     : 0;
 
+  const discountRate =
+    membership === "monthly" ? 0.1 : membership === "yearly" ? 0.2 : 0;
+  const discountedSubtotal = totalAmount - totalAmount * discountRate;
+  const payableAmount = discountedSubtotal;
+
   const onClickPay = () => {
     localforage.getItem<TBill>("bill").then((data) => {
       localforage
         .setItem<TBill>("bill", {
           ...data,
           method: method,
+          payable: payableAmount,
         })
         .then((_) => {
           router.push("/bill");
@@ -75,6 +88,39 @@ const Payment = () => {
             x CLEAR
           </button>
         </div>
+        <div className="px-4 py-2">
+          <p className="text-sm font-semibold mb-2">Membership (optional)</p>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              className={`flex-1 flex items-center justify-center gap-2 border rounded-lg py-2 text-xs ${
+                membership === "monthly" ? "border-black bg-gray-100" : "border-gray-300"
+              }`}
+              onClick={() => handleMembershipSelect("monthly")}
+            >
+              <span
+                className={`w-3 h-3 rounded-full border ${
+                  membership === "monthly" ? "bg-black border-black" : "border-gray-400"
+                }`}
+              />
+              <span>Monthly (10% off)</span>
+            </button>
+            <button
+              type="button"
+              className={`flex-1 flex items-center justify-center gap-2 border rounded-lg py-2 text-xs ${
+                membership === "yearly" ? "border-black bg-gray-100" : "border-gray-300"
+              }`}
+              onClick={() => handleMembershipSelect("yearly")}
+            >
+              <span
+                className={`w-3 h-3 rounded-full border ${
+                  membership === "yearly" ? "bg-black border-black" : "border-gray-400"
+                }`}
+              />
+              <span>Yearly (20% off)</span>
+            </button>
+          </div>
+        </div>
         <div className="">
           {PaymentMethods.map((item, index) => (
             <div
@@ -88,7 +134,7 @@ const Payment = () => {
                 <div className="font-bold">{item}</div>
               </div>
               <div>
-                <span>{method === item ? `₹${totalAmount}` : ""}</span>
+                  <span>{method === item ? `₹${payableAmount}` : ""}</span>
               </div>
             </div>
           ))}
