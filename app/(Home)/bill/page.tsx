@@ -26,7 +26,7 @@ const Receipt = () => {
     return <div>Loading...</div>;
   }
 
-  const discount = bill.subtotal - bill.payable;
+  const discount = Math.floor(bill.subtotal - bill.payable);
 
   const onClickNewOrder = async () => {
     setProcessing(true);
