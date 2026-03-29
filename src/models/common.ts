@@ -27,6 +27,8 @@ export type TBill = {
 	sgst: number;
 	payable: number;
 	method: string;
+	/** Rounded-up 10% service charge on discounted subtotal; 0 if not applied */
+	staffWelfare?: number;
 }
 
 export type TBillNoResp = { bill_no: number}

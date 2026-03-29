@@ -14,6 +14,7 @@ const Payment = () => {
   const [membership, setMembership] = useState<"none" | "monthly" | "yearly">(
     "none"
   );
+  const [serviceChargeOn, setServiceChargeOn] = useState(false);
 
   useEffect(() => {
     // fetch items from local storage
@@ -54,7 +55,10 @@ const Payment = () => {
   const discountRate =
     membership === "monthly" ? 0.1 : membership === "yearly" ? 0.2 : 0;
   const discountedSubtotal = totalAmount - totalAmount * discountRate;
-  const payableAmount = discountedSubtotal;
+  const staffWelfareAmount = serviceChargeOn
+    ? Math.ceil(discountedSubtotal * 0.1)
+    : 0;
+  const payableAmount = discountedSubtotal + staffWelfareAmount;
 
   const onClickPay = () => {
     localforage.getItem<TBill>("bill").then((data) => {
@@ -63,6 +67,7 @@ const Payment = () => {
           ...data,
           method: method,
           payable: payableAmount,
+          staffWelfare: staffWelfareAmount,
         })
         .then((_) => {
           router.push("/bill");
@@ -138,6 +143,24 @@ const Payment = () => {
               </div>
             </div>
           ))}
+        </div>
+        <div className="px-4 py-4 flex justify-between items-center border-t border-gray-200">
+          <span className="text-sm font-semibold">10% service charge</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={serviceChargeOn}
+            onClick={() => setServiceChargeOn((v) => !v)}
+            className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+              serviceChargeOn ? "bg-black" : "bg-gray-300"
+            }`}
+          >
+            <span
+              className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition ${
+                serviceChargeOn ? "translate-x-5" : "translate-x-0.5"
+              }`}
+            />
+          </button>
         </div>
       </div>
 

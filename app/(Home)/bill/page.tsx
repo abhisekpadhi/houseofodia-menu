@@ -26,7 +26,11 @@ const Receipt = () => {
     return <div>Loading...</div>;
   }
 
-  const discount = Math.floor(bill.subtotal - bill.payable);
+  const staffWelfare = bill.staffWelfare ?? 0;
+  const discount = Math.max(
+    0,
+    Math.floor(bill.subtotal - bill.payable + staffWelfare)
+  );
 
   const onClickNewOrder = async () => {
     setProcessing(true);
@@ -94,6 +98,12 @@ const Receipt = () => {
           <div className="flex justify-between">
             <span>Membership savings</span>
             <span>-{discount}</span>
+          </div>
+        )}
+        {staffWelfare > 0 && (
+          <div className="flex justify-between">
+            <span>Service charge</span>
+            <span>{staffWelfare}</span>
           </div>
         )}
         {/* <div className="flex justify-between">
