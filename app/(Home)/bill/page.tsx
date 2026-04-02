@@ -102,7 +102,7 @@ const Receipt = () => {
         )}
         {staffWelfare > 0 && (
           <div className="flex justify-between">
-            <span>Service charge</span>
+            <span>Service charge (optional)</span>
             <span>{staffWelfare}</span>
           </div>
         )}
