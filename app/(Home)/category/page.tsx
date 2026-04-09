@@ -1,5 +1,5 @@
 "use client";
-import { TCart, TDish, TMenu, TMenuApiItem, TStorage } from "@/src/models/common";
+import { TCart, TDish, TMenu, TMenuApiItem } from "@/src/models/common";
 import axios from "axios";
 import localforage from "localforage";
 import { useRouter } from "next/navigation";
@@ -22,7 +22,12 @@ const CategoryPage: React.FC = () => {
     try {
       setFetchingMenu(true);
 
-      const response = await axios.get<TMenuApiItem[]>("/api/menu");
+      const response = await axios.get<TMenuApiItem[]>("/api/menu", {
+        headers: {
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+      });
       const result: TMenu = {};
       response.data.forEach((item) => {
         if (!result[item.category]) {
@@ -40,12 +45,6 @@ const CategoryPage: React.FC = () => {
         }
       });
       setMenu(result);
-      localforage
-        .setItem<TStorage>("menu", { menu: result, created_at: Date.now() })
-        .then((data) => {
-
-          setFetchingMenu(false);
-        });
     } catch (error) {
       console.error("Error fetching menu:", error);
       alert("Error fetching menu: " + error);
@@ -55,25 +54,7 @@ const CategoryPage: React.FC = () => {
   };
 
   React.useEffect(() => {
-    localforage
-      .getItem<TStorage | null>("menu")
-      .then((data: TStorage | null) => {
-        if (data) {
-          setMenu(data.menu);
-          // refresh if old data than 30 minutes
-          if (Date.now() - data.created_at > 30 * 60 * 1000) {
-
-            fetchMenu();
-          } else {
-
-            setFetchingMenu(false);
-          }
-        } else {
-          // fetch menu if no data
-
-          fetchMenu();
-        }
-      });
+    fetchMenu();
   }, []);
 
   React.useEffect(() => {
@@ -91,13 +72,12 @@ const CategoryPage: React.FC = () => {
   const [categories, setCategories] = React.useState<string[]>([]);
 
   useEffect(() => {
-    if (!fetchingMenu) {
-      localforage.getItem<TStorage>("menu").then((data) => {
-        setMenu(data.menu);
-        setCategories(Object.keys(data.menu));
-      });
+    if (menu) {
+      setCategories(Object.keys(menu));
+      return;
     }
-  }, [fetchingMenu]);
+    setCategories([]);
+  }, [menu]);
 
   const allItems = React.useMemo(() => {
     if (!menu) {
