@@ -31,6 +31,11 @@ const Receipt = () => {
     0,
     Math.floor(bill.subtotal - bill.payable + staffWelfare)
   );
+  const upiAmount = Math.max(0, bill.payable);
+  const upiPayload = `upi://pay?pa=q030249494@ybl&pn=Tangify&am=${upiAmount}&cu=INR`;
+  const upiQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=225x225&data=${encodeURIComponent(
+    upiPayload
+  )}`;
 
   const onClickNewOrder = async () => {
     setProcessing(true);
@@ -120,6 +125,16 @@ const Receipt = () => {
           <span>₹{bill.payable}</span>
         </div>
         <p className="text-center mt-2">Thank you. Please visit again.</p>
+        <div className="mt-3 flex flex-col items-center">
+          <p className="text-center font-semibold">Scan & Pay (UPI)</p>
+          <img
+            src={upiQrUrl}
+            alt={`UPI QR for ₹${upiAmount}`}
+            width={140}
+            height={140}
+            className="mt-1"
+          />
+        </div>
         <br />
         <br />
         <br />
