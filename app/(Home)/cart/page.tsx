@@ -1,6 +1,6 @@
 "use client";
 
-import { TBill, TBillNoResp, TCart, TDish } from "@/src/models/common";
+import { TBill, TBillNoResp, TCart, TDish, BILLING_CONTEXT_KEY } from "@/src/models/common";
 import axios from "axios";
 import localforage from "localforage";
 import { useRouter } from "next/navigation";
@@ -28,8 +28,10 @@ const Cart = () => {
   const handleClear = () => {
     setCart({ items: [] });
     localforage.setItem("cart", { items: [] }).then((_) => {
-      localforage.setItem("bill", null).then((_) => {
-        router.push("/category");
+      localforage.removeItem(BILLING_CONTEXT_KEY).then((_) => {
+        localforage.setItem("bill", null).then((_) => {
+          router.push("/category");
+        });
       });
     });
   };

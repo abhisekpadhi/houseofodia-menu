@@ -1,5 +1,11 @@
 "use client";
-import { TBill, TBillNoUpdateResp } from "@/src/models/common";
+import {
+	BillingContext,
+	BILLING_CONTEXT_KEY,
+	TBill,
+	TBillNoUpdateResp,
+} from "@/src/models/common";
+import { closeTableFromBilling } from "@/src/utils/order_utils";
 import axios from "axios";
 import localforage from "localforage";
 import { useRouter } from "next/navigation";
@@ -13,6 +19,8 @@ const Divider = () => {
 const Receipt = () => {
   const router = useRouter();
   const [bill, setBill] = useState<TBill | null>(null);
+  const [billingContext, setBillingContext] =
+    useState<BillingContext | null>(null);
   const [processing, setProcessing] = useState(false);
   useEffect(() => {
     localforage.getItem<TBill>("bill").then((data) => {
@@ -20,7 +28,16 @@ const Receipt = () => {
         setBill(data);
       }
     });
+    localforage.getItem<BillingContext>(BILLING_CONTEXT_KEY).then((context) => {
+      setBillingContext(context);
+    });
   }, []);
+
+  const handleBack = () => {
+    router.push(
+      billingContext?.source === "orders" ? "/order" : "/category"
+    );
+  };
 
   if (!bill) {
     return <div>Loading...</div>;
@@ -37,22 +54,35 @@ const Receipt = () => {
     upiPayload
   )}`;
 
-  const onClickNewOrder = async () => {
+  const onClickCloseTable = async () => {
     setProcessing(true);
-    const updateResp = await axios.post<TBillNoUpdateResp>("/api/bill_no", {
-      bill_no: parseInt(bill.billNumber) + 1,
-    });
-
-    setProcessing(false);
-    if (!updateResp.data.success) {
-      alert("Error updating bill number");
-      return;
-    }
-    localforage.setItem("cart", { items: [] }).then((_) => {
-      localforage.setItem("bill", null).then((_) => {
-        router.push("/category");
+    try {
+      const updateResp = await axios.post<TBillNoUpdateResp>("/api/bill_no", {
+        bill_no: parseInt(bill.billNumber) + 1,
       });
-    });
+
+      if (!updateResp.data.success) {
+        alert("Error updating bill number");
+        return;
+      }
+
+      const billingContext =
+        await localforage.getItem<BillingContext>(BILLING_CONTEXT_KEY);
+
+      await localforage.setItem("cart", { items: [] });
+      await localforage.setItem("bill", null);
+      await localforage.removeItem(BILLING_CONTEXT_KEY);
+
+      if (billingContext?.source === "orders") {
+        await closeTableFromBilling(billingContext);
+        router.push("/order");
+        return;
+      }
+
+      router.push("/category");
+    } finally {
+      setProcessing(false);
+    }
   };
 
   if (processing) {
@@ -61,6 +91,15 @@ const Receipt = () => {
 
   return (
     <div>
+      <div className="p-4 print:hidden">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="text-white bg-black px-4 py-2 rounded-lg"
+        >
+          &lt; BACK
+        </button>
+      </div>
       <div
         className="text-xs"
         style={{ maxWidth: "58mm", fontFamily: "Helvetica" }}
@@ -152,9 +191,9 @@ const Receipt = () => {
         <div className="flex justify-center mt-4 print:hidden">
           <button
             className="bg-black text-white py-2 px-6 rounded-lg flex items-center w-full justify-center"
-            onClick={onClickNewOrder}
+            onClick={onClickCloseTable}
           >
-            <FaPlus className="mr-2" /> NEW ORDER
+            <FaPlus className="mr-2" /> CLOSE TABLE
           </button>
         </div>
       </div>

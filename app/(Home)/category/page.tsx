@@ -1,75 +1,73 @@
 "use client";
+
 import { TCart, TDish, TMenu, TMenuApiItem } from "@/src/models/common";
+import { buildMenuFromApiItems, stringToColor } from "@/src/utils/menu_utils";
 import axios from "axios";
 import localforage from "localforage";
 import { useRouter } from "next/navigation";
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 const CategoryPage: React.FC = () => {
   const router = useRouter();
 
-  const [fetchingMenu, setFetchingMenu] = React.useState<boolean>(true);
-  const [menu, setMenu] = React.useState<TMenu | null>(null);
-  const [searchTerm, setSearchTerm] = React.useState<string>("");
-  const [selectedCategory, setSelectedCategory] = React.useState<string | null>(
-    null
+  const [fetchingMenu, setFetchingMenu] = useState(true);
+  const [menu, setMenu] = useState<TMenu | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [cartQuantities, setCartQuantities] = useState<Record<string, number>>(
+    {}
   );
-  const [cartQuantities, setCartQuantities] = React.useState<
-    Record<string, number>
-  >({});
+  const [categories, setCategories] = useState<string[]>([]);
 
-  const fetchMenu = async () => {
-    try {
-      setFetchingMenu(true);
+  useEffect(() => {
+    let cancelled = false;
 
-      const response = await axios.get<TMenuApiItem[]>("/api/menu", {
+    axios
+      .get<TMenuApiItem[]>("/api/menu", {
         headers: {
           "Cache-Control": "no-cache",
           Pragma: "no-cache",
         },
-      });
-      const result: TMenu = {};
-      response.data.forEach((item) => {
-        if (!result[item.category]) {
-          result[item.category] = [];
+      })
+      .then((response) => {
+        if (cancelled) return;
+        setMenu(buildMenuFromApiItems(response.data));
+        setLoadError(null);
+      })
+      .catch((error) => {
+        console.error("Error fetching menu:", error);
+        if (cancelled) return;
+        setLoadError("Could not load menu. Pull to refresh or try again.");
+        setMenu({});
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setFetchingMenu(false);
         }
-        // only show menu items that are switched on
-        if (item.status.toLowerCase() === "on") {
-          result[item.category].push({
-            status: item.status,
-            name: item.name,
-            description: item.description,
-            price: item.price,
-            is_veg: item.is_veg,
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    localforage
+      .getItem<TCart>("cart")
+      .then((cart) => {
+        if (cart?.items) {
+          const quantities: Record<string, number> = {};
+          cart.items.forEach((item: TDish) => {
+            quantities[item.name] = item.qty;
           });
+          setCartQuantities(quantities);
         }
+      })
+      .catch((error) => {
+        console.error("Failed to load cart:", error);
       });
-      setMenu(result);
-    } catch (error) {
-      console.error("Error fetching menu:", error);
-      alert("Error fetching menu: " + error);
-    } finally {
-      setFetchingMenu(false);
-    }
-  };
-
-  React.useEffect(() => {
-    fetchMenu();
   }, []);
-
-  React.useEffect(() => {
-    localforage.getItem<TCart>("cart").then((cart) => {
-      if (cart && cart.items) {
-        const quantities: Record<string, number> = {};
-        cart.items.forEach((item: TDish) => {
-          quantities[item.name] = item.qty;
-        });
-        setCartQuantities(quantities);
-      }
-    });
-  }, []);
-
-  const [categories, setCategories] = React.useState<string[]>([]);
 
   useEffect(() => {
     if (menu) {
@@ -79,7 +77,7 @@ const CategoryPage: React.FC = () => {
     setCategories([]);
   }, [menu]);
 
-  const allItems = React.useMemo(() => {
+  const allItems = useMemo(() => {
     if (!menu) {
       return [];
     }
@@ -107,7 +105,7 @@ const CategoryPage: React.FC = () => {
     return itemsWithCategory;
   }, [menu]);
 
-  const visibleItems = React.useMemo(() => {
+  const visibleItems = useMemo(() => {
     let filtered = allItems;
 
     if (selectedCategory) {
@@ -129,27 +127,6 @@ const CategoryPage: React.FC = () => {
 
     return filtered;
   }, [allItems, selectedCategory, searchTerm]);
-
-  if (fetchingMenu) {
-    return (
-      <div className="flex bg-black justify-center items-center min-h-screen">
-        <div className="text-white">Loading...</div>
-      </div>
-    );
-  }
-  function stringToColor(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    let color = "#";
-    for (let i = 0; i < 3; i++) {
-      const value = (hash >> (i * 8)) & 0xff;
-      const lightValue = Math.floor((value + 255) / 2); // Average with white
-      color += ("00" + lightValue.toString(16)).slice(-2);
-    }
-    return color;
-  }
 
   const goToCart = () => {
     router.push("/cart");
@@ -180,10 +157,7 @@ const CategoryPage: React.FC = () => {
     });
   };
 
-  const handleAddItem = (item: {
-    name: string;
-    price: string;
-  }) => {
+  const handleAddItem = (item: { name: string; price: string }) => {
     updateCartAndQuantities(item.name, (_, cart) => {
       const existingIndex = cart.items.findIndex(
         (i: TDish) => i.name === item.name
@@ -248,87 +222,101 @@ const CategoryPage: React.FC = () => {
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
         />
       </div>
-      <div className="flex gap-3 mb-6 overflow-x-auto pb-2">
-        {categories.map((category, index) => {
-          const isSelected = selectedCategory === category;
 
-          const baseOpacity =
-            selectedCategory === null || isSelected ? "opacity-100" : "opacity-50";
+      {fetchingMenu ? (
+        <div className="text-center py-12 text-gray-500 text-sm">
+          Loading menu...
+        </div>
+      ) : loadError ? (
+        <div className="text-center py-12 text-red-500 text-sm">{loadError}</div>
+      ) : (
+        <>
+          <div className="flex gap-3 mb-6 overflow-x-auto pb-2">
+            {categories.map((category, index) => {
+              const isSelected = selectedCategory === category;
+              const baseOpacity =
+                selectedCategory === null || isSelected
+                  ? "opacity-100"
+                  : "opacity-50";
 
-          return (
-            <button
-              key={`${category}-${index}`}
-              type="button"
-              style={{ backgroundColor: stringToColor(category) }}
-              className={`whitespace-nowrap px-4 py-2 text-center font-bold text-xs rounded-lg cursor-pointer transition-transform ${baseOpacity} ${
-                isSelected ? "ring-2 ring-black scale-105" : ""
-              }`}
-              onClick={() =>
-                setSelectedCategory((prev) =>
-                  prev === category ? null : category
-                )
-              }
-            >
-              {category}
-            </button>
-          );
-        })}
-      </div>
-      <div className="space-y-3 mb-8">
-        {visibleItems.map((item, index) => (
-          <div
-            key={`${item.category}-${item.name}-${index}`}
-            className="flex items-center justify-between border border-gray-200 rounded-lg px-4 py-3 bg-white shadow-sm"
-          >
-            <div className="mr-4">
-              <p className="font-semibold text-sm">{item.name}</p>
-              {item.description ? (
-                <p className="text-xs text-gray-600 mt-1">{item.description}</p>
-              ) : null}
-              <p className="text-[10px] text-gray-500 mt-1 uppercase">
-                {item.category}
-              </p>
-            </div>
-            <div className="flex flex-col items-end space-y-2">
-              <p className="font-medium text-sm">₹{item.price}</p>
-              {cartQuantities[item.name] && cartQuantities[item.name] > 0 ? (
-                <div className="flex items-center space-x-2">
-                  <button
-                    type="button"
-                    className="w-7 h-7 flex items-center justify-center rounded-full bg-red-100 text-red-700 text-lg leading-none"
-                    onClick={() => handleDecrement(item)}
-                  >
-                    -
-                  </button>
-                  <span className="min-w-[1.5rem] text-center text-sm font-medium">
-                    {cartQuantities[item.name]}
-                  </span>
-                  <button
-                    type="button"
-                    className="w-7 h-7 flex items-center justify-center rounded-full bg-green-100 text-green-700 text-lg leading-none"
-                    onClick={() => handleIncrement(item)}
-                  >
-                    +
-                  </button>
-                </div>
-              ) : (
+              return (
                 <button
+                  key={`${category}-${index}`}
                   type="button"
-                  className="px-3 py-1 rounded-full bg-green-200 text-xs font-semibold"
-                  onClick={() => handleAddItem(item)}
+                  style={{ backgroundColor: stringToColor(category) }}
+                  className={`whitespace-nowrap px-4 py-2 text-center font-bold text-xs rounded-lg cursor-pointer transition-transform ${baseOpacity} ${
+                    isSelected ? "ring-2 ring-black scale-105" : ""
+                  }`}
+                  onClick={() =>
+                    setSelectedCategory((prev) =>
+                      prev === category ? null : category
+                    )
+                  }
                 >
-                  + ADD
+                  {category}
                 </button>
-              )}
-            </div>
+              );
+            })}
           </div>
-        ))}
-        {visibleItems.length === 0 && (
-          <div className="text-center text-sm text-gray-500">
-            No items found for the current filters.
+          <div className="space-y-3 mb-8">
+            {visibleItems.map((item, index) => (
+              <div
+                key={`${item.category}-${item.name}-${index}`}
+                className="flex items-center justify-between border border-gray-200 rounded-lg px-4 py-3 bg-white shadow-sm"
+              >
+                <div className="mr-4">
+                  <p className="font-semibold text-sm">{item.name}</p>
+                  {item.description ? (
+                    <p className="text-xs text-gray-600 mt-1">
+                      {item.description}
+                    </p>
+                  ) : null}
+                  <p className="text-[10px] text-gray-500 mt-1 uppercase">
+                    {item.category}
+                  </p>
+                </div>
+                <div className="flex flex-col items-end space-y-2">
+                  <p className="font-medium text-sm">₹{item.price}</p>
+                  {cartQuantities[item.name] && cartQuantities[item.name] > 0 ? (
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        className="w-7 h-7 flex items-center justify-center rounded-full bg-red-100 text-red-700 text-lg leading-none"
+                        onClick={() => handleDecrement(item)}
+                      >
+                        -
+                      </button>
+                      <span className="min-w-[1.5rem] text-center text-sm font-medium">
+                        {cartQuantities[item.name]}
+                      </span>
+                      <button
+                        type="button"
+                        className="w-7 h-7 flex items-center justify-center rounded-full bg-green-100 text-green-700 text-lg leading-none"
+                        onClick={() => handleIncrement(item)}
+                      >
+                        +
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="px-3 py-1 rounded-full bg-green-200 text-xs font-semibold"
+                      onClick={() => handleAddItem(item)}
+                    >
+                      + ADD
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+            {visibleItems.length === 0 && (
+              <div className="text-center text-sm text-gray-500">
+                No items found for the current filters.
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 };
