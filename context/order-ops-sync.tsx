@@ -1,7 +1,7 @@
 'use client';
 
 import {
-	ORDER_OPS_CHANNEL,
+	getOrderOpsChannel,
 	OrderOpsPresenceData,
 	OrderOpsSnapshot,
 	SyncRequestMessage,
@@ -41,6 +41,7 @@ export type OrderOpsConnectionState =
 type OrderOpsSyncContextValue = {
 	connected: boolean;
 	connectionState: OrderOpsConnectionState;
+	syncing: boolean;
 	memberCount: number;
 	deviceId: string;
 	channelName: string;
@@ -53,9 +54,10 @@ type OrderOpsSyncContextValue = {
 const OrderOpsSyncContext = createContext<OrderOpsSyncContextValue>({
 	connected: false,
 	connectionState: 'idle',
+	syncing: false,
 	memberCount: 0,
 	deviceId: '',
-	channelName: ORDER_OPS_CHANNEL,
+	channelName: getOrderOpsChannel(),
 	stateVersion: null,
 	businessDate: null,
 	error: null,
@@ -139,6 +141,7 @@ function safeTeardownAbly(
 export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 	const [connectionState, setConnectionState] =
 		useState<OrderOpsConnectionState>('idle');
+	const [syncing, setSyncing] = useState(false);
 	const [memberCount, setMemberCount] = useState(0);
 	const [stateVersion, setStateVersion] = useState<number | null>(null);
 	const [businessDate, setBusinessDate] = useState<string | null>(null);
@@ -151,6 +154,24 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 	const cancelledRef = useRef(false);
 	const connectPromiseRef = useRef<Promise<void> | null>(null);
 	const connectionStateRef = useRef<OrderOpsConnectionState>('idle');
+	const syncActivityCountRef = useRef(0);
+
+	const runWithSyncIndicator = useCallback(
+		async (operation: () => Promise<void>) => {
+			syncActivityCountRef.current += 1;
+			setSyncing(true);
+			try {
+				await operation();
+			} finally {
+				syncActivityCountRef.current -= 1;
+				if (syncActivityCountRef.current <= 0) {
+					syncActivityCountRef.current = 0;
+					setSyncing(false);
+				}
+			}
+		},
+		[]
+	);
 
 	const refreshMeta = useCallback(async () => {
 		const meta = await getOrderOpsMeta();
@@ -167,12 +188,14 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				}
 				const mapped = mapPresenceMembers(members);
 				setMemberCount(mapped.length);
-				await requestSyncFromPeers(channel, mapped, selfClientId);
+				await runWithSyncIndicator(async () => {
+					await requestSyncFromPeers(channel, mapped, selfClientId);
+				});
 			} catch (presenceError) {
 				console.error('Failed to read order_ops presence:', presenceError);
 			}
 		},
-		[]
+		[runWithSyncIndicator]
 	);
 
 	const setupRealtime = useCallback(
@@ -205,7 +228,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			});
 
 			realtimeRef.current = realtime;
-			const channel = realtime.channels.get(ORDER_OPS_CHANNEL);
+			const channel = realtime.channels.get(getOrderOpsChannel());
 			channelRef.current = channel;
 
 			const enterPresence = async () => {
@@ -286,22 +309,28 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 
 			channel.subscribe('sync:request', async (message) => {
 				const payload = message.data as SyncRequestMessage;
-				await handleSyncRequest(
-					payload,
-					async (response: SyncResponseMessage) => {
-						await channel.publish('sync:response', response);
-					}
-				);
+				await runWithSyncIndicator(async () => {
+					await handleSyncRequest(
+						payload,
+						async (response: SyncResponseMessage) => {
+							await channel.publish('sync:response', response);
+						}
+					);
+				});
 			});
 
 			channel.subscribe('sync:response', async (message) => {
-				await handleSyncResponse(message.data as SyncResponseMessage);
-				await refreshMeta();
+				await runWithSyncIndicator(async () => {
+					await handleSyncResponse(message.data as SyncResponseMessage);
+					await refreshMeta();
+				});
 			});
 
 			channel.subscribe('state:delta', async (message) => {
-				await handleStateDelta(message.data as StateDeltaMessage);
-				await refreshMeta();
+				await runWithSyncIndicator(async () => {
+					await handleStateDelta(message.data as StateDeltaMessage);
+					await refreshMeta();
+				});
 			});
 
 			channel.presence.subscribe(['enter', 'leave', 'update'], () => {
@@ -323,7 +352,9 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 					return;
 				}
 
-				await activeChannel.publish('state:delta', snapshot);
+				await runWithSyncIndicator(async () => {
+					await activeChannel.publish('state:delta', snapshot);
+				});
 			});
 
 			registerOrderOpsPresenceUpdater(async (snapshot: OrderOpsSnapshot) => {
@@ -335,7 +366,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				await updateChannelPresence(activeChannel, snapshot);
 			});
 		},
-		[refreshMemberCount, refreshMeta]
+		[refreshMemberCount, refreshMeta, runWithSyncIndicator]
 	);
 
 	const connect = useCallback(async () => {
@@ -438,18 +469,16 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			}
 
 			resetSyncRequestCooldown();
-			void channel.presence
-				.get()
-				.then((members) =>
-					requestSyncFromPeers(
-						channel,
-						mapPresenceMembers(members),
-						selfClientId
-					)
-				)
-				.catch((presenceError) => {
-					console.error('Failed to refresh sync on focus:', presenceError);
-				});
+			void runWithSyncIndicator(async () => {
+				const members = await channel.presence.get();
+				await requestSyncFromPeers(
+					channel,
+					mapPresenceMembers(members),
+					selfClientId
+				);
+			}).catch((presenceError) => {
+				console.error('Failed to refresh sync on focus:', presenceError);
+			});
 		};
 
 		const onWindowFocus = () => {
@@ -476,7 +505,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			channelRef.current = null;
 			connectPromiseRef.current = null;
 		};
-	}, [connect, setupRealtime]);
+	}, [connect, setupRealtime, runWithSyncIndicator]);
 
 	const connected = connectionState === 'connected';
 
@@ -487,9 +516,10 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			value={{
 				connected,
 				connectionState,
+				syncing,
 				memberCount,
 				deviceId,
-				channelName: ORDER_OPS_CHANNEL,
+				channelName: getOrderOpsChannel(),
 				stateVersion,
 				businessDate,
 				error,

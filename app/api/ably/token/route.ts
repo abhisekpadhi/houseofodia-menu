@@ -1,4 +1,4 @@
-import { ORDER_OPS_CHANNEL } from '@/src/models/order_ops';
+import { getOrderOpsChannel } from '@/src/models/order_ops';
 import Ably from 'ably';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -21,10 +21,11 @@ export async function GET(request: NextRequest) {
 	}
 
 	const ably = new Ably.Rest({ key: apiKey });
+	const channel = getOrderOpsChannel();
 	const tokenRequest = await ably.auth.createTokenRequest({
 		clientId: deviceId,
 		capability: {
-			[ORDER_OPS_CHANNEL]: ['subscribe', 'publish', 'presence'],
+			[channel]: ['subscribe', 'publish', 'presence'],
 		},
 	});
 
