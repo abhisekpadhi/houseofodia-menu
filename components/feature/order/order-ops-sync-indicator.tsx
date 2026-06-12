@@ -35,6 +35,15 @@ function connectionLabel(
 	}
 }
 
+function SyncSpinner({ className }: { className?: string }) {
+	return (
+		<span
+			className={`inline-block rounded-full border-2 border-gray-300 border-t-gray-700 animate-spin ${className ?? 'w-4 h-4'}`}
+			aria-hidden
+		/>
+	);
+}
+
 export function OrderOpsSyncIndicator() {
 	const sync = useOrderOpsSync();
 	const [modal, setModal] = useState<ModalMode>(null);
@@ -79,16 +88,22 @@ export function OrderOpsSyncIndicator() {
 
 	return (
 		<>
-			<button
-				type="button"
-				onClick={handleDotClick}
-				className="w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors"
-				aria-label={ariaLabel}
-			>
-				<span
-					className={`w-3 h-3 rounded-full ${dotColor} ring-2 ring-white shadow-sm`}
-				/>
-			</button>
+			<div className="flex items-center gap-1">
+				<button
+					type="button"
+					onClick={handleDotClick}
+					className="w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors"
+					aria-label={ariaLabel}
+				>
+					<span
+						className={`w-3 h-3 rounded-full ${dotColor} ring-2 ring-white shadow-sm`}
+					/>
+				</button>
+				{sync.syncing ? (
+					<span className="sr-only">Syncing</span>
+				) : null}
+				{sync.syncing ? <SyncSpinner /> : null}
+			</div>
 
 			{modal === 'connect' && (
 				<div

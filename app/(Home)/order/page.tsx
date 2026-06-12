@@ -26,7 +26,7 @@ import axios from "axios";
 import localforage from "localforage";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 const ORDERS_KEY = "orders";
 
@@ -70,6 +70,15 @@ function InventoryIcon({ className }: { className?: string }) {
 			<path d="m3.3 7 8.7 5 8.7-5" />
 			<path d="M12 22V12" />
 		</svg>
+	);
+}
+
+function LoadingSpinner({ className }: { className?: string }) {
+	return (
+		<span
+			className={`inline-block rounded-full border-2 border-gray-300 border-t-gray-700 animate-spin ${className ?? "w-5 h-5"}`}
+			aria-hidden
+		/>
 	);
 }
 
@@ -528,6 +537,7 @@ function ReadyOrdersModal({
 export default function OrderPage() {
 	const router = useRouter();
 	const pathname = usePathname();
+	const [inventoryNavPending, startInventoryNav] = useTransition();
 	const [orders, setOrders] = useState<TOrder[]>([]);
 	const [groups, setGroups] = useState<OrderGroup[]>([]);
 	const [itemGroups, setItemGroups] = useState<ItemGroup[]>([]);
@@ -544,6 +554,10 @@ export default function OrderPage() {
 	const hasLoadedOnceRef = useRef(false);
 
 	const readyOrders = useMemo(() => getReadyOrders(orders), [orders]);
+
+	useEffect(() => {
+		router.prefetch("/order/inventory");
+	}, [router]);
 
 	const applyOrderState = useCallback(
 		(nextOrders: TOrder[], categoryMap?: Record<string, string>) => {
@@ -700,11 +714,25 @@ export default function OrderPage() {
 								</button>
 								<button
 									type="button"
-									onClick={() => router.push("/order/inventory")}
-									className="w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
-									aria-label="Dish inventory"
+									disabled={inventoryNavPending}
+									onClick={() => {
+										startInventoryNav(() => {
+											router.push("/order/inventory");
+										});
+									}}
+									className="w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors disabled:opacity-70 disabled:cursor-wait"
+									aria-label={
+										inventoryNavPending
+											? "Opening inventory"
+											: "Dish inventory"
+									}
+									aria-busy={inventoryNavPending}
 								>
-									<InventoryIcon className="w-5 h-5" />
+									{inventoryNavPending ? (
+										<LoadingSpinner />
+									) : (
+										<InventoryIcon className="w-5 h-5" />
+									)}
 								</button>
 								{readyOrders.length > 0 && (
 									<button
