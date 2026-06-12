@@ -1,5 +1,11 @@
 "use client";
-import { TBill, TBillNoUpdateResp } from "@/src/models/common";
+import {
+	BillingContext,
+	BILLING_CONTEXT_KEY,
+	TBill,
+	TBillNoUpdateResp,
+} from "@/src/models/common";
+import { closeTableFromBilling } from "@/src/utils/order_utils";
 import axios from "axios";
 import localforage from "localforage";
 import { useRouter } from "next/navigation";
@@ -13,6 +19,8 @@ const Divider = () => {
 const Receipt = () => {
   const router = useRouter();
   const [bill, setBill] = useState<TBill | null>(null);
+  const [billingContext, setBillingContext] =
+    useState<BillingContext | null>(null);
   const [processing, setProcessing] = useState(false);
   useEffect(() => {
     localforage.getItem<TBill>("bill").then((data) => {
@@ -20,7 +28,16 @@ const Receipt = () => {
         setBill(data);
       }
     });
+    localforage.getItem<BillingContext>(BILLING_CONTEXT_KEY).then((context) => {
+      setBillingContext(context);
+    });
   }, []);
+
+  const handleBack = () => {
+    router.push(
+      billingContext?.source === "orders" ? "/order" : "/freeflow"
+    );
+  };
 
   if (!bill) {
     return <div>Loading...</div>;
@@ -37,22 +54,35 @@ const Receipt = () => {
     upiPayload
   )}`;
 
-  const onClickNewOrder = async () => {
+  const onClickCloseTable = async () => {
     setProcessing(true);
-    const updateResp = await axios.post<TBillNoUpdateResp>("/api/bill_no", {
-      bill_no: parseInt(bill.billNumber) + 1,
-    });
-
-    setProcessing(false);
-    if (!updateResp.data.success) {
-      alert("Error updating bill number");
-      return;
-    }
-    localforage.setItem("cart", { items: [] }).then((_) => {
-      localforage.setItem("bill", null).then((_) => {
-        router.push("/category");
+    try {
+      const updateResp = await axios.post<TBillNoUpdateResp>("/api/bill_no", {
+        bill_no: parseInt(bill.billNumber) + 1,
       });
-    });
+
+      if (!updateResp.data.success) {
+        alert("Error updating bill number");
+        return;
+      }
+
+      const billingContext =
+        await localforage.getItem<BillingContext>(BILLING_CONTEXT_KEY);
+
+      await localforage.setItem("cart", { items: [] });
+      await localforage.setItem("bill", null);
+      await localforage.removeItem(BILLING_CONTEXT_KEY);
+
+      if (billingContext?.source === "orders") {
+        await closeTableFromBilling(billingContext);
+        router.push("/order");
+        return;
+      }
+
+      router.push("/freeflow");
+    } finally {
+      setProcessing(false);
+    }
   };
 
   if (processing) {
@@ -60,7 +90,20 @@ const Receipt = () => {
   }
 
   return (
-    <div>
+    <div className="min-h-screen bg-gray-50">
+      <div className="sticky top-0 z-10 bg-white border-b px-6 py-4 print:hidden">
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={handleBack}
+            className="text-sm font-semibold text-gray-600 hover:text-black"
+          >
+            ← Back
+          </button>
+          <h1 className="text-xl font-bold">Bill</h1>
+          <div className="w-12" />
+        </div>
+      </div>
       <div
         className="text-xs"
         style={{ maxWidth: "58mm", fontFamily: "Helvetica" }}
@@ -139,24 +182,22 @@ const Receipt = () => {
         <br />
         <br />
       </div>
-      <div className="p-4">
-        <div className="flex justify-center mt-4 print:hidden">
-          <button
-            className="bg-green-300 py-2 px-6 rounded-lg flex items-center w-full justify-center"
-            onClick={() => window.print()}
-          >
-            <FaPrint className="mr-2" /> PRINT
-          </button>
-        </div>
+      <div className="px-6 py-4 space-y-3 print:hidden">
+        <button
+          type="button"
+          className="w-full py-3 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-bold flex items-center justify-center transition-colors"
+          onClick={() => window.print()}
+        >
+          <FaPrint className="mr-2" /> Print
+        </button>
 
-        <div className="flex justify-center mt-4 print:hidden">
-          <button
-            className="bg-black text-white py-2 px-6 rounded-lg flex items-center w-full justify-center"
-            onClick={onClickNewOrder}
-          >
-            <FaPlus className="mr-2" /> NEW ORDER
-          </button>
-        </div>
+        <button
+          type="button"
+          className="w-full py-3 rounded-lg bg-black hover:bg-gray-800 text-white text-sm font-bold flex items-center justify-center transition-colors"
+          onClick={onClickCloseTable}
+        >
+          <FaPlus className="mr-2" /> Close table
+        </button>
       </div>
     </div>
   );

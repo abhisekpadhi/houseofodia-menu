@@ -1,282 +1,322 @@
 "use client";
 
-import { TBill, TBillNoResp, TCart, TDish } from "@/src/models/common";
+import {
+	BillingContext,
+	BILLING_CONTEXT_KEY,
+	TBill,
+	TBillNoResp,
+	TCart,
+	TDish,
+} from "@/src/models/common";
 import axios from "axios";
 import localforage from "localforage";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-const PaymentMethods = ["CASH", "UPI", "CARD"];
+const padButtonClass =
+	"py-2 rounded-lg text-sm font-semibold transition-colors bg-gray-100 text-gray-800 hover:bg-gray-200";
 
 const Cart = () => {
-  const router = useRouter();
-  const [cart, setCart] = useState<TCart>({ items: [] });
-  const [selectedItem, setSelectedItem] = useState<number | null>(null);
-  const [processing, setProcessing] = useState(false);
-  const [attribute, setAttribute] = useState("");
-  const [changeTo, setChangeTo] = useState("");
+	const router = useRouter();
+	const [cart, setCart] = useState<TCart>({ items: [] });
+	const [billingContext, setBillingContext] = useState<BillingContext | null>(
+		null
+	);
+	const [selectedItem, setSelectedItem] = useState<number | null>(null);
+	const [processing, setProcessing] = useState(false);
+	const [attribute, setAttribute] = useState("");
+	const [changeTo, setChangeTo] = useState("");
 
-  useEffect(() => {
-    // fetch items from local storage
-    localforage.getItem<TCart>("cart").then((data) => {
-      if (data) {
-        setCart(data);
-      }
-    });
-  });
+	useEffect(() => {
+		localforage.getItem<TCart>("cart").then((data) => {
+			if (data) {
+				setCart(data);
+			}
+		});
+		localforage.getItem<BillingContext>(BILLING_CONTEXT_KEY).then((context) => {
+			setBillingContext(context);
+		});
+	}, []);
 
-  const handleClear = () => {
-    setCart({ items: [] });
-    localforage.setItem("cart", { items: [] }).then((_) => {
-      localforage.setItem("bill", null).then((_) => {
-        router.push("/category");
-      });
-    });
-  };
+	const handleClear = () => {
+		setCart({ items: [] });
+		localforage.setItem("cart", { items: [] }).then(() => {
+			localforage.removeItem(BILLING_CONTEXT_KEY).then(() => {
+				localforage.setItem("bill", null).then(() => {
+					router.push(
+						billingContext?.source === "orders" ? "/order" : "/freeflow"
+					);
+				});
+			});
+		});
+	};
 
-  const handleBack = () => {
-    router.push("/category");
-  };
+	const handleBack = () => {
+		router.push(
+			billingContext?.source === "orders" ? "/order" : "/freeflow"
+		);
+	};
 
-  const totalAmount = cart.items.reduce(
-    (sum: number, item: TDish) => sum + item.price * item.qty,
-    0
-  );
+	const totalAmount = cart.items.reduce(
+		(sum: number, item: TDish) => sum + item.price * item.qty,
+		0
+	);
 
-  const onClickPay = async () => {
-    setProcessing(true);
-    try {
-      const response = await axios.get<TBillNoResp>("/api/bill_no");
-      const bill_no = response.data.bill_no;
+	const onClickPay = async () => {
+		if (cart.items.length === 0) {
+			return;
+		}
 
-      localforage
-        .setItem<TBill>("bill", {
-          method: "CASH",
-          billNumber: bill_no.toString(),
-          date: new Date().toLocaleDateString("en-IN", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "2-digit",
-          }),
-          time: new Date().toLocaleTimeString("en-IN", {
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: true,
-          }),
-          cart: cart,
-          subtotal: totalAmount,
-          cgst: totalAmount * 0,
-          sgst: totalAmount * 0,
-          payable: totalAmount,
-        })
-        .then((_) => {
-          setProcessing(false);
-          router.push("/payment");
-        });
-    } catch (error) {
-      setProcessing(false);
-      alert("Failed to update bill number, err:" + error);
-    }
-  };
+		setProcessing(true);
+		try {
+			const response = await axios.get<TBillNoResp>("/api/bill_no");
+			const bill_no = response.data.bill_no;
 
-  const handleRemove = () => {
-    if (selectedItem === null) {
-      return;
-    }
-    const newCart = { ...cart };
-    newCart.items.splice(selectedItem, 1);
+			await localforage.setItem<TBill>("bill", {
+				method: "CASH",
+				billNumber: bill_no.toString(),
+				date: new Date().toLocaleDateString("en-IN", {
+					day: "2-digit",
+					month: "2-digit",
+					year: "2-digit",
+				}),
+				time: new Date().toLocaleTimeString("en-IN", {
+					hour: "2-digit",
+					minute: "2-digit",
+					hour12: true,
+				}),
+				cart: cart,
+				subtotal: totalAmount,
+				cgst: totalAmount * 0,
+				sgst: totalAmount * 0,
+				payable: totalAmount,
+			});
+			router.push("/payment");
+		} catch (error) {
+			alert("Failed to update bill number, err:" + error);
+		} finally {
+			setProcessing(false);
+		}
+	};
 
-    localforage.setItem<TCart>("cart", newCart).then((_) => {
-      setCart(newCart);
-      setSelectedItem(null);
-    });
-  };
+	const handleRemove = () => {
+		if (selectedItem === null) {
+			return;
+		}
+		const newCart = { ...cart };
+		newCart.items.splice(selectedItem, 1);
 
-  const handleNumPress = (num: number) => {
-    if (attribute === "") {
-      return;
-    }
-    setChangeTo((prev) => prev + num.toString());
-  };
+		localforage.setItem<TCart>("cart", newCart).then(() => {
+			setCart(newCart);
+			setSelectedItem(null);
+			setAttribute("");
+			setChangeTo("");
+		});
+	};
 
-  const handleSave = () => {
-    if (attribute === "qty") {
-      // update qty of cart item
-      const newQty = parseInt(changeTo);
-      if (isNaN(newQty)) {
-        return;
-      }
-      if (newQty <= 0) {
-        handleRemove();
-      }
-      const newCart = { ...cart };
-      newCart.items[selectedItem].qty = newQty;
-      localforage.setItem<TCart>("cart", newCart).then((_) => {
-        setCart(newCart);
-      });
+	const handleNumPress = (num: number) => {
+		if (attribute === "") {
+			return;
+		}
+		setChangeTo((prev) => prev + num.toString());
+	};
 
-      setAttribute("");
-      setChangeTo("");
-    }
+	const handleSave = () => {
+		if (selectedItem === null || attribute === "") {
+			return;
+		}
 
-    if (attribute === "price") {
-      // update price of cart item
-      const newPrice = parseInt(changeTo);
-      if (isNaN(newPrice)) {
-        return;
-      }
-      const newCart = { ...cart };
-      newCart.items[selectedItem].price = newPrice;
-      localforage.setItem<TCart>("cart", newCart).then((_) => {
-        setCart(newCart);
-      });
+		if (attribute === "qty") {
+			const newQty = parseInt(changeTo, 10);
+			if (Number.isNaN(newQty)) {
+				return;
+			}
+			if (newQty <= 0) {
+				handleRemove();
+				return;
+			}
+			const newCart = { ...cart };
+			newCart.items[selectedItem].qty = newQty;
+			localforage.setItem<TCart>("cart", newCart).then(() => {
+				setCart(newCart);
+			});
+		}
 
-      setAttribute("");
-      setChangeTo("");
-    }
-  };
+		if (attribute === "price") {
+			const newPrice = parseInt(changeTo, 10);
+			if (Number.isNaN(newPrice)) {
+				return;
+			}
+			const newCart = { ...cart };
+			newCart.items[selectedItem].price = newPrice;
+			localforage.setItem<TCart>("cart", newCart).then(() => {
+				setCart(newCart);
+			});
+		}
 
-  const changeMode = (m: string) => {
-    if (m === attribute) {
-      setAttribute("");
-      setChangeTo("");
-      return;
-    }
-    if (selectedItem !== null) {
-      setAttribute(m);
-    }
-  };
+		setAttribute("");
+		setChangeTo("");
+	};
 
-  const handleCartItemSelect = (index: number) => {
-    if (selectedItem === index) {
-      setSelectedItem(null);
-      setAttribute("");
-      setChangeTo("");
+	const changeMode = (mode: string) => {
+		if (mode === attribute) {
+			setAttribute("");
+			setChangeTo("");
+			return;
+		}
+		if (selectedItem !== null) {
+			setAttribute(mode);
+			setChangeTo("");
+		}
+	};
 
-      return;
-    }
-    setSelectedItem(index);
-  };
+	const handleCartItemSelect = (index: number) => {
+		if (selectedItem === index) {
+			setSelectedItem(null);
+			setAttribute("");
+			setChangeTo("");
+			return;
+		}
+		setSelectedItem(index);
+	};
 
-  return (
-    <div className="h-screen flex flex-col">
-      <div className="flex-grow overflow-auto">
-        <div className="flex justify-between items-cente p-2">
-          <button
-            onClick={handleBack}
-            className="text-white bg-black px-4 py-2 rounded-lg"
-          >
-            &lt; BACK
-          </button>
-          <h1 className="text-xl font-bold pt-2">CART</h1>
-          <button
-            className=" text-black bg-red-200 py-2 px-4 rounded-lg"
-            onClick={handleClear}
-          >
-            x CLEAR
-          </button>
-        </div>
-        <div className="">
-          {cart.items.map((item, index) => (
-            <div
-              onClick={() => {
-                handleCartItemSelect(index);
-              }}
-              key={index}
-              className={`flex justify-between items-center py-2 px-4 ${
-                selectedItem === index ? "bg-blue-200" : ""
-              }`}
-            >
-              <div>
-                <div className="font-bold">{item.name}</div>
-                <div className="text-sm ">
-                  {item.qty} Units x {item.price}/unit
-                </div>
-              </div>
-              <div>
-                <span>₹{item.price * item.qty}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+	const modeButtonClass = (mode: string, activeClass: string) => {
+		const isActive = selectedItem !== null && attribute === mode;
+		return `py-2 rounded-lg text-sm font-semibold transition-colors ${
+			isActive ? activeClass : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+		}`;
+	};
 
-      <div className="flex-none h-auto">
-        <div className="flex justify-center mt-2 mx-4">
-          <button
-            className={`py-2 px-6 rounded-lg flex items-center w-full justify-center ${
-              attribute !== "" ? "bg-green-300" : "bg-gray-200"
-            } cursor-pointer`}
-            onClick={handleSave}
-          >
-            Change {attribute} to {changeTo}
-          </button>
-        </div>
-        <div className="grid grid-cols-3 gap-2 text-center p-4">
-          <div
-            onClick={() => {
-              changeMode("qty");
-            }}
-            className={`${
-              selectedItem === null || attribute !== "qty"
-                ? "bg-gray-200"
-                : "bg-yellow-300"
-            } py-2 rounded-lg`}
-          >
-            QTY
-          </div>
-          <div
-            onClick={() => {
-              changeMode("price");
-            }}
-            className={`${
-              selectedItem === null || attribute !== "price"
-                ? "bg-gray-200"
-                : "bg-green-300"
-            } py-2 rounded-lg`}
-          >
-            PRICE
-          </div>
-          <div
-            onClick={handleRemove}
-            className={`${
-              selectedItem === null ? "bg-gray-200" : "bg-red-200"
-            } py-2 rounded-lg`}
-          >
-            REMOVE
-          </div>
+	return (
+		<div className="min-h-screen bg-gray-50 flex flex-col">
+			<div className="sticky top-0 z-10 bg-white border-b px-6 py-4">
+				<div className="flex items-center justify-between">
+					<button
+						type="button"
+						onClick={handleBack}
+						className="text-sm font-semibold text-gray-600 hover:text-black"
+					>
+						← Back
+					</button>
+					<h1 className="text-xl font-bold">Cart</h1>
+					<button
+						type="button"
+						onClick={handleClear}
+						className="text-sm font-semibold text-red-600 hover:text-red-800 px-2 py-1 rounded-lg hover:bg-red-50"
+					>
+						Clear
+					</button>
+				</div>
+			</div>
 
-          {Array.from({ length: 9 }, (_, i) => i + 1).map((num) => {
-            return (
-              <div
-                key={num}
-                onClick={() => handleNumPress(num)}
-                className="py-2 bg-gray-200 rounded-lg"
-              >
-                {num}
-              </div>
-            );
-          })}
-          <div
-            onClick={() => handleNumPress(0)}
-            className="py-2 bg-gray-200 rounded-lg"
-          >
-            0
-          </div>
-          {processing ? (
-            <div>Processing...</div>
-          ) : (
-            <div
-              onClick={onClickPay}
-              className="py-2 bg-green-300 rounded-lg col-span-2 text-sm font-bold"
-            >
-              {cart.items.length} Items · ₹{totalAmount} · PAY
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+			<div className="flex-1 overflow-auto">
+				{cart.items.length === 0 ? (
+					<div className="text-center py-16 text-gray-500 text-sm">
+						Cart is empty
+					</div>
+				) : (
+					cart.items.map((item, index) => (
+						<button
+							type="button"
+							key={`${item.name}-${index}`}
+							onClick={() => handleCartItemSelect(index)}
+							className={`w-full flex justify-between items-center py-3 px-6 text-left border-b border-gray-100 border-l-4 transition-colors ${
+								selectedItem === index
+									? "bg-green-100 border-l-green-500"
+									: "bg-white border-l-transparent hover:bg-gray-50"
+							}`}
+						>
+							<div>
+								<div className="font-semibold text-sm">{item.name}</div>
+								<div className="text-xs text-gray-500 mt-0.5">
+									{item.qty} × ₹{item.price}
+								</div>
+							</div>
+							<div className="text-sm font-medium">₹{item.price * item.qty}</div>
+						</button>
+					))
+				)}
+			</div>
+
+			<div className="flex-none bg-white border-t px-6 py-4 shadow-lg">
+				<button
+					type="button"
+					disabled={attribute === ""}
+					onClick={handleSave}
+					className={`w-full py-2.5 rounded-lg text-sm font-semibold mb-3 transition-colors ${
+						attribute !== ""
+							? "bg-green-500 text-white hover:bg-green-600"
+							: "bg-gray-100 text-gray-400 cursor-not-allowed"
+					}`}
+				>
+					{attribute !== ""
+						? `Set ${attribute} to ${changeTo || "…"}`
+						: "Select qty or price to edit"}
+				</button>
+
+				<div className="grid grid-cols-3 gap-2 text-center">
+					<button
+						type="button"
+						disabled={selectedItem === null}
+						onClick={() => changeMode("qty")}
+						className={`${modeButtonClass("qty", "bg-black text-white")} disabled:opacity-40`}
+					>
+						Qty
+					</button>
+					<button
+						type="button"
+						disabled={selectedItem === null}
+						onClick={() => changeMode("price")}
+						className={`${modeButtonClass("price", "bg-black text-white")} disabled:opacity-40`}
+					>
+						Price
+					</button>
+					<button
+						type="button"
+						disabled={selectedItem === null}
+						onClick={handleRemove}
+						className={`py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-40 ${
+							selectedItem === null
+								? "bg-gray-100 text-gray-400"
+								: "bg-red-100 text-red-700 hover:bg-red-200"
+						}`}
+					>
+						Remove
+					</button>
+
+					{Array.from({ length: 9 }, (_, i) => i + 1).map((num) => (
+						<button
+							type="button"
+							key={num}
+							disabled={attribute === ""}
+							onClick={() => handleNumPress(num)}
+							className={`${padButtonClass} disabled:opacity-40`}
+						>
+							{num}
+						</button>
+					))}
+					<button
+						type="button"
+						disabled={attribute === ""}
+						onClick={() => handleNumPress(0)}
+						className={`${padButtonClass} disabled:opacity-40`}
+					>
+						0
+					</button>
+					<button
+						type="button"
+						disabled={processing || cart.items.length === 0}
+						onClick={() => void onClickPay()}
+						className="col-span-2 py-2.5 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-bold disabled:opacity-50 transition-colors"
+					>
+						{processing
+							? "Processing…"
+							: `${cart.items.length} items · ₹${totalAmount} · Pay`}
+					</button>
+				</div>
+			</div>
+		</div>
+	);
 };
 
 export default Cart;
