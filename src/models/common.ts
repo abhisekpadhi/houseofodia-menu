@@ -48,6 +48,8 @@ export type TOrder = {
 	kind: OrderKind;
 	tableNumbers: number[];
 	items: TOrderItem[];
+	/** Optional instructions for kitchen / service */
+	notes?: string;
 	/** Set when all items are fulfilled; order is purged after READY_ORDER_PURGE_MS */
 	readyAt?: number;
 };

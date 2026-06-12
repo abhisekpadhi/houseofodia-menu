@@ -20,6 +20,8 @@ import {
 } from "@/src/utils/order_utils";
 import { buildDishCategoryMap } from "@/src/utils/menu_utils";
 import { EditOrderModal } from "@/components/feature/order/edit-order-modal";
+import { OrderOpsSyncIndicator } from "@/components/feature/order/order-ops-sync-indicator";
+import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
 import axios from "axios";
 import localforage from "localforage";
 import Link from "next/link";
@@ -147,12 +149,34 @@ function PencilIcon({ className }: { className?: string }) {
 	);
 }
 
+function KotPrintIcon({ className }: { className?: string }) {
+	return (
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			className={className}
+			aria-hidden
+		>
+			<path d="M6 9V2h12v7" />
+			<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+			<path d="M6 14h12v8H6z" />
+		</svg>
+	);
+}
+
 function OrderRow({
 	order,
 	onEdit,
+	onKotPrint,
 }: {
 	order: TOrder;
 	onEdit: (order: TOrder) => void;
+	onKotPrint: (order: TOrder) => void;
 }) {
 	return (
 		<div className="relative border border-gray-100 rounded-lg px-3 py-2 pr-10 bg-gray-50">
@@ -164,11 +188,24 @@ function OrderRow({
 			>
 				<PencilIcon className="w-3.5 h-3.5" />
 			</button>
-			<div className="mb-1">
+			<div className="mb-1 flex items-center gap-2">
+				<button
+					type="button"
+					onClick={() => onKotPrint(order)}
+					className="w-7 h-7 flex items-center justify-center rounded-full bg-white text-gray-600 hover:bg-gray-100 hover:text-black border border-gray-200 transition-colors shrink-0"
+					aria-label={`Print KOT for order at ${formatOrderTime(order.createdAt)}`}
+				>
+					<KotPrintIcon className="w-3.5 h-3.5" />
+				</button>
 				<span className="text-xs font-semibold text-gray-700">
 					{formatOrderTime(order.createdAt)}
 				</span>
 			</div>
+			{order.notes?.trim() ? (
+				<p className="text-xs text-gray-500 mb-1.5 italic">
+					Note: {order.notes.trim()}
+				</p>
+			) : null}
 			<ul className="space-y-1">
 				{order.items.map((item, itemIndex) => {
 					const unitChecks = getOrderItemUnits(order, itemIndex);
@@ -236,11 +273,13 @@ function TableOrderCard({
 	now,
 	onBill,
 	onEditOrder,
+	onKotPrint,
 }: {
 	group: OrderGroup;
 	now: number;
 	onBill: (group: OrderGroup) => void;
 	onEditOrder: (order: TOrder) => void;
+	onKotPrint: (order: TOrder) => void;
 }) {
 	const addOrderHref =
 		group.kind === "table" && group.tableNumbers?.length
@@ -281,7 +320,12 @@ function TableOrderCard({
 			</div>
 			<div className="p-6 pt-0 space-y-2">
 				{group.orders.map((order) => (
-					<OrderRow key={order.id} order={order} onEdit={onEditOrder} />
+					<OrderRow
+						key={order.id}
+						order={order}
+						onEdit={onEditOrder}
+						onKotPrint={onKotPrint}
+					/>
 				))}
 			</div>
 		</div>
@@ -563,6 +607,14 @@ export default function OrderPage() {
 	}, [pathname, loadOrders]);
 
 	useEffect(() => {
+		const onOrderOpsUpdated = () => {
+			loadOrders({ background: true });
+		};
+		window.addEventListener(ORDER_OPS_EVENT, onOrderOpsUpdated);
+		return () => window.removeEventListener(ORDER_OPS_EVENT, onOrderOpsUpdated);
+	}, [loadOrders]);
+
+	useEffect(() => {
 		const interval = setInterval(() => {
 			setNow(Date.now());
 		}, 30_000);
@@ -606,6 +658,10 @@ export default function OrderPage() {
 		await persistOrders(nextOrders);
 	};
 
+	const handleKotPrint = (order: TOrder) => {
+		router.push(`/kot?orderId=${encodeURIComponent(order.id)}`);
+	};
+
 	const handleBill = async (group: OrderGroup) => {
 		const cart = orderGroupToCart(group);
 		if (cart.items.length === 0) {
@@ -633,11 +689,12 @@ export default function OrderPage() {
 						<div className="flex items-center justify-between gap-2">
 							<h1 className="text-xl font-bold">Orders</h1>
 							<div className="flex items-center gap-2 shrink-0">
+								<OrderOpsSyncIndicator />
 								<button
 									type="button"
-									onClick={() => router.push("/category")}
+									onClick={() => router.push("/freeflow")}
 									className="w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
-									aria-label="Menu categories"
+									aria-label="Freeflow bill"
 								>
 									<CategoryIcon className="w-5 h-5" />
 								</button>
@@ -715,6 +772,7 @@ export default function OrderPage() {
 							now={now}
 							onBill={handleBill}
 							onEditOrder={setEditingOrder}
+							onKotPrint={handleKotPrint}
 						/>
 					))
 				) : itemGroups.length === 0 ? (

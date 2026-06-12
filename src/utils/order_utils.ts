@@ -15,6 +15,7 @@ import {
 	KITCHEN_ITEM_GROUPS,
 	mapCategoryToKitchenGroup,
 } from '@/src/utils/menu_utils';
+import { notifyOrderOpsChange, isSyncNotifySuppressed } from '@/src/utils/order_ops_sync';
 import localforage from 'localforage';
 
 const ORDERS_KEY = 'orders';
@@ -44,6 +45,9 @@ export async function saveOrdersStore(store: TOrdersStore): Promise<void> {
 
 	try {
 		await localforage.setItem(ORDERS_KEY, store);
+		if (!isSyncNotifySuppressed()) {
+			await notifyOrderOpsChange();
+		}
 	} catch (error) {
 		console.error('Failed to save orders to storage:', error);
 		throw error;

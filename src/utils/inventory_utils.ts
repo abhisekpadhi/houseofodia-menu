@@ -1,4 +1,5 @@
 import { INVENTORY_KEY, TDish, TInventoryStore } from '@/src/models/common';
+import { notifyOrderOpsChange, isSyncNotifySuppressed } from '@/src/utils/order_ops_sync';
 import localforage from 'localforage';
 
 export function getTodayDateKey(date = new Date()): string {
@@ -55,6 +56,19 @@ export async function getInventoryForDate(
 	return getCarriedOverInventory(store, dateKey);
 }
 
+/** Persisted inventory for sync snapshots (explicit day entry or carry-over). */
+export async function getInventorySnapshotForDate(
+	dateKey: string
+): Promise<Record<string, number>> {
+	const store = await getInventoryStore();
+
+	if (store[dateKey] !== undefined) {
+		return { ...store[dateKey] };
+	}
+
+	return getCarriedOverInventory(store, dateKey);
+}
+
 export async function saveInventoryForDate(
 	dateKey: string,
 	items: Record<string, number>
@@ -62,6 +76,9 @@ export async function saveInventoryForDate(
 	const store = await getInventoryStore();
 	store[dateKey] = items;
 	await localforage.setItem(INVENTORY_KEY, store);
+	if (!isSyncNotifySuppressed()) {
+		await notifyOrderOpsChange();
+	}
 }
 
 /** Missing entries default to 0 for the day. */
@@ -126,6 +143,9 @@ async function adjustInventoryDelta(
 
 	store[dateKey] = dayInventory;
 	await localforage.setItem(INVENTORY_KEY, store);
+	if (!isSyncNotifySuppressed()) {
+		await notifyOrderOpsChange();
+	}
 }
 
 /** Replenish stock when order qty is reduced or items removed. */
@@ -155,7 +175,7 @@ export async function adjustInventoryForOrderEdit(
 	const toDecrement: TDish[] = [];
 	const toReplenish: TDish[] = [];
 
-	for (const name of dishNames) {
+	for (const name of Array.from(dishNames)) {
 		const delta = (afterMap[name] ?? 0) - (beforeMap[name] ?? 0);
 		if (delta > 0) {
 			toDecrement.push({ name, qty: delta, price: 0 });

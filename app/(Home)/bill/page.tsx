@@ -35,7 +35,7 @@ const Receipt = () => {
 
   const handleBack = () => {
     router.push(
-      billingContext?.source === "orders" ? "/order" : "/category"
+      billingContext?.source === "orders" ? "/order" : "/freeflow"
     );
   };
 
@@ -79,7 +79,7 @@ const Receipt = () => {
         return;
       }
 
-      router.push("/category");
+      router.push("/freeflow");
     } finally {
       setProcessing(false);
     }
@@ -90,15 +90,19 @@ const Receipt = () => {
   }
 
   return (
-    <div>
-      <div className="p-4 print:hidden">
-        <button
-          type="button"
-          onClick={handleBack}
-          className="text-white bg-black px-4 py-2 rounded-lg"
-        >
-          &lt; BACK
-        </button>
+    <div className="min-h-screen bg-gray-50">
+      <div className="sticky top-0 z-10 bg-white border-b px-6 py-4 print:hidden">
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={handleBack}
+            className="text-sm font-semibold text-gray-600 hover:text-black"
+          >
+            ← Back
+          </button>
+          <h1 className="text-xl font-bold">Bill</h1>
+          <div className="w-12" />
+        </div>
       </div>
       <div
         className="text-xs"
@@ -178,24 +182,22 @@ const Receipt = () => {
         <br />
         <br />
       </div>
-      <div className="p-4">
-        <div className="flex justify-center mt-4 print:hidden">
-          <button
-            className="bg-green-300 py-2 px-6 rounded-lg flex items-center w-full justify-center"
-            onClick={() => window.print()}
-          >
-            <FaPrint className="mr-2" /> PRINT
-          </button>
-        </div>
+      <div className="px-6 py-4 space-y-3 print:hidden">
+        <button
+          type="button"
+          className="w-full py-3 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-bold flex items-center justify-center transition-colors"
+          onClick={() => window.print()}
+        >
+          <FaPrint className="mr-2" /> Print
+        </button>
 
-        <div className="flex justify-center mt-4 print:hidden">
-          <button
-            className="bg-black text-white py-2 px-6 rounded-lg flex items-center w-full justify-center"
-            onClick={onClickCloseTable}
-          >
-            <FaPlus className="mr-2" /> CLOSE TABLE
-          </button>
-        </div>
+        <button
+          type="button"
+          className="w-full py-3 rounded-lg bg-black hover:bg-gray-800 text-white text-sm font-bold flex items-center justify-center transition-colors"
+          onClick={onClickCloseTable}
+        >
+          <FaPlus className="mr-2" /> Close table
+        </button>
       </div>
     </div>
   );

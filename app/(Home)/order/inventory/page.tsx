@@ -1,6 +1,8 @@
 "use client";
 
+import { OrderOpsSyncIndicator } from "@/components/feature/order/order-ops-sync-indicator";
 import { TMenu, TMenuApiItem } from "@/src/models/common";
+import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
 import {
 	getInventoryForDate,
 	getTodayDateKey,
@@ -130,6 +132,14 @@ export default function InventoryPage() {
 		void loadData();
 	}, [loadData]);
 
+	useEffect(() => {
+		const onOrderOpsUpdated = () => {
+			void loadData();
+		};
+		window.addEventListener(ORDER_OPS_EVENT, onOrderOpsUpdated);
+		return () => window.removeEventListener(ORDER_OPS_EVENT, onOrderOpsUpdated);
+	}, [loadData]);
+
 	const visibleRows = useMemo(() => {
 		const term = searchTerm.trim().toLowerCase();
 		if (!term) {
@@ -212,7 +222,7 @@ export default function InventoryPage() {
 						<InventoryIcon className="w-5 h-5" />
 						Inventory
 					</h1>
-					<div className="w-12" />
+					<OrderOpsSyncIndicator />
 				</div>
 
 				<p className="text-xs font-medium text-gray-600 mb-1">Today</p>

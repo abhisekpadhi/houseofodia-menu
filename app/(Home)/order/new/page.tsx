@@ -1,6 +1,7 @@
 "use client";
 
 import { MenuPicker } from "@/components/feature/order/menu-picker";
+import { OrderOpsSyncIndicator } from "@/components/feature/order/order-ops-sync-indicator";
 import { Button } from "@/components/ui/button";
 import {
 	OrderKind,
@@ -8,6 +9,7 @@ import {
 	TDish,
 	TOrder,
 } from "@/src/models/common";
+import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
 import {
 	decrementInventoryForOrder,
 	getInventoryForDate,
@@ -153,6 +155,7 @@ function AddOrderContent() {
 	const [quantities, setQuantities] = useState<Record<string, number>>({});
 	const [itemPrices, setItemPrices] = useState<Record<string, number>>({});
 	const [inventory, setInventory] = useState<Record<string, number>>({});
+	const [orderNotes, setOrderNotes] = useState("");
 	const [placing, setPlacing] = useState(false);
 	const [cartModalOpen, setCartModalOpen] = useState(false);
 
@@ -163,6 +166,17 @@ function AddOrderContent() {
 			setOccupiedTables(getOccupiedTableNumbers(store.orders));
 		});
 		getInventoryForDate(getTodayDateKey()).then(setInventory);
+	}, []);
+
+	useEffect(() => {
+		const onOrderOpsUpdated = () => {
+			getInventoryForDate(getTodayDateKey()).then(setInventory);
+			getOrdersStore().then((store) => {
+				setOccupiedTables(getOccupiedTableNumbers(store.orders));
+			});
+		};
+		window.addEventListener(ORDER_OPS_EVENT, onOrderOpsUpdated);
+		return () => window.removeEventListener(ORDER_OPS_EVENT, onOrderOpsUpdated);
 	}, []);
 
 	useEffect(() => {
@@ -292,12 +306,14 @@ function AddOrderContent() {
 
 		setPlacing(true);
 		try {
+			const trimmedNotes = orderNotes.trim();
 			const order: TOrder = {
 				id: generateOrderId(),
 				createdAt: Date.now(),
 				kind: orderKind,
 				tableNumbers: orderKind === "table" ? selectedTables : [],
 				items: cartItems,
+				...(trimmedNotes ? { notes: trimmedNotes } : {}),
 			};
 
 			await addOrder(order);
@@ -322,7 +338,7 @@ function AddOrderContent() {
 						← Back
 					</button>
 					<h1 className="text-xl font-bold">New Order</h1>
-					<div className="w-12" />
+					<OrderOpsSyncIndicator />
 				</div>
 
 				{!isFromTableCard && (
@@ -398,6 +414,16 @@ function AddOrderContent() {
 			</div>
 
 			<div className="px-6 pt-4">
+				<label className="block text-xs font-medium text-gray-600 mb-1">
+					Order notes (optional)
+				</label>
+				<textarea
+					value={orderNotes}
+					onChange={(e) => setOrderNotes(e.target.value)}
+					placeholder="Special instructions for kitchen..."
+					rows={2}
+					className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none mb-4"
+				/>
 				<MenuPicker
 					quantities={quantities}
 					onAddItem={handleAddItem}
