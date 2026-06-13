@@ -50,8 +50,16 @@ export type TOrder = {
 	items: TOrderItem[];
 	/** Optional instructions for kitchen / service */
 	notes?: string;
-	/** Set when all items are fulfilled; order is purged after READY_ORDER_PURGE_MS */
+	/** Set when all items are kitchen-fulfilled */
 	readyAt?: number;
+	/** Set when service marks the order done (irreversible) */
+	markedDoneAt?: number;
+	/** Table-level welcome drink — copied to all orders in the table group when set */
+	welcomeDrinkServed?: boolean;
+	/** Table-level complementary — copied to all orders in the table group when set */
+	complementaryServed?: boolean;
+	/** Set when table was billed and order removed from the active list */
+	billedAt?: number;
 };
 
 export type TOrdersStore = {

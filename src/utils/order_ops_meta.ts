@@ -10,6 +10,7 @@ import {
 } from '@/src/models/order_ops';
 import { TOrdersStore } from '@/src/models/common';
 import { getInventorySnapshotForDate, getTodayDateKey } from '@/src/utils/inventory_utils';
+import { getTodayOrderHistory } from '@/src/utils/order_history';
 import { getOrdersStore, maintainOrders } from '@/src/utils/order_utils';
 import localforage from 'localforage';
 
@@ -150,6 +151,7 @@ export async function buildOrderOpsSnapshot(): Promise<OrderOpsSnapshot> {
 	const store: TOrdersStore = await getOrdersStore();
 	const orders = maintainOrders(store.orders, Date.now());
 	const inventory = await getInventorySnapshotForDate(businessDate);
+	const orderHistory = await getTodayOrderHistory();
 
 	return {
 		deviceId: meta.deviceId,
@@ -157,6 +159,7 @@ export async function buildOrderOpsSnapshot(): Promise<OrderOpsSnapshot> {
 		businessDate,
 		orders,
 		inventory,
+		orderHistory,
 		sentAt: Date.now(),
 	};
 }

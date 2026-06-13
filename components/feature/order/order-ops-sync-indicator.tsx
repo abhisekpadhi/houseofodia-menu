@@ -141,22 +141,22 @@ export function OrderOpsSyncIndicator() {
 
 	return (
 		<>
-			<div className="flex items-center gap-1">
-				<button
-					type="button"
-					onClick={handleDotClick}
-					className="w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors"
-					aria-label={ariaLabel}
-				>
+			<button
+				type="button"
+				onClick={handleDotClick}
+				className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300 touch-manipulation shrink-0"
+				aria-label={ariaLabel}
+				aria-busy={sync.syncing}
+			>
+				{sync.syncing ? (
+					<SyncSpinner className="w-5 h-5" />
+				) : (
 					<span
 						className={`w-3 h-3 rounded-full ${dotColor} ring-2 ring-white shadow-sm`}
 					/>
-				</button>
-				{sync.syncing ? (
-					<span className="sr-only">Syncing</span>
-				) : null}
-				{sync.syncing ? <SyncSpinner /> : null}
-			</div>
+				)}
+			</button>
+			{sync.syncing ? <span className="sr-only">Syncing</span> : null}
 
 			{modal === 'connect' && (
 				<div

@@ -38,6 +38,8 @@ export type OrderOpsSnapshot = {
 	businessDate: string;
 	orders: TOrder[];
 	inventory: Record<string, number>;
+	/** Archived orders for today, including billed tables */
+	orderHistory: TOrder[];
 	sentAt: number;
 };
 

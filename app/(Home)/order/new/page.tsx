@@ -22,6 +22,7 @@ import {
 	generateOrderId,
 	getOccupiedTableNumbers,
 	getOrdersStore,
+	getTableServiceFlagsForTables,
 	orderTotal,
 	parseTableParam,
 } from "@/src/utils/order_utils";
@@ -307,6 +308,13 @@ function AddOrderContent() {
 		setPlacing(true);
 		try {
 			const trimmedNotes = orderNotes.trim();
+			const tableServiceFlags =
+				orderKind === "table"
+					? getTableServiceFlagsForTables(
+							(await getOrdersStore()).orders,
+							selectedTables
+						)
+					: {};
 			const order: TOrder = {
 				id: generateOrderId(),
 				createdAt: Date.now(),
@@ -314,6 +322,7 @@ function AddOrderContent() {
 				tableNumbers: orderKind === "table" ? selectedTables : [],
 				items: cartItems,
 				...(trimmedNotes ? { notes: trimmedNotes } : {}),
+				...tableServiceFlags,
 			};
 
 			await addOrder(order);

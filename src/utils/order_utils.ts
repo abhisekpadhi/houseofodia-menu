@@ -16,6 +16,7 @@ import {
 	mapCategoryToKitchenGroup,
 } from '@/src/utils/menu_utils';
 import { notifyOrderOpsChange, isSyncNotifySuppressed } from '@/src/utils/order_ops_sync';
+import { upsertOrdersInHistory } from '@/src/utils/order_history';
 import localforage from 'localforage';
 
 const ORDERS_KEY = 'orders';
@@ -45,6 +46,7 @@ export async function saveOrdersStore(store: TOrdersStore): Promise<void> {
 
 	try {
 		await localforage.setItem(ORDERS_KEY, store);
+		await upsertOrdersInHistory(store.orders);
 		if (!isSyncNotifySuppressed()) {
 			await notifyOrderOpsChange();
 		}
@@ -174,6 +176,10 @@ export async function closeTableFromBilling(
 	context: BillingContext
 ): Promise<TOrder[]> {
 	const store = await getOrdersStore();
+	const removing = store.orders.filter((order) =>
+		orderBelongsToBillingGroup(order, context)
+	);
+	await upsertOrdersInHistory(removing, { billedAt: Date.now() });
 	const remaining = removeOrdersForBillingGroup(store.orders, context);
 	return updateOrders(remaining);
 }
@@ -247,7 +253,14 @@ export function groupOrdersByTable(orders: TOrder[]): OrderGroup[] {
 		group.orders.sort((a, b) => a.createdAt - b.createdAt);
 	}
 
-	groups.sort((a, b) => a.oldestOrderAt - b.oldestOrderAt);
+	groups.sort((a, b) => {
+		const aDone = isGroupFullyMarkedDone(a);
+		const bDone = isGroupFullyMarkedDone(b);
+		if (aDone !== bDone) {
+			return aDone ? 1 : -1;
+		}
+		return a.oldestOrderAt - b.oldestOrderAt;
+	});
 
 	return groups;
 }
@@ -297,7 +310,7 @@ export function getItemRemainingQty(item: TOrderItem): number {
 }
 
 export const LATE_ORDER_THRESHOLD_MS = 20 * 60 * 1000;
-export const READY_ORDER_PURGE_MS = 5 * 60 * 1000;
+export const ORDER_EDIT_WINDOW_MS = 5 * 60 * 1000;
 
 export function isOrderReady(order: TOrder): boolean {
 	return order.items.every((item) => getItemRemainingQty(item) === 0);
@@ -306,7 +319,7 @@ export function isOrderReady(order: TOrder): boolean {
 export function maintainOrders(orders: TOrder[], now = Date.now()): TOrder[] {
 	const normalized = normalizeOrders(orders);
 
-	const withTimestamps = normalized.map((order) => {
+	return normalized.map((order) => {
 		if (isOrderReady(order)) {
 			return { ...order, readyAt: order.readyAt ?? now };
 		}
@@ -316,13 +329,21 @@ export function maintainOrders(orders: TOrder[], now = Date.now()): TOrder[] {
 		}
 		return order;
 	});
+}
 
-	return withTimestamps.filter((order) => {
-		if (!isOrderReady(order)) {
-			return true;
-		}
-		return now - (order.readyAt ?? now) < READY_ORDER_PURGE_MS;
-	});
+export function isOrderMarkedDone(order: TOrder): boolean {
+	return order.markedDoneAt != null;
+}
+
+export function isOrderEditable(order: TOrder, now = Date.now()): boolean {
+	return now - order.createdAt < ORDER_EDIT_WINDOW_MS;
+}
+
+export function isGroupFullyMarkedDone(group: OrderGroup): boolean {
+	return (
+		group.orders.length > 0 &&
+		group.orders.every((order) => isOrderMarkedDone(order))
+	);
 }
 
 export function ordersStoreChanged(before: TOrder[], after: TOrder[]): boolean {
@@ -331,11 +352,26 @@ export function ordersStoreChanged(before: TOrder[], after: TOrder[]): boolean {
 	}
 	return before.some((order, index) => {
 		const next = after[index];
-		return (
-			order.id !== next?.id ||
-			order.readyAt !== next?.readyAt ||
-			order.items.length !== next?.items.length
-		);
+		if (!next || order.id !== next.id) {
+			return true;
+		}
+		if (
+			order.readyAt !== next.readyAt ||
+			order.markedDoneAt !== next.markedDoneAt ||
+			order.welcomeDrinkServed !== next.welcomeDrinkServed ||
+			order.complementaryServed !== next.complementaryServed ||
+			order.items.length !== next.items.length
+		) {
+			return true;
+		}
+		return order.items.some((item, itemIndex) => {
+			const nextItem = next.items[itemIndex];
+			return (
+				!nextItem ||
+				item.qty !== nextItem.qty ||
+				item.fulfilledQty !== nextItem.fulfilledQty
+			);
+		});
 	});
 }
 
@@ -356,6 +392,48 @@ export function isGroupLate(group: OrderGroup, now = Date.now()): boolean {
 	return group.orders.some((order) => isOrderLate(order, now));
 }
 
+export function getGroupOldestPendingOrder(group: OrderGroup): TOrder | null {
+	if (group.kind !== 'table') {
+		return null;
+	}
+
+	const pending = group.orders.filter(
+		(order) => order.kind === 'table' && !isOrderReady(order)
+	);
+	if (pending.length === 0) {
+		return null;
+	}
+
+	return pending.reduce((oldest, order) =>
+		order.createdAt < oldest.createdAt ? order : oldest
+	);
+}
+
+export function getGroupLateByMs(group: OrderGroup, now = Date.now()): number {
+	const oldestPending = getGroupOldestPendingOrder(group);
+	if (!oldestPending) {
+		return 0;
+	}
+
+	const lateSince = oldestPending.createdAt + LATE_ORDER_THRESHOLD_MS;
+	if (now <= lateSince) {
+		return 0;
+	}
+
+	return now - lateSince;
+}
+
+export function formatLateDuration(ms: number): string {
+	const totalMinutes = Math.max(0, Math.floor(ms / 60_000));
+	if (totalMinutes < 60) {
+		return `${totalMinutes}m`;
+	}
+
+	const hours = Math.floor(totalMinutes / 60);
+	const minutes = totalMinutes % 60;
+	return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
 export function formatOrderLabel(order: TOrder): string {
 	if (order.kind === 'takeaway') {
 		return 'Takeaway';
@@ -374,8 +452,91 @@ export function formatOrderLabel(order: TOrder): string {
 
 export function getReadyOrders(orders: TOrder[]): TOrder[] {
 	return normalizeOrders(orders)
-		.filter(isOrderReady)
+		.filter((order) => isOrderReady(order) && !isOrderMarkedDone(order))
 		.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+function updateOrderById(
+	orders: TOrder[],
+	orderId: string,
+	updater: (order: TOrder) => TOrder
+): TOrder[] {
+	return orders.map((order) => (order.id === orderId ? updater(order) : order));
+}
+
+export function markOrderDone(orders: TOrder[], orderId: string): TOrder[] {
+	return updateOrderById(orders, orderId, (order) => {
+		if (order.markedDoneAt != null || !isOrderReady(order)) {
+			return order;
+		}
+		return { ...order, markedDoneAt: Date.now() };
+	});
+}
+
+function orderIdsInGroup(group: OrderGroup): Set<string> {
+	return new Set(group.orders.map((order) => order.id));
+}
+
+export function isTableWelcomeDrinkServed(group: OrderGroup): boolean {
+	return group.orders.some((order) => order.welcomeDrinkServed);
+}
+
+export function isTableComplementaryServed(group: OrderGroup): boolean {
+	return group.orders.some((order) => order.complementaryServed);
+}
+
+export function getTableServiceFlagsForTables(
+	orders: TOrder[],
+	tableNumbers: number[]
+): Pick<TOrder, 'welcomeDrinkServed' | 'complementaryServed'> {
+	const context: BillingContext = {
+		source: 'orders',
+		groupKey: '',
+		kind: 'table',
+		tableNumbers,
+		label: '',
+	};
+
+	const tableOrders = orders.filter((order) =>
+		orderBelongsToBillingGroup(order, context)
+	);
+
+	return {
+		...(tableOrders.some((order) => order.welcomeDrinkServed)
+			? { welcomeDrinkServed: true }
+			: {}),
+		...(tableOrders.some((order) => order.complementaryServed)
+			? { complementaryServed: true }
+			: {}),
+	};
+}
+
+export function markTableWelcomeDrinkServed(
+	orders: TOrder[],
+	group: OrderGroup
+): TOrder[] {
+	if (isTableWelcomeDrinkServed(group)) {
+		return orders;
+	}
+
+	const orderIds = orderIdsInGroup(group);
+	return orders.map((order) =>
+		orderIds.has(order.id) ? { ...order, welcomeDrinkServed: true } : order
+	);
+}
+
+export function markTableComplementaryServed(
+	orders: TOrder[],
+	group: OrderGroup
+): TOrder[] {
+	if (isTableComplementaryServed(group)) {
+		return orders;
+	}
+
+	const orderIds = orderIdsInGroup(group);
+	return orders.map((order) =>
+		orderIds.has(order.id) ? { ...order, complementaryServed: true } : order
+	);
 }
 
 export function getDishUnits(orders: TOrder[], dishName: string): DishUnit[] {

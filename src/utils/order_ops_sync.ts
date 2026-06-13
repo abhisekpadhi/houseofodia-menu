@@ -17,6 +17,10 @@ import {
 	setOrderOpsMetaVersion,
 } from '@/src/utils/order_ops_meta';
 import { getTodayDateKey } from '@/src/utils/inventory_utils';
+import {
+	replaceOrderHistoryFromSync,
+	upsertOrdersInHistory,
+} from '@/src/utils/order_history';
 import { maintainOrders } from '@/src/utils/order_utils';
 import localforage from 'localforage';
 
@@ -125,6 +129,15 @@ export async function applyOrderOpsSnapshot(
 			)) ?? {};
 		inventoryStore[payload.businessDate] = { ...payload.inventory };
 		await localforage.setItem(INVENTORY_KEY, inventoryStore);
+
+		if (payload.orderHistory) {
+			await replaceOrderHistoryFromSync(
+				payload.businessDate,
+				payload.orderHistory
+			);
+		} else {
+			await upsertOrdersInHistory(maintained);
+		}
 
 		await setOrderOpsMetaVersion(payload.stateVersion, payload.businessDate);
 

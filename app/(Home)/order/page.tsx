@@ -5,12 +5,23 @@ import {
 	formatOrderLabel,
 	formatOrderTime,
 	fulfillNextUnitForDish,
+	getGroupLateByMs,
 	getOrderItemUnits,
 	getReadyOrders,
 	groupItemsByKitchenGroup,
 	groupOrdersByTable,
+	formatLateDuration,
+	isGroupFullyMarkedDone,
 	isGroupLate,
+	isOrderEditable,
+	isOrderMarkedDone,
+	isOrderReady,
+	isTableComplementaryServed,
+	isTableWelcomeDrinkServed,
 	maintainOrders,
+	markOrderDone,
+	markTableComplementaryServed,
+	markTableWelcomeDrinkServed,
 	orderGroupToCart,
 	ordersStoreChanged,
 	isUnitLastFulfilled,
@@ -21,6 +32,13 @@ import {
 import { buildDishCategoryMap } from "@/src/utils/menu_utils";
 import { EditOrderModal } from "@/components/feature/order/edit-order-modal";
 import { OrderOpsSyncIndicator } from "@/components/feature/order/order-ops-sync-indicator";
+import {
+	ConfirmModalActions,
+	LoadingSpinner,
+	TouchActionButton,
+	TouchCheckbox,
+	TouchIconButton,
+} from "@/components/ui/touch-controls";
 import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
 import axios from "axios";
 import localforage from "localforage";
@@ -70,15 +88,6 @@ function InventoryIcon({ className }: { className?: string }) {
 			<path d="m3.3 7 8.7 5 8.7-5" />
 			<path d="M12 22V12" />
 		</svg>
-	);
-}
-
-function LoadingSpinner({ className }: { className?: string }) {
-	return (
-		<span
-			className={`inline-block rounded-full border-2 border-gray-300 border-t-gray-700 animate-spin ${className ?? "w-5 h-5"}`}
-			aria-hidden
-		/>
 	);
 }
 
@@ -158,54 +167,67 @@ function PencilIcon({ className }: { className?: string }) {
 	);
 }
 
-function KotPrintIcon({ className }: { className?: string }) {
-	return (
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="2"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			className={className}
-			aria-hidden
-		>
-			<path d="M6 9V2h12v7" />
-			<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-			<path d="M6 14h12v8H6z" />
-		</svg>
-	);
-}
-
 function OrderRow({
 	order,
+	now,
 	onEdit,
 	onKotPrint,
+	onRequestMarkDone,
 }: {
 	order: TOrder;
+	now: number;
 	onEdit: (order: TOrder) => void;
 	onKotPrint: (order: TOrder) => void;
+	onRequestMarkDone: (order: TOrder) => void;
 }) {
+	const markedDone = isOrderMarkedDone(order);
+	const editable = isOrderEditable(order, now);
+	const kitchenReady = isOrderReady(order);
+	const canMarkDone = kitchenReady && !markedDone;
+
 	return (
-		<div className="relative border border-gray-100 rounded-lg px-3 py-2 pr-10 bg-gray-50">
-			<button
-				type="button"
-				onClick={() => onEdit(order)}
-				className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full bg-white text-gray-600 hover:bg-gray-100 hover:text-black border border-gray-200 transition-colors"
-				aria-label={`Edit order from ${formatOrderTime(order.createdAt)}`}
-			>
-				<PencilIcon className="w-3.5 h-3.5" />
-			</button>
-			<div className="mb-1 flex items-center gap-2">
-				<button
-					type="button"
-					onClick={() => onKotPrint(order)}
-					className="w-7 h-7 flex items-center justify-center rounded-full bg-white text-gray-600 hover:bg-gray-100 hover:text-black border border-gray-200 transition-colors shrink-0"
-					aria-label={`Print KOT for order at ${formatOrderTime(order.createdAt)}`}
+		<div
+			className={`relative border rounded-lg px-3 py-2 bg-gray-50 ${
+				markedDone ? "border-green-200 bg-green-50/40" : "border-gray-100"
+			} ${editable ? "pr-12" : ""}`}
+		>
+			{editable && (
+				<TouchIconButton
+					onClick={() => onEdit(order)}
+					ariaLabel={`Edit order from ${formatOrderTime(order.createdAt)}`}
+					className="absolute top-1 right-1 bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
 				>
-					<KotPrintIcon className="w-3.5 h-3.5" />
-				</button>
+					<PencilIcon className="w-4 h-4" />
+				</TouchIconButton>
+			)}
+			<TouchCheckbox
+				checked={markedDone}
+				disabled={!canMarkDone}
+				label={
+					markedDone
+						? "Done"
+						: kitchenReady
+							? "Mark done"
+							: "Mark done (items pending)"
+				}
+				hint={
+					!markedDone && !kitchenReady
+						? "Mark all items ready on the By item tab first"
+						: undefined
+				}
+				onPress={() => {
+					if (canMarkDone) {
+						onRequestMarkDone(order);
+					}
+				}}
+			/>
+			<div className="mb-2 flex items-center gap-2 flex-wrap">
+				<TouchActionButton
+					onClick={() => onKotPrint(order)}
+					className="bg-yellow-100 border border-yellow-400 text-yellow-900 active:bg-yellow-200 min-w-[56px] shrink-0"
+				>
+					KOT
+				</TouchActionButton>
 				<span className="text-xs font-semibold text-gray-700">
 					{formatOrderTime(order.createdAt)}
 				</span>
@@ -221,17 +243,17 @@ function OrderRow({
 					return (
 						<li
 							key={`${order.id}-${item.name}-${itemIndex}`}
-							className="text-xs text-gray-600"
+							className="text-sm text-gray-700"
 						>
-							<div className="flex items-center gap-1.5 flex-wrap">
+							<div className="flex items-center gap-2 flex-wrap">
 								<QtyBadge qty={item.qty} />
-								<span>{item.name}</span>
-								<span className="inline-flex items-center gap-0.5 ml-1">
+								<span className="font-medium leading-snug">{item.name}</span>
+								<span className="inline-flex items-center gap-1 ml-1">
 									{unitChecks.map((fulfilled, unitIndex) => (
 										<CheckIcon
 											key={unitIndex}
 											checked={fulfilled}
-											className={`w-3.5 h-3.5 shrink-0 ${
+											className={`w-4 h-4 shrink-0 ${
 												fulfilled ? "text-green-600" : "text-gray-300"
 											}`}
 										/>
@@ -246,83 +268,113 @@ function OrderRow({
 	);
 }
 
-function BillIcon({ className }: { className?: string }) {
-	return (
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="2"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			className={className}
-			aria-hidden
-		>
-			<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-			<path d="M14 2v6h6" />
-			<path d="M16 13H8" />
-			<path d="M16 17H8" />
-			<path d="M10 9H8" />
-		</svg>
-	);
-}
-
-function LateIndicator() {
-	return (
-		<span className="relative flex h-2.5 w-2.5 shrink-0" aria-label="Late order">
-			<span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-			<span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
-		</span>
-	);
-}
-
 function TableOrderCard({
 	group,
 	now,
+	isActionPending,
 	onBill,
 	onEditOrder,
 	onKotPrint,
+	onRequestMarkDone,
+	onRequestWelcomeDrink,
+	onRequestComplementary,
 }: {
 	group: OrderGroup;
 	now: number;
+	isActionPending: (key: string) => boolean;
 	onBill: (group: OrderGroup) => void;
 	onEditOrder: (order: TOrder) => void;
 	onKotPrint: (order: TOrder) => void;
+	onRequestMarkDone: (order: TOrder) => void;
+	onRequestWelcomeDrink: (group: OrderGroup) => void;
+	onRequestComplementary: (group: OrderGroup) => void;
 }) {
 	const addOrderHref =
 		group.kind === "table" && group.tableNumbers?.length
 			? `/order/new?tables=${group.tableNumbers.join(",")}`
 			: `/order/new?type=${group.kind}`;
 
-	const isLate = isGroupLate(group, now);
+	const isLate = group.kind === "table" && isGroupLate(group, now);
+	const allDone = group.kind === "table" && isGroupFullyMarkedDone(group);
+	const lateByMs = isLate ? getGroupLateByMs(group, now) : 0;
 	const hasItems = group.orders.some((order) => order.items.length > 0);
+	const billingPending = isActionPending(`bill:${group.key}`);
+	const drinkPending = isActionPending(`drink:${group.key}`);
+	const compPending = isActionPending(`comp:${group.key}`);
+	const drinkServed = isTableWelcomeDrinkServed(group);
+	const compServed = isTableComplementaryServed(group);
+	const showTableService = group.kind === "table";
 
 	return (
-		<div className="rounded-xl border bg-white text-card-foreground shadow-md">
+		<div
+			className={`rounded-xl shadow-md overflow-hidden ${
+				isLate
+					? "border-2 border-red-500 bg-red-50"
+					: allDone
+						? "border-2 border-green-500 bg-green-50"
+						: "border bg-white text-card-foreground"
+			}`}
+		>
+			{isLate ? (
+				<div className="flex justify-center border-b border-red-200 bg-red-50 px-3 py-2">
+					<span
+						className="inline-flex items-center rounded-full bg-red-600 px-3 py-0.5 text-xs font-bold text-white shadow-sm whitespace-nowrap"
+						aria-label={`Late by ${formatLateDuration(lateByMs)}`}
+					>
+						Late {formatLateDuration(lateByMs)}
+					</span>
+				</div>
+			) : null}
 			<div className="flex flex-col space-y-1.5 p-6 pb-3">
 				<div className="flex items-center justify-between">
 					<div className="flex items-center gap-2 min-w-0">
-						{isLate && <LateIndicator />}
-						<button
-							type="button"
-							disabled={!hasItems}
+						<TouchActionButton
 							onClick={() => onBill(group)}
-							className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-							aria-label={`Bill ${group.label}`}
+							loading={billingPending}
+							disabled={!hasItems || billingPending}
+							className="bg-green-500 border border-green-600 text-white active:bg-green-600 shrink-0 min-w-[72px] disabled:opacity-40"
 						>
-							<BillIcon className="w-4 h-4" />
-						</button>
+							₹ Bill
+						</TouchActionButton>
 						<h3 className="text-lg font-semibold truncate">{group.label}</h3>
 					</div>
 					<Link
 						href={addOrderHref}
-						className="w-8 h-8 flex items-center justify-center rounded-full bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
+						className="inline-flex min-h-[44px] items-center gap-1 rounded-full bg-green-100 text-green-700 hover:bg-green-200 touch-manipulation px-3 shrink-0"
 						aria-label={`Add order to ${group.label}`}
 					>
-						<PlusIcon className="w-4 h-4" />
+						<PlusIcon className="w-4 h-4 shrink-0" />
+						<span className="text-xs font-semibold">New order</span>
 					</Link>
 				</div>
+				{showTableService ? (
+					<div className="flex items-center gap-2 flex-wrap pt-1">
+						<TouchActionButton
+							onClick={() => onRequestWelcomeDrink(group)}
+							loading={drinkPending}
+							disabled={drinkServed || drinkPending}
+							className={
+								drinkServed
+									? "bg-green-600 border border-green-600 text-white min-w-[88px]"
+									: "bg-white border border-gray-300 text-gray-700 active:bg-gray-100 min-w-[88px]"
+							}
+						>
+							Drink
+						</TouchActionButton>
+						<TouchActionButton
+							onClick={() => onRequestComplementary(group)}
+							loading={compPending}
+							disabled={compServed || compPending}
+							className={
+								compServed
+									? "bg-green-600 border border-green-600 text-white min-w-[88px]"
+									: "bg-white border border-gray-300 text-gray-700 active:bg-gray-100 min-w-[88px]"
+							}
+						>
+							Complementary
+						</TouchActionButton>
+					</div>
+				) : null}
 				<p className="text-xs text-gray-500">
 					{group.orders.length} order{group.orders.length === 1 ? "" : "s"}
 				</p>
@@ -332,10 +384,56 @@ function TableOrderCard({
 					<OrderRow
 						key={order.id}
 						order={order}
+						now={now}
 						onEdit={onEditOrder}
 						onKotPrint={onKotPrint}
+						onRequestMarkDone={onRequestMarkDone}
 					/>
 				))}
+			</div>
+		</div>
+	);
+}
+
+function ConfirmOrderActionModal({
+	title,
+	message,
+	confirmLabel,
+	confirming,
+	onConfirm,
+	onCancel,
+}: {
+	title: string;
+	message: string;
+	confirmLabel: string;
+	confirming?: boolean;
+	onConfirm: () => void;
+	onCancel: () => void;
+}) {
+	return (
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+			onClick={() => {
+				if (!confirming) {
+					onCancel();
+				}
+			}}
+		>
+			<div
+				className="w-full max-w-sm rounded-xl bg-white shadow-xl"
+				onClick={(event) => event.stopPropagation()}
+			>
+				<div className="px-5 py-4 border-b">
+					<h2 className="text-lg font-bold">{title}</h2>
+					<p className="text-sm text-gray-600 mt-2">{message}</p>
+				</div>
+				<ConfirmModalActions
+					onCancel={onCancel}
+					onConfirm={onConfirm}
+					confirmLabel={confirmLabel}
+					confirming={confirming}
+					cancelDisabled={confirming}
+				/>
 			</div>
 		</div>
 	);
@@ -345,19 +443,25 @@ function ConfirmItemModal({
 	dishName,
 	unit,
 	isUncheck,
+	confirming,
 	onConfirm,
 	onCancel,
 }: {
 	dishName: string;
 	unit: ItemGroup["units"][number];
 	isUncheck: boolean;
+	confirming?: boolean;
 	onConfirm: () => void;
 	onCancel: () => void;
 }) {
 	return (
 		<div
 			className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-			onClick={onCancel}
+			onClick={() => {
+				if (!confirming) {
+					onCancel();
+				}
+			}}
 		>
 			<div
 				className="w-full max-w-sm rounded-xl bg-white shadow-xl"
@@ -377,22 +481,13 @@ function ConfirmItemModal({
 						</span>
 					</p>
 				</div>
-				<div className="flex gap-2 p-4">
-					<button
-						type="button"
-						onClick={onCancel}
-						className="flex-1 py-2 rounded-lg bg-gray-100 text-sm font-semibold hover:bg-gray-200"
-					>
-						Cancel
-					</button>
-					<button
-						type="button"
-						onClick={onConfirm}
-						className="flex-1 py-2 rounded-lg bg-green-500 text-white text-sm font-semibold hover:bg-green-600"
-					>
-						Confirm
-					</button>
-				</div>
+				<ConfirmModalActions
+					onCancel={onCancel}
+					onConfirm={onConfirm}
+					confirmLabel="Confirm"
+					confirming={confirming}
+					cancelDisabled={confirming}
+				/>
 			</div>
 		</div>
 	);
@@ -405,12 +500,13 @@ function ItemGroupCard({
 }: {
 	group: ItemGroup;
 	orders: TOrder[];
-	onToggleUnit: (dishName: string, wasFulfilled: boolean) => void;
+	onToggleUnit: (dishName: string, wasFulfilled: boolean) => Promise<void>;
 }) {
 	const [pendingAction, setPendingAction] = useState<{
 		unitIndex: number;
 		wasFulfilled: boolean;
 	} | null>(null);
+	const [confirmingToggle, setConfirmingToggle] = useState(false);
 
 	const pendingUnit =
 		pendingAction != null ? group.units[pendingAction.unitIndex] : null;
@@ -423,19 +519,26 @@ function ItemGroupCard({
 					{group.remainingQty} of {group.totalQty} pending
 				</p>
 			</div>
-			<ul className="px-6 pb-6 space-y-2">
+			<ul className="px-4 pb-6 space-y-1">
 				{group.units.map((unit, index) => {
 					const canCheck = isUnitNextToFulfill(orders, unit);
 					const canUncheck = isUnitLastFulfilled(orders, unit);
+					const interactive = canCheck || canUncheck;
+					const rowPending =
+						confirmingToggle &&
+						pendingUnit != null &&
+						pendingUnit.orderId === unit.orderId &&
+						pendingUnit.itemIndex === unit.itemIndex &&
+						pendingUnit.unitIndex === unit.unitIndex;
 
 					return (
 						<li
 							key={`${unit.orderId}-${unit.itemIndex}-${unit.unitIndex}`}
-							className="flex items-center gap-3 text-sm"
+							className="flex items-center gap-2 text-sm min-h-[52px] px-2 rounded-lg"
 						>
 							<button
 								type="button"
-								disabled={!canCheck && !canUncheck}
+								disabled={!interactive && !rowPending}
 								onClick={() => {
 									if (canCheck) {
 										setPendingAction({ unitIndex: index, wasFulfilled: false });
@@ -443,26 +546,33 @@ function ItemGroupCard({
 										setPendingAction({ unitIndex: index, wasFulfilled: true });
 									}
 								}}
-								className={`shrink-0 ${
-									canCheck || canUncheck
-										? "cursor-pointer"
-										: "cursor-default opacity-60"
+								className={`inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg touch-manipulation ${
+									interactive || rowPending
+										? "active:bg-gray-100"
+										: "opacity-50"
 								}`}
 								aria-label={
 									unit.fulfilled
 										? `Mark ${unit.dishName} as pending`
 										: `Mark ${unit.dishName} as ready`
 								}
+								aria-busy={rowPending}
 							>
-								<CheckIcon
-									checked={unit.fulfilled}
-									className={`w-5 h-5 ${
-										unit.fulfilled ? "text-green-600" : "text-gray-300"
-									}`}
-								/>
+								{rowPending ? (
+									<LoadingSpinner className="h-6 w-6 text-gray-700" />
+								) : (
+									<CheckIcon
+										checked={unit.fulfilled}
+										className={`h-7 w-7 ${
+											unit.fulfilled ? "text-green-600" : "text-gray-300"
+										}`}
+									/>
+								)}
 							</button>
-							<div className="min-w-0 flex-1">
-								<p className="font-medium truncate">{unit.dishName}</p>
+							<div className="min-w-0 flex-1 py-2">
+								<p className="text-base font-medium truncate leading-snug">
+									{unit.dishName}
+								</p>
 								<p className="text-xs text-gray-500 flex items-center gap-1.5 mt-0.5">
 									<span>{formatOrderTime(unit.createdAt)}</span>
 									<QtyBadge qty={1} />
@@ -478,13 +588,25 @@ function ItemGroupCard({
 					dishName={pendingUnit.dishName}
 					unit={pendingUnit}
 					isUncheck={pendingAction.wasFulfilled}
-					onCancel={() => setPendingAction(null)}
+					confirming={confirmingToggle}
+					onCancel={() => {
+						if (!confirmingToggle) {
+							setPendingAction(null);
+						}
+					}}
 					onConfirm={() => {
-						onToggleUnit(
-							pendingUnit.dishName,
-							pendingAction.wasFulfilled
-						);
-						setPendingAction(null);
+						void (async () => {
+							setConfirmingToggle(true);
+							try {
+								await onToggleUnit(
+									pendingUnit.dishName,
+									pendingAction.wasFulfilled
+								);
+								setPendingAction(null);
+							} finally {
+								setConfirmingToggle(false);
+							}
+						})();
 					}}
 				/>
 			)}
@@ -545,6 +667,15 @@ export default function OrderPage() {
 	const [activeTab, setActiveTab] = useState<TabId>("tables");
 	const [readyModalOpen, setReadyModalOpen] = useState(false);
 	const [editingOrder, setEditingOrder] = useState<TOrder | null>(null);
+	const [pendingMarkDone, setPendingMarkDone] = useState<TOrder | null>(null);
+	const [pendingWelcomeDrink, setPendingWelcomeDrink] =
+		useState<OrderGroup | null>(null);
+	const [pendingComplementary, setPendingComplementary] =
+		useState<OrderGroup | null>(null);
+	const [pendingActions, setPendingActions] = useState<Record<string, boolean>>(
+		{}
+	);
+	const [confirmingAction, setConfirmingAction] = useState<string | null>(null);
 	const [now, setNow] = useState(() => Date.now());
 	const [dishCategoryMap, setDishCategoryMap] = useState<Record<string, string>>(
 		{}
@@ -554,6 +685,40 @@ export default function OrderPage() {
 	const hasLoadedOnceRef = useRef(false);
 
 	const readyOrders = useMemo(() => getReadyOrders(orders), [orders]);
+
+	const isActionPending = useCallback(
+		(key: string) =>
+			Boolean(pendingActions[key]) || confirmingAction === key,
+		[pendingActions, confirmingAction]
+	);
+
+	const runPendingAction = useCallback(
+		async (key: string, action: () => Promise<void>) => {
+			setPendingActions((current) => ({ ...current, [key]: true }));
+			try {
+				await action();
+			} finally {
+				setPendingActions((current) => {
+					const next = { ...current };
+					delete next[key];
+					return next;
+				});
+			}
+		},
+		[]
+	);
+
+	const runConfirmingAction = useCallback(
+		async (key: string, action: () => Promise<void>) => {
+			setConfirmingAction(key);
+			try {
+				await action();
+			} finally {
+				setConfirmingAction(null);
+			}
+		},
+		[]
+	);
 
 	useEffect(() => {
 		router.prefetch("/order/inventory");
@@ -631,7 +796,7 @@ export default function OrderPage() {
 	useEffect(() => {
 		const interval = setInterval(() => {
 			setNow(Date.now());
-		}, 30_000);
+		}, 15_000);
 		return () => clearInterval(interval);
 	}, []);
 
@@ -672,32 +837,59 @@ export default function OrderPage() {
 		await persistOrders(nextOrders);
 	};
 
+	const handleMarkDone = async (order: TOrder) => {
+		await runConfirmingAction(`markDone:${order.id}`, async () => {
+			if (!isOrderReady(order) || isOrderMarkedDone(order)) {
+				setPendingMarkDone(null);
+				return;
+			}
+			await persistOrders(markOrderDone(orders, order.id));
+			setPendingMarkDone(null);
+		});
+	};
+
+	const handleWelcomeDrink = async (group: OrderGroup) => {
+		await runConfirmingAction(`drink:${group.key}`, async () => {
+			await persistOrders(markTableWelcomeDrinkServed(orders, group));
+			setPendingWelcomeDrink(null);
+		});
+	};
+
+	const handleComplementary = async (group: OrderGroup) => {
+		await runConfirmingAction(`comp:${group.key}`, async () => {
+			await persistOrders(markTableComplementaryServed(orders, group));
+			setPendingComplementary(null);
+		});
+	};
+
 	const handleKotPrint = (order: TOrder) => {
 		router.push(`/kot?orderId=${encodeURIComponent(order.id)}`);
 	};
 
 	const handleBill = async (group: OrderGroup) => {
-		const cart = orderGroupToCart(group);
-		if (cart.items.length === 0) {
-			return;
-		}
-		const billingContext: BillingContext = {
-			source: "orders",
-			groupKey: group.key,
-			kind: group.kind,
-			tableNumbers: group.tableNumbers ?? [],
-			label: group.label,
-		};
-		await localforage.setItem<TCart>("cart", cart);
-		await localforage.setItem(BILLING_CONTEXT_KEY, billingContext);
-		router.push("/cart");
+		await runPendingAction(`bill:${group.key}`, async () => {
+			const cart = orderGroupToCart(group);
+			if (cart.items.length === 0) {
+				return;
+			}
+			const billingContext: BillingContext = {
+				source: "orders",
+				groupKey: group.key,
+				kind: group.kind,
+				tableNumbers: group.tableNumbers ?? [],
+				label: group.label,
+			};
+			await localforage.setItem<TCart>("cart", cart);
+			await localforage.setItem(BILLING_CONTEXT_KEY, billingContext);
+			router.push("/cart");
+		});
 	};
 
 	const hasOrders = groups.length > 0;
 
 	return (
-		<div className="min-h-screen bg-gray-50 pb-24">
-			<div className="sticky top-0 z-10 bg-white border-b px-6 py-4">
+		<div className="ops-app-screen">
+			<div className="ops-sticky-header bg-white border-b px-6 pb-4">
 				<div className="flex items-start justify-between gap-3">
 					<div className="min-w-0 flex-1">
 						<div className="flex items-center justify-between gap-2">
@@ -707,20 +899,19 @@ export default function OrderPage() {
 								<button
 									type="button"
 									onClick={() => router.push("/freeflow")}
-									className="w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+									className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300 touch-manipulation"
 									aria-label="Freeflow bill"
 								>
 									<CategoryIcon className="w-5 h-5" />
 								</button>
 								<button
 									type="button"
-									disabled={inventoryNavPending}
 									onClick={() => {
 										startInventoryNav(() => {
 											router.push("/order/inventory");
 										});
 									}}
-									className="w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors disabled:opacity-70 disabled:cursor-wait"
+									className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300 touch-manipulation"
 									aria-label={
 										inventoryNavPending
 											? "Opening inventory"
@@ -729,7 +920,7 @@ export default function OrderPage() {
 									aria-busy={inventoryNavPending}
 								>
 									{inventoryNavPending ? (
-										<LoadingSpinner />
+										<LoadingSpinner className="h-5 w-5 text-gray-700" />
 									) : (
 										<InventoryIcon className="w-5 h-5" />
 									)}
@@ -738,7 +929,7 @@ export default function OrderPage() {
 									<button
 										type="button"
 										onClick={() => setReadyModalOpen(true)}
-										className="min-w-[2rem] h-8 px-2 rounded-full bg-green-500 text-white text-sm font-bold hover:bg-green-600 transition-colors"
+										className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-green-500 text-white text-sm font-bold hover:bg-green-600 touch-manipulation px-3"
 										aria-label={`${readyOrders.length} ready orders`}
 									>
 										{readyOrders.length}
@@ -748,7 +939,7 @@ export default function OrderPage() {
 						</div>
 						<p className="text-sm text-gray-500 mt-1">
 							{activeTab === "tables"
-								? "Grouped by table · oldest first"
+								? "Grouped by table · active first, all-done at bottom"
 								: "Grouped by kitchen section · FCFS fulfillment"}
 						</p>
 					</div>
@@ -758,10 +949,10 @@ export default function OrderPage() {
 					<button
 						type="button"
 						onClick={() => setActiveTab("tables")}
-						className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+						className={`flex-1 min-h-[44px] py-2 rounded-lg text-sm font-semibold touch-manipulation transition-colors ${
 							activeTab === "tables"
 								? "bg-black text-white"
-								: "bg-gray-100 text-gray-700 hover:bg-gray-200"
+								: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
 						}`}
 					>
 						Table orders
@@ -769,10 +960,10 @@ export default function OrderPage() {
 					<button
 						type="button"
 						onClick={() => setActiveTab("items")}
-						className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+						className={`flex-1 min-h-[44px] py-2 rounded-lg text-sm font-semibold touch-manipulation transition-colors ${
 							activeTab === "items"
 								? "bg-black text-white"
-								: "bg-gray-100 text-gray-700 hover:bg-gray-200"
+								: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
 						}`}
 					>
 						By item
@@ -782,27 +973,44 @@ export default function OrderPage() {
 
 			<div className="p-6 space-y-4">
 				{loading && !hasOrders ? (
-					<div className="text-center py-8 text-gray-400 text-sm">
-						Loading orders...
-					</div>
-				) : !hasOrders ? (
-					<div className="text-center py-16 text-gray-500">
-						<p className="text-lg font-medium mb-2">No active orders</p>
-						<p className="text-sm">
-							Tap the + button to place a new order
-						</p>
+					<div className="flex flex-col items-center justify-center py-12 gap-3 text-gray-400 text-sm">
+						<LoadingSpinner className="h-6 w-6 text-gray-500" />
+						<span>Loading orders...</span>
 					</div>
 				) : activeTab === "tables" ? (
-					groups.map((group) => (
-						<TableOrderCard
-							key={group.key}
-							group={group}
-							now={now}
-							onBill={handleBill}
-							onEditOrder={setEditingOrder}
-							onKotPrint={handleKotPrint}
-						/>
-					))
+					<>
+						{!hasOrders ? (
+							<div className="text-center py-16 text-gray-500">
+								<p className="text-lg font-medium mb-2">No active orders</p>
+								<p className="text-sm">
+									Tap the + button to place a new order
+								</p>
+							</div>
+						) : (
+							groups.map((group) => (
+								<TableOrderCard
+									key={group.key}
+									group={group}
+									now={now}
+									isActionPending={isActionPending}
+									onBill={handleBill}
+									onEditOrder={setEditingOrder}
+									onKotPrint={handleKotPrint}
+									onRequestMarkDone={setPendingMarkDone}
+									onRequestWelcomeDrink={setPendingWelcomeDrink}
+									onRequestComplementary={setPendingComplementary}
+								/>
+							))
+						)}
+						<div className="flex justify-center pt-2 pb-2">
+							<Link
+								href="/order/history"
+								className="inline-flex min-h-[44px] items-center justify-center px-5 rounded-lg text-xs font-semibold touch-manipulation transition-colors bg-white border border-gray-300 text-gray-700 active:bg-gray-100"
+							>
+								Today&apos;s order history
+							</Link>
+						</div>
+					</>
 				) : itemGroups.length === 0 ? (
 					<div className="text-center py-16 text-gray-500 text-sm">
 						No items in active orders
@@ -822,16 +1030,50 @@ export default function OrderPage() {
 			<button
 				type="button"
 				onClick={() => router.push("/order/new")}
-				className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-green-500 text-white shadow-lg flex items-center justify-center hover:bg-green-600 transition-colors z-20"
-				aria-label="Add new order"
+				className="fixed right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-green-500 text-white text-sm font-semibold shadow-lg px-4 hover:bg-green-600 touch-manipulation z-20"
+				aria-label="New table"
 			>
-				<PlusIcon className="w-7 h-7" />
+				<PlusIcon className="w-5 h-5 shrink-0" />
+				New table
 			</button>
 
 			{readyModalOpen && readyOrders.length > 0 && (
 				<ReadyOrdersModal
 					orders={readyOrders}
 					onClose={() => setReadyModalOpen(false)}
+				/>
+			)}
+
+			{pendingMarkDone && (
+				<ConfirmOrderActionModal
+					title="Mark order done?"
+					message={`Confirm this order from ${formatOrderTime(pendingMarkDone.createdAt)} is complete. This cannot be undone.`}
+					confirmLabel="Mark done"
+					confirming={confirmingAction === `markDone:${pendingMarkDone.id}`}
+					onCancel={() => setPendingMarkDone(null)}
+					onConfirm={() => void handleMarkDone(pendingMarkDone)}
+				/>
+			)}
+
+			{pendingWelcomeDrink && (
+				<ConfirmOrderActionModal
+					title="Welcome drink served?"
+					message={`Is welcome drink served for ${pendingWelcomeDrink.label}?`}
+					confirmLabel="Yes, served"
+					confirming={confirmingAction === `drink:${pendingWelcomeDrink.key}`}
+					onCancel={() => setPendingWelcomeDrink(null)}
+					onConfirm={() => void handleWelcomeDrink(pendingWelcomeDrink)}
+				/>
+			)}
+
+			{pendingComplementary && (
+				<ConfirmOrderActionModal
+					title="Complementary served?"
+					message={`Is complementary served for ${pendingComplementary.label}?`}
+					confirmLabel="Yes, served"
+					confirming={confirmingAction === `comp:${pendingComplementary.key}`}
+					onCancel={() => setPendingComplementary(null)}
+					onConfirm={() => void handleComplementary(pendingComplementary)}
 				/>
 			)}
 

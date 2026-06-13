@@ -1,16 +1,47 @@
 "use client";
 
+import { OpsPageShell } from "@/components/feature/layout/ops-page-shell";
+import {
+  LoadingSpinner,
+  TouchActionButton,
+  TouchIconButton,
+} from "@/components/ui/touch-controls";
 import { TCart, TDish, TMenu, TMenuApiItem } from "@/src/models/common";
+import {
+  fetchAndCacheMenuItems,
+  getCachedMenuItems,
+} from "@/src/utils/menu_cache";
 import { buildMenuFromApiItems, stringToColor } from "@/src/utils/menu_utils";
-import axios from "axios";
 import localforage from "localforage";
 import { useRouter } from "next/navigation";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+
+function RefreshIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+      <path d="M16 16h5v5" />
+    </svg>
+  );
+}
 
 const FreeflowPage: React.FC = () => {
   const router = useRouter();
 
   const [fetchingMenu, setFetchingMenu] = useState(true);
+  const [refreshingMenu, setRefreshingMenu] = useState(false);
   const [menu, setMenu] = useState<TMenu | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -20,37 +51,59 @@ const FreeflowPage: React.FC = () => {
   );
   const [categories, setCategories] = useState<string[]>([]);
 
+  const applyMenuItems = useCallback((items: TMenuApiItem[]) => {
+    setMenu(buildMenuFromApiItems(items));
+    setLoadError(null);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
-    axios
-      .get<TMenuApiItem[]>("/api/menu", {
-        headers: {
-          "Cache-Control": "no-cache",
-          Pragma: "no-cache",
-        },
-      })
-      .then((response) => {
-        if (cancelled) return;
-        setMenu(buildMenuFromApiItems(response.data));
-        setLoadError(null);
-      })
-      .catch((error) => {
-        console.error("Error fetching menu:", error);
-        if (cancelled) return;
-        setLoadError("Could not load menu. Pull to refresh or try again.");
-        setMenu({});
-      })
-      .finally(() => {
+    void (async () => {
+      setFetchingMenu(true);
+      try {
+        const cached = await getCachedMenuItems();
+        if (cached) {
+          if (!cancelled) {
+            applyMenuItems(cached);
+          }
+          return;
+        }
+
+        const items = await fetchAndCacheMenuItems();
+        if (!cancelled) {
+          applyMenuItems(items);
+        }
+      } catch (error) {
+        console.error("Error loading menu:", error);
+        if (!cancelled) {
+          setLoadError("Could not load menu. Tap refresh to try again.");
+          setMenu(null);
+        }
+      } finally {
         if (!cancelled) {
           setFetchingMenu(false);
         }
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applyMenuItems]);
+
+  const handleRefreshMenu = useCallback(async () => {
+    setRefreshingMenu(true);
+    try {
+      const items = await fetchAndCacheMenuItems();
+      applyMenuItems(items);
+    } catch (error) {
+      console.error("Error refreshing menu:", error);
+      setLoadError("Could not refresh menu. Try again.");
+    } finally {
+      setRefreshingMenu(false);
+    }
+  }, [applyMenuItems]);
 
   useEffect(() => {
     localforage
@@ -203,46 +256,53 @@ const FreeflowPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="sticky top-0 z-10 bg-white border-b px-6 py-4">
-        <div className="flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => router.push("/order")}
-            className="text-sm font-semibold text-gray-600 hover:text-black"
+    <OpsPageShell
+      title="Freeflow"
+      trailing={
+        <>
+          <TouchIconButton
+            onClick={() => void handleRefreshMenu()}
+            loading={refreshingMenu}
+            disabled={fetchingMenu}
+            ariaLabel={refreshingMenu ? "Refreshing menu" : "Refresh menu"}
+            className="bg-gray-100 text-gray-700 active:bg-gray-200"
           >
-            ← Back
-          </button>
-          <h1 className="text-xl font-bold">Freeflow</h1>
-          <button
-            type="button"
-            className="py-2 px-4 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-semibold transition-colors"
+            <RefreshIcon className="w-4 h-4" />
+          </TouchIconButton>
+          <TouchActionButton
             onClick={goToCart}
+            className="bg-green-500 text-white active:bg-green-600 min-w-[72px]"
           >
             Cart
-          </button>
-        </div>
-      </div>
-      <div className="p-6">
+          </TouchActionButton>
+        </>
+      }
+    >
       <div className="mb-4">
         <input
           type="text"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           placeholder="Search for items across all categories"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          className="w-full border border-gray-300 rounded-lg px-3 py-3 text-sm touch-manipulation"
         />
       </div>
 
       {fetchingMenu ? (
-        <div className="text-center py-12 text-gray-500 text-sm">
-          Loading menu...
+        <div className="flex flex-col items-center justify-center py-12 gap-3 text-gray-500 text-sm">
+          <LoadingSpinner className="h-6 w-6 text-gray-500" />
+          <span>Loading menu...</span>
         </div>
-      ) : loadError ? (
+      ) : loadError && !menu ? (
         <div className="text-center py-12 text-red-500 text-sm">{loadError}</div>
       ) : (
         <>
-          <div className="flex gap-3 mb-6 overflow-x-auto pb-2">
+          {loadError ? (
+            <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+              {loadError}
+            </div>
+          ) : null}
+          <div className="flex gap-3 mb-6 overflow-x-auto pb-2 touch-manipulation">
             {categories.map((category, index) => {
               const isSelected = selectedCategory === category;
               const baseOpacity =
@@ -328,8 +388,7 @@ const FreeflowPage: React.FC = () => {
           </div>
         </>
       )}
-      </div>
-    </div>
+    </OpsPageShell>
   );
 };
 

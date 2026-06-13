@@ -2,6 +2,10 @@
 
 import { TDish, TOrder, TOrderItem } from "@/src/models/common";
 import {
+	LoadingSpinner,
+	TouchIconButton,
+} from "@/components/ui/touch-controls";
+import {
 	adjustInventoryForOrderEdit,
 	canIncreaseOrderItemQty,
 	getInventoryForDate,
@@ -192,28 +196,28 @@ export function EditOrderModal({ order, onClose, onSaved }: EditOrderModalProps)
 											</p>
 										</div>
 										<div className="flex items-center gap-2 shrink-0">
-											<button
-												type="button"
-												className="w-7 h-7 flex items-center justify-center rounded-full bg-red-100 text-red-700 text-lg leading-none"
+											<TouchIconButton
 												onClick={() => handleDecrement(index)}
+												ariaLabel={`Decrease ${item.name}`}
+												className="bg-red-100 text-red-700 text-lg leading-none min-h-[44px] min-w-[44px]"
 											>
 												-
-											</button>
+											</TouchIconButton>
 											<span className="min-w-[1.5rem] text-center text-sm font-medium">
 												{item.qty}
 											</span>
-											<button
-												type="button"
+											<TouchIconButton
+												onClick={() => handleIncrement(index)}
 												disabled={!canIncrement}
-												className={`w-7 h-7 flex items-center justify-center rounded-full text-lg leading-none ${
+												ariaLabel={`Increase ${item.name}`}
+												className={`text-lg leading-none min-h-[44px] min-w-[44px] ${
 													canIncrement
 														? "bg-green-100 text-green-700"
-														: "bg-gray-100 text-gray-400 cursor-not-allowed"
+														: "bg-gray-100 text-gray-400"
 												}`}
-												onClick={() => handleIncrement(index)}
 											>
 												+
-											</button>
+											</TouchIconButton>
 										</div>
 									</li>
 								);
@@ -226,7 +230,8 @@ export function EditOrderModal({ order, onClose, onSaved }: EditOrderModalProps)
 					<button
 						type="button"
 						onClick={onClose}
-						className="flex-1 py-2.5 rounded-lg bg-gray-100 text-sm font-semibold hover:bg-gray-200"
+						disabled={saving}
+						className="flex-1 min-h-[44px] rounded-lg bg-gray-100 text-sm font-semibold touch-manipulation active:bg-gray-200 disabled:opacity-60"
 					>
 						Cancel
 					</button>
@@ -234,9 +239,14 @@ export function EditOrderModal({ order, onClose, onSaved }: EditOrderModalProps)
 						type="button"
 						disabled={saving || !hasChanges}
 						onClick={() => void handleSave()}
-						className="flex-1 py-2.5 rounded-lg bg-black text-white text-sm font-bold hover:bg-gray-800 disabled:opacity-50"
+						aria-busy={saving}
+						className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg bg-black text-white text-sm font-bold touch-manipulation active:bg-gray-800 disabled:opacity-50"
 					>
-						{saving ? "Saving..." : "Save changes"}
+						{saving ? (
+							<LoadingSpinner className="h-4 w-4 text-white" />
+						) : (
+							"Save changes"
+						)}
 					</button>
 				</div>
 			</div>

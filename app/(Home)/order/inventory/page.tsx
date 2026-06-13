@@ -1,6 +1,11 @@
 "use client";
 
 import { OrderOpsSyncIndicator } from "@/components/feature/order/order-ops-sync-indicator";
+import {
+	ConfirmModalActions,
+	LoadingSpinner,
+	TouchActionButton,
+} from "@/components/ui/touch-controls";
 import { TMenu, TMenuApiItem } from "@/src/models/common";
 import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
 import {
@@ -8,6 +13,14 @@ import {
 	getTodayDateKey,
 	saveInventoryForDate,
 } from "@/src/utils/inventory_utils";
+import {
+	applyInventoryShortcut,
+	getShortcutTargetDishes,
+	INVENTORY_SHORTCUTS,
+	type InventoryShortcut,
+	type InventoryShortcutId,
+	shortcutConfirmMessage,
+} from "@/src/utils/inventory_shortcuts";
 import axios from "axios";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -66,6 +79,21 @@ export default function InventoryPage() {
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const [searchTerm, setSearchTerm] = useState("");
+	const [pendingShortcut, setPendingShortcut] =
+		useState<InventoryShortcut | null>(null);
+	const [applyingShortcut, setApplyingShortcut] = useState(false);
+
+	const dishNames = useMemo(
+		() => menuRows.map((row) => row.name),
+		[menuRows]
+	);
+
+	const pendingShortcutCount = useMemo(() => {
+		if (!pendingShortcut) {
+			return 0;
+		}
+		return getShortcutTargetDishes(dishNames, pendingShortcut.id).length;
+	}, [dishNames, pendingShortcut]);
 
 	const loadData = useCallback(async () => {
 		setLoading(true);
@@ -207,9 +235,22 @@ export default function InventoryPage() {
 		}
 	};
 
+	const handleApplyShortcut = async (shortcut: InventoryShortcutId) => {
+		setApplyingShortcut(true);
+		try {
+			setQuantities((current) =>
+				applyInventoryShortcut(current, dishNames, shortcut)
+			);
+			setEditingItems(new Set());
+			setPendingShortcut(null);
+		} finally {
+			setApplyingShortcut(false);
+		}
+	};
+
 	return (
-		<div className="min-h-screen bg-gray-50 pb-24">
-			<div className="sticky top-0 z-10 bg-white border-b px-6 py-4">
+		<div className="ops-app-screen">
+			<div className="ops-sticky-header bg-white border-b px-6 pb-4">
 				<div className="flex items-center justify-between mb-4">
 					<button
 						type="button"
@@ -234,6 +275,22 @@ export default function InventoryPage() {
 			</div>
 
 			<div className="px-6 pt-4">
+				<div className="mb-4">
+					<p className="text-xs font-semibold text-gray-500 mb-2">Shortcuts</p>
+					<div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+						{INVENTORY_SHORTCUTS.map((shortcut) => (
+							<TouchActionButton
+								key={shortcut.id}
+								onClick={() => setPendingShortcut(shortcut)}
+								disabled={loading || applyingShortcut}
+								className="shrink-0 bg-gray-100 text-gray-800 active:bg-gray-200 min-w-[88px] px-3 border border-gray-300"
+							>
+								{shortcut.label}
+							</TouchActionButton>
+						))}
+					</div>
+				</div>
+
 				<input
 					type="text"
 					value={searchTerm}
@@ -308,16 +365,57 @@ export default function InventoryPage() {
 				)}
 			</div>
 
-			<div className="fixed bottom-0 left-0 right-0 bg-white border-t px-6 py-4 shadow-lg z-20">
+			<div className="fixed bottom-0 left-0 right-0 bg-white border-t px-6 py-4 shadow-lg z-20 pb-[calc(1rem+env(safe-area-inset-bottom))]">
 				<button
 					type="button"
-					disabled={loading || saving}
+					disabled={loading}
 					onClick={() => void handleSave()}
-					className="w-full py-3 rounded-lg bg-black text-white text-sm font-bold hover:bg-gray-800 disabled:opacity-50"
+					aria-busy={saving}
+					className="w-full min-h-[48px] inline-flex items-center justify-center rounded-lg bg-black text-white text-sm font-bold touch-manipulation active:bg-gray-800 disabled:opacity-50"
 				>
-					{saving ? "Saving..." : "Save inventory"}
+					{saving ? (
+						<LoadingSpinner className="h-4 w-4 text-white" />
+					) : (
+						"Save inventory"
+					)}
 				</button>
 			</div>
+
+			{pendingShortcut && (
+				<div
+					className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+					onClick={() => {
+						if (!applyingShortcut) {
+							setPendingShortcut(null);
+						}
+					}}
+				>
+					<div
+						className="w-full max-w-sm rounded-xl bg-white shadow-xl"
+						onClick={(event) => event.stopPropagation()}
+					>
+						<div className="px-5 py-4 border-b">
+							<h2 className="text-lg font-bold">{pendingShortcut.title}</h2>
+							<p className="text-sm text-gray-600 mt-2">
+								{shortcutConfirmMessage(
+									pendingShortcut,
+									pendingShortcutCount
+								)}
+							</p>
+						</div>
+						<ConfirmModalActions
+							onCancel={() => setPendingShortcut(null)}
+							onConfirm={() =>
+								void handleApplyShortcut(pendingShortcut.id)
+							}
+							confirmLabel={pendingShortcut.confirmLabel}
+							confirming={applyingShortcut}
+							cancelDisabled={applyingShortcut}
+							confirmDisabled={pendingShortcutCount === 0}
+						/>
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }
