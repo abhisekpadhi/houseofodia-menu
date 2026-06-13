@@ -1,8 +1,11 @@
 import {
 	ORDER_OPS_DEVICE_ID_KEY,
+	ORDER_OPS_DEVICE_NAME_KEY,
 	ORDER_OPS_META_KEY,
 	ORDER_OPS_EVENT,
+	ORDER_OPS_NEW_ORDERS_EVENT,
 	OrderOpsMeta,
+	OrderOpsNewOrdersDetail,
 	OrderOpsSnapshot,
 } from '@/src/models/order_ops';
 import { TOrdersStore } from '@/src/models/common';
@@ -10,7 +13,8 @@ import { getInventorySnapshotForDate, getTodayDateKey } from '@/src/utils/invent
 import { getOrdersStore, maintainOrders } from '@/src/utils/order_utils';
 import localforage from 'localforage';
 
-const DEVICE_ID_PATTERN = /^device-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const DEVICE_ID_PATTERN =
+	/^device-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export function getStableDeviceId(): string {
 	if (typeof window === 'undefined') {
@@ -27,31 +31,98 @@ export function getStableDeviceId(): string {
 	return id;
 }
 
-export async function getOrderOpsMeta(): Promise<OrderOpsMeta> {
-	const deviceId = getStableDeviceId();
-	const stored = await localforage.getItem<OrderOpsMeta>(ORDER_OPS_META_KEY);
-
-	if (stored && stored.deviceId === deviceId) {
-		return stored;
+export function getDeviceDisplayName(): string {
+	if (typeof window === 'undefined') {
+		return 'Server';
 	}
 
-	const meta: OrderOpsMeta = {
+	const custom = localStorage.getItem(ORDER_OPS_DEVICE_NAME_KEY)?.trim();
+	if (custom) {
+		return custom;
+	}
+
+	const id = getStableDeviceId();
+	return `Device ${id.slice(-4)}`;
+}
+
+export function setDeviceDisplayName(name: string): void {
+	if (typeof window === 'undefined') {
+		return;
+	}
+
+	const trimmed = name.trim();
+	if (trimmed) {
+		localStorage.setItem(ORDER_OPS_DEVICE_NAME_KEY, trimmed);
+		return;
+	}
+
+	localStorage.removeItem(ORDER_OPS_DEVICE_NAME_KEY);
+}
+
+function nextStateVersion(current: number): number {
+	return Math.max(current + 1, Date.now());
+}
+
+function createFreshMeta(deviceId: string): OrderOpsMeta {
+	return {
 		deviceId,
 		stateVersion: 0,
 		businessDate: getTodayDateKey(),
 		lastUpdatedAt: Date.now(),
+		initializedForToday: false,
 	};
-	await localforage.setItem(ORDER_OPS_META_KEY, meta);
+}
+
+function normalizeMetaForToday(stored: OrderOpsMeta, today: string): OrderOpsMeta {
+	if (stored.businessDate !== today) {
+		return {
+			deviceId: stored.deviceId,
+			stateVersion: 0,
+			businessDate: today,
+			lastUpdatedAt: Date.now(),
+			initializedForToday: false,
+		};
+	}
+
+	return {
+		...stored,
+		businessDate: today,
+		initializedForToday:
+			stored.initializedForToday ?? stored.stateVersion > 0,
+	};
+}
+
+export async function getOrderOpsMeta(): Promise<OrderOpsMeta> {
+	const deviceId = getStableDeviceId();
+	const today = getTodayDateKey();
+	const stored = await localforage.getItem<OrderOpsMeta>(ORDER_OPS_META_KEY);
+
+	if (!stored || stored.deviceId !== deviceId) {
+		const meta = createFreshMeta(deviceId);
+		await localforage.setItem(ORDER_OPS_META_KEY, meta);
+		return meta;
+	}
+
+	const meta = normalizeMetaForToday(stored, today);
+	if (
+		meta.businessDate !== stored.businessDate ||
+		meta.stateVersion !== stored.stateVersion ||
+		meta.initializedForToday !== stored.initializedForToday
+	) {
+		await localforage.setItem(ORDER_OPS_META_KEY, meta);
+	}
 	return meta;
 }
 
 export async function bumpOrderOpsMeta(): Promise<OrderOpsMeta> {
 	const meta = await getOrderOpsMeta();
+	const today = getTodayDateKey();
 	const next: OrderOpsMeta = {
 		...meta,
-		stateVersion: meta.stateVersion + 1,
-		businessDate: getTodayDateKey(),
+		stateVersion: nextStateVersion(meta.stateVersion),
+		businessDate: today,
 		lastUpdatedAt: Date.now(),
+		initializedForToday: true,
 	};
 	await localforage.setItem(ORDER_OPS_META_KEY, next);
 	return next;
@@ -67,6 +138,7 @@ export async function setOrderOpsMetaVersion(
 		stateVersion,
 		businessDate,
 		lastUpdatedAt: Date.now(),
+		initializedForToday: true,
 	};
 	await localforage.setItem(ORDER_OPS_META_KEY, next);
 	return next;
@@ -74,8 +146,8 @@ export async function setOrderOpsMetaVersion(
 
 export async function buildOrderOpsSnapshot(): Promise<OrderOpsSnapshot> {
 	const meta = await getOrderOpsMeta();
-	const store: TOrdersStore = await getOrdersStore();
 	const businessDate = getTodayDateKey();
+	const store: TOrdersStore = await getOrdersStore();
 	const orders = maintainOrders(store.orders, Date.now());
 	const inventory = await getInventorySnapshotForDate(businessDate);
 
@@ -94,4 +166,20 @@ export function dispatchOrderOpsUpdated(): void {
 		return;
 	}
 	window.dispatchEvent(new CustomEvent(ORDER_OPS_EVENT));
+}
+
+export function dispatchNewOrdersSynced(orderIds: string[]): void {
+	if (typeof window === 'undefined' || orderIds.length === 0) {
+		return;
+	}
+
+	const detail: OrderOpsNewOrdersDetail = {
+		orderIds,
+		count: orderIds.length,
+	};
+	window.dispatchEvent(
+		new CustomEvent<OrderOpsNewOrdersDetail>(ORDER_OPS_NEW_ORDERS_EVENT, {
+			detail,
+		})
+	);
 }

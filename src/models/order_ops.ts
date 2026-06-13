@@ -12,14 +12,24 @@ export function getOrderOpsChannel(): string {
 
 export const ORDER_OPS_META_KEY = 'order_ops_meta';
 export const ORDER_OPS_DEVICE_ID_KEY = 'order_ops_device_id';
+export const ORDER_OPS_DEVICE_NAME_KEY = 'order_ops_device_name';
 
 export const ORDER_OPS_EVENT = 'order-ops-updated';
+export const ORDER_OPS_NEW_ORDERS_EVENT = 'order-ops-new-orders';
+
+export type OrderOpsNewOrdersDetail = {
+	orderIds: string[];
+	count: number;
+};
 
 export type OrderOpsMeta = {
 	deviceId: string;
+	/** Monotonic epoch-ms version for today's business date */
 	stateVersion: number;
 	businessDate: string;
 	lastUpdatedAt: number;
+	/** True after a local write or applying remote state for today */
+	initializedForToday?: boolean;
 };
 
 export type OrderOpsSnapshot = {
@@ -35,6 +45,7 @@ export type SyncRequestMessage = {
 	requesterId: string;
 	targetId: string;
 	requesterVersion: number;
+	requesterBusinessDate: string;
 };
 
 export type SyncResponseMessage = OrderOpsSnapshot & {
@@ -46,6 +57,26 @@ export type StateDeltaMessage = OrderOpsSnapshot;
 
 export type OrderOpsPresenceData = {
 	deviceId: string;
+	deviceName: string;
 	stateVersion: number;
 	businessDate: string;
+	initializedForToday: boolean;
 };
+
+export type SyncConflictPeer = {
+	clientId: string;
+	deviceName: string;
+	stateVersion: number;
+	initializedForToday: boolean;
+};
+
+export type SyncConflict = {
+	businessDate: string;
+	localVersion: number;
+	localInitialized: boolean;
+	localDeviceName: string;
+	recommendedPeerClientId: string;
+	peers: SyncConflictPeer[];
+};
+
+export type SyncConflictResolution = 'newest' | 'peer' | 'local';

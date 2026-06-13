@@ -4,19 +4,30 @@ import {
 	getOrderOpsChannel,
 	OrderOpsPresenceData,
 	OrderOpsSnapshot,
+	SyncConflict,
+	SyncConflictResolution,
 	SyncRequestMessage,
 	SyncResponseMessage,
 	StateDeltaMessage,
 } from '@/src/models/order_ops';
-import { getStableDeviceId, getOrderOpsMeta } from '@/src/utils/order_ops_meta';
 import {
+	getDeviceDisplayName,
+	getOrderOpsMeta,
+	getStableDeviceId,
+	setDeviceDisplayName,
+} from '@/src/utils/order_ops_meta';
+import {
+	detectSyncConflict,
 	handleStateDelta,
 	handleSyncRequest,
 	handleSyncResponse,
 	maybeRequestSyncFromPeers,
 	registerOrderOpsPresenceUpdater,
 	registerOrderOpsPublisher,
+	requestSyncFromPeer,
 	resetSyncRequestCooldown,
+	resolveSyncKeepLocal,
+	setSyncConflictBlocking,
 	unregisterOrderOpsPresenceUpdater,
 	unregisterOrderOpsPublisher,
 	type PresenceMember,
@@ -44,11 +55,18 @@ type OrderOpsSyncContextValue = {
 	syncing: boolean;
 	memberCount: number;
 	deviceId: string;
+	deviceName: string;
 	channelName: string;
 	stateVersion: number | null;
 	businessDate: string | null;
 	error: string | null;
+	syncConflict: SyncConflict | null;
 	connect: () => Promise<void>;
+	updateDeviceName: (name: string) => Promise<void>;
+	resolveSyncConflict: (
+		resolution: SyncConflictResolution,
+		peerClientId?: string
+	) => Promise<void>;
 };
 
 const OrderOpsSyncContext = createContext<OrderOpsSyncContextValue>({
@@ -57,11 +75,15 @@ const OrderOpsSyncContext = createContext<OrderOpsSyncContextValue>({
 	syncing: false,
 	memberCount: 0,
 	deviceId: '',
+	deviceName: '',
 	channelName: getOrderOpsChannel(),
 	stateVersion: null,
 	businessDate: null,
 	error: null,
+	syncConflict: null,
 	connect: async () => undefined,
+	updateDeviceName: async () => undefined,
+	resolveSyncConflict: async () => undefined,
 });
 
 export function useOrderOpsSync() {
@@ -90,14 +112,14 @@ async function requestSyncFromPeers(
 	);
 }
 
-async function updateChannelPresence(
-	channel: RealtimeChannel,
-	snapshot: OrderOpsSnapshot
-) {
+async function updateChannelPresence(channel: RealtimeChannel) {
+	const meta = await getOrderOpsMeta();
 	const data: OrderOpsPresenceData = {
-		deviceId: snapshot.deviceId,
-		stateVersion: snapshot.stateVersion,
-		businessDate: snapshot.businessDate,
+		deviceId: meta.deviceId,
+		deviceName: getDeviceDisplayName(),
+		stateVersion: meta.stateVersion,
+		businessDate: meta.businessDate,
+		initializedForToday: meta.initializedForToday ?? false,
 	};
 
 	try {
@@ -105,6 +127,13 @@ async function updateChannelPresence(
 	} catch {
 		await channel.presence.enter(data);
 	}
+}
+
+async function publishSyncRequest(
+	channel: RealtimeChannel,
+	payload: SyncRequestMessage
+) {
+	await channel.publish('sync:request', payload);
 }
 
 function safeTeardownAbly(
@@ -147,6 +176,8 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 	const [businessDate, setBusinessDate] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [deviceId, setDeviceId] = useState('');
+	const [deviceName, setDeviceName] = useState('');
+	const [syncConflict, setSyncConflict] = useState<SyncConflict | null>(null);
 
 	const realtimeRef = useRef<Realtime | null>(null);
 	const channelRef = useRef<RealtimeChannel | null>(null);
@@ -155,6 +186,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 	const connectPromiseRef = useRef<Promise<void> | null>(null);
 	const connectionStateRef = useRef<OrderOpsConnectionState>('idle');
 	const syncActivityCountRef = useRef(0);
+	const conflictResolvedRef = useRef(false);
 
 	const runWithSyncIndicator = useCallback(
 		async (operation: () => Promise<void>) => {
@@ -180,7 +212,13 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 	}, []);
 
 	const refreshMemberCount = useCallback(
-		async (channel: RealtimeChannel, selfClientId: string) => {
+		async (
+			channel: RealtimeChannel,
+			selfClientId: string,
+			options?: { checkConflict?: boolean }
+		) => {
+			const checkConflict = options?.checkConflict ?? false;
+
 			try {
 				const members = await channel.presence.get();
 				if (cancelledRef.current) {
@@ -188,6 +226,19 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				}
 				const mapped = mapPresenceMembers(members);
 				setMemberCount(mapped.length);
+
+				if (checkConflict) {
+					const conflict = await detectSyncConflict(mapped, selfClientId);
+					if (conflict && !conflictResolvedRef.current) {
+						setSyncConflictBlocking(true);
+						setSyncConflict(conflict);
+						return;
+					}
+
+					setSyncConflict(null);
+					setSyncConflictBlocking(false);
+				}
+
 				await runWithSyncIndicator(async () => {
 					await requestSyncFromPeers(channel, mapped, selfClientId);
 				});
@@ -244,8 +295,10 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 
 					const data: OrderOpsPresenceData = {
 						deviceId: meta.deviceId,
+						deviceName: getDeviceDisplayName(),
 						stateVersion: meta.stateVersion,
 						businessDate: meta.businessDate,
+						initializedForToday: meta.initializedForToday ?? false,
 					};
 
 					if (channel.state !== 'attached' && channel.state !== 'attaching') {
@@ -258,7 +311,9 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 
 					await channel.presence.enter(data);
 					await refreshMeta();
-					await refreshMemberCount(channel, selfDeviceId);
+					await refreshMemberCount(channel, selfDeviceId, {
+						checkConflict: true,
+					});
 				} catch (presenceError) {
 					if (!cancelledRef.current) {
 						console.error('Failed to enter order_ops presence:', presenceError);
@@ -289,6 +344,9 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				}
 				setConnectionState('idle');
 				setMemberCount(0);
+				setSyncConflict(null);
+				setSyncConflictBlocking(false);
+				conflictResolvedRef.current = false;
 				resetSyncRequestCooldown();
 			};
 
@@ -298,6 +356,9 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				}
 				setConnectionState('failed');
 				setMemberCount(0);
+				setSyncConflict(null);
+				setSyncConflictBlocking(false);
+				conflictResolvedRef.current = false;
 				resetSyncRequestCooldown();
 				setError(stateChange.reason?.message ?? 'Connection failed');
 			};
@@ -333,7 +394,12 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				});
 			});
 
-			channel.presence.subscribe(['enter', 'leave', 'update'], () => {
+			channel.presence.subscribe('enter', () => {
+				void refreshMemberCount(channel, selfDeviceId, {
+					checkConflict: true,
+				});
+			});
+			channel.presence.subscribe(['leave', 'update'], () => {
 				void refreshMemberCount(channel, selfDeviceId);
 			});
 
@@ -343,7 +409,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 					return;
 				}
 
-				await updateChannelPresence(activeChannel, snapshot);
+				await updateChannelPresence(activeChannel);
 
 				const members = mapPresenceMembers(
 					await activeChannel.presence.get()
@@ -357,13 +423,13 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				});
 			});
 
-			registerOrderOpsPresenceUpdater(async (snapshot: OrderOpsSnapshot) => {
+			registerOrderOpsPresenceUpdater(async () => {
 				const activeChannel = channelRef.current;
 				if (!activeChannel || cancelledRef.current) {
 					return;
 				}
 
-				await updateChannelPresence(activeChannel, snapshot);
+				await updateChannelPresence(activeChannel);
 			});
 		},
 		[refreshMemberCount, refreshMeta, runWithSyncIndicator]
@@ -449,6 +515,48 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 		return promise;
 	}, [setupRealtime]);
 
+	const updateDeviceName = useCallback(async (name: string) => {
+		setDeviceDisplayName(name);
+		setDeviceName(getDeviceDisplayName());
+
+		const channel = channelRef.current;
+		if (channel && connectionStateRef.current === 'connected') {
+			await updateChannelPresence(channel);
+		}
+	}, []);
+
+	const resolveSyncConflict = useCallback(
+		async (resolution: SyncConflictResolution, peerClientId?: string) => {
+			const channel = channelRef.current;
+			const selfClientId = selfDeviceIdRef.current;
+			if (!channel || !selfClientId) {
+				return;
+			}
+
+			conflictResolvedRef.current = true;
+			setSyncConflictBlocking(false);
+			setSyncConflict(null);
+
+			await runWithSyncIndicator(async () => {
+				const publish = async (payload: SyncRequestMessage) =>
+					publishSyncRequest(channel, payload);
+
+				if (resolution === 'newest') {
+					const members = mapPresenceMembers(await channel.presence.get());
+					await maybeRequestSyncFromPeers(publish, members, selfClientId);
+				} else if (resolution === 'peer' && peerClientId) {
+					await requestSyncFromPeer(publish, selfClientId, peerClientId);
+				} else if (resolution === 'local') {
+					await resolveSyncKeepLocal();
+				}
+			});
+
+			await refreshMeta();
+			await updateChannelPresence(channel);
+		},
+		[refreshMeta, runWithSyncIndicator]
+	);
+
 	useEffect(() => {
 		if (typeof window === 'undefined') {
 			return;
@@ -458,6 +566,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 		const selfDeviceId = getStableDeviceId();
 		selfDeviceIdRef.current = selfDeviceId;
 		setDeviceId(selfDeviceId);
+		setDeviceName(getDeviceDisplayName());
 		setupRealtime(selfDeviceId);
 		void connect();
 
@@ -471,11 +580,14 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			resetSyncRequestCooldown();
 			void runWithSyncIndicator(async () => {
 				const members = await channel.presence.get();
-				await requestSyncFromPeers(
-					channel,
-					mapPresenceMembers(members),
-					selfClientId
-				);
+				const mapped = mapPresenceMembers(members);
+				const conflict = await detectSyncConflict(mapped, selfClientId);
+				if (conflict && !conflictResolvedRef.current) {
+					setSyncConflictBlocking(true);
+					setSyncConflict(conflict);
+					return;
+				}
+				await requestSyncFromPeers(channel, mapped, selfClientId);
 			}).catch((presenceError) => {
 				console.error('Failed to refresh sync on focus:', presenceError);
 			});
@@ -519,11 +631,15 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				syncing,
 				memberCount,
 				deviceId,
+				deviceName,
 				channelName: getOrderOpsChannel(),
 				stateVersion,
 				businessDate,
 				error,
+				syncConflict,
 				connect,
+				updateDeviceName,
+				resolveSyncConflict,
 			}}
 		>
 			{children}
