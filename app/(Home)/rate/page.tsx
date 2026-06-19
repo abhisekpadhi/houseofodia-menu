@@ -10,7 +10,7 @@ import {
   shouldGenerateReviews,
   type TangifyRatingRecord,
 } from "@/src/utils/tangify_rating_storage";
-import axios from "axios";
+import { generateTangifyReview } from "@/src/utils/tangify_api";
 import clsx from "clsx";
 import { Niconne } from "next/font/google";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -126,16 +126,9 @@ export default function RatePage() {
     setGenerating(true);
     setError(null);
     try {
-      const response = await axios.post<{ review: string }>(
-        "/api/reviews/generate",
-        { rating: nextRating }
-      );
+      const nextReview = await generateTangifyReview(nextRating);
       if (!shouldGenerateReviews(ratingRef.current)) {
         return;
-      }
-      const nextReview = response.data.review?.trim();
-      if (!nextReview) {
-        throw new Error("No review returned");
       }
       setReview(nextReview);
     } catch (err) {
