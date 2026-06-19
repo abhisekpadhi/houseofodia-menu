@@ -15,8 +15,25 @@ export type TStorage = {menu: TMenu, created_at: number}
 
 export type TDish = {name: string, price: number, qty: number}
 
+export type ItemCancelReason =
+	| 'customer_cancel'
+	| 'waiter_cancel'
+	| 'kitchen_out_of_stock'
+	| 'kitchen_unable_to_prepare'
+	| 'wrong_order'
+	| 'duplicate_order'
+	| 'quality_issue'
+	| 'manager_void';
+
+export type OrderItemUnitState =
+	| 'pending'
+	| 'fulfilled'
+	| { status: 'cancelled'; reason: ItemCancelReason; cancelledAt?: number };
+
 export type TOrderItem = TDish & {
+	/** @deprecated Derived from unitStates during normalization */
 	fulfilledQty?: number;
+	unitStates?: OrderItemUnitState[];
 };
 
 export type TCart = {items: TDish[]}
@@ -93,6 +110,8 @@ export type DishUnit = {
 	orderLabel: string;
 	createdAt: number;
 	fulfilled: boolean;
+	cancelled: boolean;
+	cancelReason?: ItemCancelReason;
 };
 
 export type ItemGroup = {

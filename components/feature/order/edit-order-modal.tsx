@@ -12,7 +12,7 @@ import {
 	getMaxEditableQty,
 	getTodayDateKey,
 } from "@/src/utils/inventory_utils";
-import { formatOrderTime, updateOrderItems } from "@/src/utils/order_utils";
+import { formatOrderTime, isOrderMarkedDone, updateOrderItems } from "@/src/utils/order_utils";
 import { useEffect, useMemo, useState } from "react";
 
 type EditOrderModalProps = {
@@ -21,7 +21,33 @@ type EditOrderModalProps = {
 	onSaved: () => void;
 };
 
-export function EditOrderModal({ order, onClose, onSaved }: EditOrderModalProps) {
+function EditOrderBlockedModal({ onClose }: { onClose: () => void }) {
+	return (
+		<div
+			className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-0 sm:px-4"
+			onClick={onClose}
+		>
+			<div
+				className="w-full max-w-md rounded-t-xl sm:rounded-xl bg-white shadow-xl p-6"
+				onClick={(event) => event.stopPropagation()}
+			>
+				<h2 className="text-lg font-bold">Order is done</h2>
+				<p className="text-sm text-gray-600 mt-2">
+					This order has been marked done and can no longer be edited.
+				</p>
+				<button
+					type="button"
+					onClick={onClose}
+					className="mt-4 w-full min-h-[44px] rounded-lg bg-gray-100 text-sm font-semibold touch-manipulation active:bg-gray-200"
+				>
+					Close
+				</button>
+			</div>
+		</div>
+	);
+}
+
+function EditOrderModalContent({ order, onClose, onSaved }: EditOrderModalProps) {
 	const [draftItems, setDraftItems] = useState<TOrderItem[]>(() =>
 		order.items.map((item) => ({ ...item }))
 	);
@@ -252,4 +278,11 @@ export function EditOrderModal({ order, onClose, onSaved }: EditOrderModalProps)
 			</div>
 		</div>
 	);
+}
+
+export function EditOrderModal({ order, onClose, onSaved }: EditOrderModalProps) {
+	if (isOrderMarkedDone(order)) {
+		return <EditOrderBlockedModal onClose={onClose} />;
+	}
+	return <EditOrderModalContent order={order} onClose={onClose} onSaved={onSaved} />;
 }

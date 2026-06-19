@@ -1,8 +1,10 @@
 import {
 	BillingContext,
 	DishUnit,
+	ItemCancelReason,
 	ItemGroup,
 	OrderGroup,
+	OrderItemUnitState,
 	OrderKind,
 	TABLE_COUNT,
 	TCart,
@@ -20,6 +22,117 @@ import { upsertOrdersInHistory } from '@/src/utils/order_history';
 import localforage from 'localforage';
 
 const ORDERS_KEY = 'orders';
+
+export function isUnitStateFulfilled(state: OrderItemUnitState): boolean {
+	return state === 'fulfilled';
+}
+
+export function isUnitStateCancelled(state: OrderItemUnitState): boolean {
+	return typeof state === 'object' && state.status === 'cancelled';
+}
+
+export function isUnitStatePending(state: OrderItemUnitState): boolean {
+	return state === 'pending';
+}
+
+export function getUnitCancelReason(
+	state: OrderItemUnitState
+): ItemCancelReason | undefined {
+	if (typeof state === 'object' && state.status === 'cancelled') {
+		return state.reason;
+	}
+	return undefined;
+}
+
+function buildUnitStatesFromLegacy(item: TOrderItem): OrderItemUnitState[] {
+	const fulfilledQty = item.fulfilledQty ?? 0;
+	return Array.from({ length: item.qty }, (_, unitIndex) =>
+		unitIndex < fulfilledQty ? 'fulfilled' : 'pending'
+	);
+}
+
+export function normalizeOrderItem(item: TOrderItem): TOrderItem {
+	let states = item.unitStates;
+	if (!states || states.length === 0) {
+		states = buildUnitStatesFromLegacy(item);
+	}
+
+	if (states.length < item.qty) {
+		states = [
+			...states,
+			...Array.from(
+				{ length: item.qty - states.length },
+				() => 'pending' as const
+			),
+		];
+	} else if (states.length > item.qty) {
+		states = states.slice(0, item.qty);
+	}
+
+	const fulfilledQty = states.filter((state) => state === 'fulfilled').length;
+	return { ...item, unitStates: states, fulfilledQty };
+}
+
+export function getItemUnitStates(item: TOrderItem): OrderItemUnitState[] {
+	return normalizeOrderItem(item).unitStates ?? [];
+}
+
+export function getItemPendingQty(item: TOrderItem): number {
+	return getItemUnitStates(item).filter(isUnitStatePending).length;
+}
+
+export function getItemCancelledQty(item: TOrderItem): number {
+	return getItemUnitStates(item).filter(isUnitStateCancelled).length;
+}
+
+export function getItemFulfilledQty(item: TOrderItem): number {
+	return getItemUnitStates(item).filter(isUnitStateFulfilled).length;
+}
+
+export function getItemBillableQty(item: TOrderItem): number {
+	return Math.max(0, item.qty - getItemCancelledQty(item));
+}
+
+export type OrderItemUnitDisplay = 'pending' | 'fulfilled' | 'cancelled';
+
+export function getOrderItemUnitDisplay(
+	item: TOrderItem,
+	unitIndex: number
+): OrderItemUnitDisplay {
+	const state = getItemUnitStates(item)[unitIndex];
+	if (state === 'fulfilled') {
+		return 'fulfilled';
+	}
+	if (isUnitStateCancelled(state)) {
+		return 'cancelled';
+	}
+	return 'pending';
+}
+
+function dishUnitFromItem(
+	order: TOrder,
+	item: TOrderItem,
+	itemIndex: number,
+	unitIndex: number
+): DishUnit {
+	const state = getItemUnitStates(item)[unitIndex] ?? 'pending';
+	return {
+		orderId: order.id,
+		itemIndex,
+		unitIndex,
+		dishName: item.name,
+		orderLabel: formatOrderLabel(order),
+		createdAt: order.createdAt,
+		fulfilled: state === 'fulfilled',
+		cancelled: isUnitStateCancelled(state),
+		cancelReason: getUnitCancelReason(state),
+	};
+}
+
+function serializeItemForCompare(item: TOrderItem): string {
+	const normalized = normalizeOrderItem(item);
+	return `${normalized.qty}:${JSON.stringify(normalized.unitStates)}`;
+}
 
 export function generateOrderId(): string {
 	return `ord-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -66,12 +179,31 @@ export function normalizeOrderItemsAfterEdit(
 	order: TOrder,
 	items: TOrderItem[]
 ): TOrder {
+	const existingByName = new Map(order.items.map((item) => [item.name, item]));
+
 	const normalizedItems = items
 		.filter((item) => item.qty > 0)
-		.map((item) => ({
-			...item,
-			fulfilledQty: Math.min(item.fulfilledQty ?? 0, item.qty),
-		}));
+		.map((item) => {
+			const existing = existingByName.get(item.name);
+			let states: OrderItemUnitState[];
+			if (existing) {
+				const previous = getItemUnitStates(existing);
+				if (item.qty <= previous.length) {
+					states = previous.slice(0, item.qty);
+				} else {
+					states = [
+						...previous,
+						...Array.from(
+							{ length: item.qty - previous.length },
+							() => 'pending' as const
+						),
+					];
+				}
+			} else {
+				states = Array.from({ length: item.qty }, () => 'pending' as const);
+			}
+			return normalizeOrderItem({ ...item, unitStates: states });
+		});
 
 	let updated: TOrder = { ...order, items: normalizedItems };
 
@@ -119,7 +251,10 @@ export function formatOrderTime(createdAt: number): string {
 }
 
 export function orderTotal(items: TOrder['items']): number {
-	return items.reduce((sum, item) => sum + item.price * item.qty, 0);
+	return items.reduce((sum, item) => {
+		const normalized = normalizeOrderItem(item);
+		return sum + item.price * getItemBillableQty(normalized);
+	}, 0);
 }
 
 export function orderGroupToCart(group: OrderGroup): TCart {
@@ -127,14 +262,19 @@ export function orderGroupToCart(group: OrderGroup): TCart {
 
 	for (const order of group.orders) {
 		for (const item of order.items) {
+			const normalized = normalizeOrderItem(item);
+			const billableQty = getItemBillableQty(normalized);
+			if (billableQty <= 0) {
+				continue;
+			}
 			const existing = itemMap.get(item.name);
 			if (existing) {
-				existing.qty += item.qty;
+				existing.qty += billableQty;
 			} else {
 				itemMap.set(item.name, {
 					name: item.name,
 					price: item.price,
-					qty: item.qty,
+					qty: billableQty,
 				});
 			}
 		}
@@ -298,19 +438,15 @@ export function parseTableParam(value: string | null): number[] {
 export function normalizeOrders(orders: TOrder[]): TOrder[] {
 	return orders.map((order) => ({
 		...order,
-		items: order.items.map((item) => ({
-			...item,
-			fulfilledQty: item.fulfilledQty ?? 0,
-		})),
+		items: order.items.map((item) => normalizeOrderItem(item)),
 	}));
 }
 
 export function getItemRemainingQty(item: TOrderItem): number {
-	return item.qty - (item.fulfilledQty ?? 0);
+	return getItemPendingQty(item);
 }
 
 export const LATE_ORDER_THRESHOLD_MS = 20 * 60 * 1000;
-export const ORDER_EDIT_WINDOW_MS = 5 * 60 * 1000;
 
 export function isOrderReady(order: TOrder): boolean {
 	return order.items.every((item) => getItemRemainingQty(item) === 0);
@@ -335,8 +471,8 @@ export function isOrderMarkedDone(order: TOrder): boolean {
 	return order.markedDoneAt != null;
 }
 
-export function isOrderEditable(order: TOrder, now = Date.now()): boolean {
-	return now - order.createdAt < ORDER_EDIT_WINDOW_MS;
+export function isOrderEditable(order: TOrder): boolean {
+	return !isOrderMarkedDone(order);
 }
 
 export function isGroupFullyMarkedDone(group: OrderGroup): boolean {
@@ -367,9 +503,7 @@ export function ordersStoreChanged(before: TOrder[], after: TOrder[]): boolean {
 		return order.items.some((item, itemIndex) => {
 			const nextItem = next.items[itemIndex];
 			return (
-				!nextItem ||
-				item.qty !== nextItem.qty ||
-				item.fulfilledQty !== nextItem.fulfilledQty
+				!nextItem || serializeItemForCompare(item) !== serializeItemForCompare(nextItem)
 			);
 		});
 	});
@@ -550,17 +684,8 @@ export function getDishUnits(orders: TOrder[], dishName: string): DishUnit[] {
 			if (item.name !== dishName) {
 				return;
 			}
-			const fulfilledQty = item.fulfilledQty ?? 0;
 			for (let unitIndex = 0; unitIndex < item.qty; unitIndex++) {
-				units.push({
-					orderId: order.id,
-					itemIndex,
-					unitIndex,
-					dishName: item.name,
-					orderLabel: formatOrderLabel(order),
-					createdAt: order.createdAt,
-					fulfilled: unitIndex < fulfilledQty,
-				});
+				units.push(dishUnitFromItem(order, item, itemIndex, unitIndex));
 			}
 		});
 	}
@@ -568,12 +693,16 @@ export function getDishUnits(orders: TOrder[], dishName: string): DishUnit[] {
 	return units;
 }
 
+export function isUnitPending(unit: DishUnit): boolean {
+	return !unit.fulfilled && !unit.cancelled;
+}
+
 export function isUnitNextToFulfill(orders: TOrder[], unit: DishUnit): boolean {
-	if (unit.fulfilled) {
+	if (!isUnitPending(unit)) {
 		return false;
 	}
 	const globalUnits = getDishUnits(orders, unit.dishName);
-	const next = globalUnits.find((candidate) => !candidate.fulfilled);
+	const next = globalUnits.find((candidate) => isUnitPending(candidate));
 	return (
 		next !== undefined &&
 		next.orderId === unit.orderId &&
@@ -619,15 +748,9 @@ export function groupItemsByKitchenGroup(
 
 			const fulfilledQty = item.fulfilledQty ?? 0;
 			for (let unitIndex = 0; unitIndex < item.qty; unitIndex++) {
-				groupUnits.get(kitchenGroup)!.push({
-					orderId: order.id,
-					itemIndex,
-					unitIndex,
-					dishName: item.name,
-					orderLabel: formatOrderLabel(order),
-					createdAt: order.createdAt,
-					fulfilled: unitIndex < fulfilledQty,
-				});
+				groupUnits.get(kitchenGroup)!.push(
+					dishUnitFromItem(order, item, itemIndex, unitIndex)
+				);
 			}
 		});
 	}
@@ -641,7 +764,7 @@ export function groupItemsByKitchenGroup(
 			{
 				name,
 				totalQty: units.length,
-				remainingQty: units.filter((unit) => !unit.fulfilled).length,
+				remainingQty: units.filter((unit) => isUnitPending(unit)).length,
 				units,
 			},
 		];
@@ -667,7 +790,7 @@ export function groupItemsByDish(orders: TOrder[]): ItemGroup[] {
 		groups.push({
 			name,
 			totalQty: units.length,
-			remainingQty: units.filter((unit) => !unit.fulfilled).length,
+			remainingQty: units.filter((unit) => isUnitPending(unit)).length,
 			units,
 		});
 	}
@@ -702,14 +825,17 @@ export function fulfillNextUnitForDish(
 			if (item.name !== dishName) {
 				continue;
 			}
-			const fulfilledQty = item.fulfilledQty ?? 0;
-			if (fulfilledQty < item.qty) {
-				updated[orderIndex].items[itemIndex] = {
-					...item,
-					fulfilledQty: fulfilledQty + 1,
-				};
-				return updated;
+			const states = [...getItemUnitStates(item)];
+			const pendingIndex = states.findIndex((state) => state === 'pending');
+			if (pendingIndex === -1) {
+				continue;
 			}
+			states[pendingIndex] = 'fulfilled';
+			updated[orderIndex].items[itemIndex] = normalizeOrderItem({
+				...item,
+				unitStates: states,
+			});
+			return updated;
 		}
 	}
 
@@ -734,12 +860,16 @@ export function unfulfillLastUnitForDish(
 			if (item.name !== dishName) {
 				continue;
 			}
-			const fulfilledQty = item.fulfilledQty ?? 0;
-			if (fulfilledQty > 0) {
-				updated[orderIndex].items[itemIndex] = {
+			const states = [...getItemUnitStates(item)];
+			for (let unitIndex = states.length - 1; unitIndex >= 0; unitIndex--) {
+				if (states[unitIndex] !== 'fulfilled') {
+					continue;
+				}
+				states[unitIndex] = 'pending';
+				updated[orderIndex].items[itemIndex] = normalizeOrderItem({
 					...item,
-					fulfilledQty: fulfilledQty - 1,
-				};
+					unitStates: states,
+				});
 				return updated;
 			}
 		}
@@ -748,13 +878,51 @@ export function unfulfillLastUnitForDish(
 	return updated;
 }
 
-export function getOrderItemUnits(order: TOrder, itemIndex: number): boolean[] {
+export function getOrderItemUnits(
+	order: TOrder,
+	itemIndex: number
+): OrderItemUnitDisplay[] {
 	const item = order.items[itemIndex];
 	if (!item) {
 		return [];
 	}
-	const fulfilledQty = item.fulfilledQty ?? 0;
-	return Array.from({ length: item.qty }, (_, unitIndex) => unitIndex < fulfilledQty);
+	return Array.from({ length: item.qty }, (_, unitIndex) =>
+		getOrderItemUnitDisplay(item, unitIndex)
+	);
+}
+
+export function cancelItemUnit(
+	orders: TOrder[],
+	orderId: string,
+	itemIndex: number,
+	unitIndex: number,
+	reason: ItemCancelReason
+): TOrder[] {
+	return updateOrderById(orders, orderId, (order) => {
+		if (isOrderMarkedDone(order)) {
+			return order;
+		}
+
+		const items = order.items.map((item, idx) => {
+			if (idx !== itemIndex) {
+				return normalizeOrderItem(item);
+			}
+
+			const states = [...getItemUnitStates(item)];
+			if (states[unitIndex] !== 'pending') {
+				return normalizeOrderItem(item);
+			}
+
+			states[unitIndex] = {
+				status: 'cancelled',
+				reason,
+				cancelledAt: Date.now(),
+			};
+			return normalizeOrderItem({ ...item, unitStates: states });
+		});
+
+		return { ...order, items };
+	});
 }
 
 export async function updateOrders(orders: TOrder[], now = Date.now()): Promise<TOrder[]> {
