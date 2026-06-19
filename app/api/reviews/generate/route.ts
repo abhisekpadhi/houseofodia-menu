@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
 			{ rating: body.rating },
 			{
 				headers: { 'Content-Type': 'application/json' },
-				timeout: 30_000,
+				timeout: 300_000,
 			}
 		);
 		return NextResponse.json(response.data);
