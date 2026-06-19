@@ -336,8 +336,8 @@ function AddOrderContent() {
 	};
 
 	return (
-		<div className="min-h-screen bg-white pb-32">
-			<div className="sticky top-0 z-10 bg-white border-b px-6 py-4">
+		<div className="ops-app-screen bg-white">
+			<div className="ops-sticky-header bg-white border-b px-6 pb-4">
 				<div className="flex items-center justify-between mb-4">
 					<button
 						type="button"
@@ -456,7 +456,7 @@ function AddOrderContent() {
 				/>
 			</div>
 
-			<div className="fixed bottom-0 left-0 right-0 bg-white border-t px-6 py-4 shadow-lg z-20">
+			<div className="fixed bottom-0 left-0 right-0 bg-white border-t px-6 py-4 shadow-lg z-20 pb-[calc(1rem+env(safe-area-inset-bottom))]">
 				<div className="flex items-center justify-between mb-3">
 					<span className="text-sm text-gray-600">
 						{cartItems.length} item{cartItems.length === 1 ? "" : "s"}
