@@ -11,6 +11,7 @@ export type TangifyRatingRecord = {
 	rating: number;
 	review: string;
 	updatedAt: number;
+	submitted?: boolean;
 };
 
 type StoredTangifyRatingRecord = TangifyRatingRecord & {
@@ -43,6 +44,7 @@ export function loadTangifyRating(): TangifyRatingRecord | null {
 				rating: parsed.rating,
 				review: '',
 				updatedAt: parsed.updatedAt ?? Date.now(),
+				submitted: parsed.submitted === true,
 			};
 		}
 
@@ -66,6 +68,7 @@ export function loadTangifyRating(): TangifyRatingRecord | null {
 			rating: parsed.rating,
 			review,
 			updatedAt: parsed.updatedAt ?? Date.now(),
+			submitted: parsed.submitted === true,
 		};
 	} catch {
 		return null;
@@ -76,15 +79,26 @@ export function saveTangifyRating(record: TangifyRatingRecord): void {
 	localStorage.setItem(TANGIFY_RATING_STORAGE_KEY, JSON.stringify(record));
 }
 
-export async function copyReviewAndOpenGoogleMaps(review: string): Promise<void> {
-	if (review.trim()) {
-		try {
-			await navigator.clipboard.writeText(review.trim());
-		} catch (error) {
-			console.error('Failed to copy review to clipboard:', error);
-		}
+export async function copyReviewToClipboard(review: string): Promise<boolean> {
+	if (!review.trim()) {
+		return false;
 	}
+	try {
+		await navigator.clipboard.writeText(review.trim());
+		return true;
+	} catch (error) {
+		console.error('Failed to copy review to clipboard:', error);
+		return false;
+	}
+}
+
+export function openGoogleMapsReview(): void {
 	window.location.href = GOOGLE_MAPS_REVIEW_URL;
+}
+
+export async function copyReviewAndOpenGoogleMaps(review: string): Promise<void> {
+	await copyReviewToClipboard(review);
+	openGoogleMapsReview();
 }
 
 export function shouldGenerateReviews(rating: number): boolean {

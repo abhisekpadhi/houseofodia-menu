@@ -2,10 +2,11 @@
 
 import { Button } from "@/components/ui/button";
 import {
-  copyReviewAndOpenGoogleMaps,
+  copyReviewToClipboard,
   isLowRating,
   loadTangifyRating,
   MANAGEMENT_WHATSAPP_URL,
+  openGoogleMapsReview,
   saveTangifyRating,
   shouldGenerateReviews,
   type TangifyRatingRecord,
@@ -80,6 +81,48 @@ function WhatsAppFeedbackButton() {
   );
 }
 
+function ReviewCopiedModal({ onContinue }: { onContinue: () => void }) {
+  const [showButton, setShowButton] = useState(false);
+
+  useEffect(() => {
+    const redirectTimer = window.setTimeout(() => {
+      onContinue();
+    }, 1000);
+
+    const buttonTimer = window.setTimeout(() => {
+      setShowButton(true);
+    }, 5000);
+
+    return () => {
+      window.clearTimeout(redirectTimer);
+      window.clearTimeout(buttonTimer);
+    };
+  }, [onContinue]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+      <div className="w-full max-w-sm rounded-xl border border-gray-800 bg-gray-950 p-6 text-center shadow-xl">
+        <p className="text-lg font-semibold text-green-300">Review copied!</p>
+        <p className="mt-3 text-sm leading-relaxed text-gray-300">
+          Your review is on the clipboard. On the next page, just paste it in
+          the review box.
+        </p>
+        {!showButton ? (
+          <p className="mt-6 text-sm text-gray-500">Opening Google review...</p>
+        ) : (
+          <Button
+            type="button"
+            className="mt-6 w-full bg-yellow-500 text-black hover:bg-yellow-400"
+            onClick={onContinue}
+          >
+            Open Google review
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function RatePage() {
   const [mode, setMode] = useState<PageMode>("form");
   const [rating, setRating] = useState(0);
@@ -89,6 +132,8 @@ export default function RatePage() {
   );
   const [generating, setGenerating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [copyModalOpen, setCopyModalOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ratingRef = useRef(0);
 
@@ -97,6 +142,7 @@ export default function RatePage() {
     setRating(record.rating);
     ratingRef.current = record.rating;
     setReview(record.review);
+    setSubmitted(record.submitted === true);
     setMode("saved");
   }, []);
 
@@ -112,10 +158,12 @@ export default function RatePage() {
       rating: nextRating,
       review: "",
       updatedAt: Date.now(),
+      submitted: false,
     };
     saveTangifyRating(record);
     setSavedRecord(record);
     setReview("");
+    setSubmitted(false);
     setMode("saved");
   }, []);
 
@@ -146,6 +194,10 @@ export default function RatePage() {
     setRating(nextRating);
     ratingRef.current = nextRating;
     setError(null);
+
+    if (nextRating !== previousRating) {
+      setSubmitted(false);
+    }
 
     if (isLowRating(nextRating)) {
       saveLowRating(nextRating);
@@ -182,6 +234,7 @@ export default function RatePage() {
     ratingRef.current = savedRecord.rating;
     setReview(savedRecord.review);
     setMode("form");
+    setSubmitted(false);
     setError(null);
   };
 
@@ -202,16 +255,33 @@ export default function RatePage() {
       rating,
       review: review.trim(),
       updatedAt: Date.now(),
+      submitted: true,
     };
     saveTangifyRating(record);
     setSavedRecord(record);
+    setSubmitted(true);
+    setMode("saved");
 
-    await copyReviewAndOpenGoogleMaps(review.trim());
+    await copyReviewToClipboard(review.trim());
+    setCopyModalOpen(true);
+    setSubmitting(false);
   };
 
-  const hasRated =
-    (mode === "saved" && savedRecord !== null) ||
-    (mode === "form" && rating > 0);
+  const handleOpenGoogleFromSaved = async () => {
+    if (!savedRecord?.review.trim()) {
+      return;
+    }
+    await copyReviewToClipboard(savedRecord.review);
+    setCopyModalOpen(true);
+  };
+
+  const handleContinueToGoogle = useCallback(() => {
+    setCopyModalOpen(false);
+    openGoogleMapsReview();
+  }, []);
+
+  const showWhatsAppFeedback =
+    submitted && mode === "saved" && savedRecord !== null;
 
   return (
     <div className="min-h-screen bg-black px-4 py-8 text-white">
@@ -281,9 +351,7 @@ export default function RatePage() {
                 <Button
                   type="button"
                   className="bg-yellow-500 text-black hover:bg-yellow-400"
-                  onClick={() =>
-                    void copyReviewAndOpenGoogleMaps(savedRecord.review)
-                  }
+                  onClick={() => void handleOpenGoogleFromSaved()}
                 >
                   Copy & open Google review
                 </Button>
@@ -310,9 +378,6 @@ export default function RatePage() {
               <div className="space-y-2 rounded-xl border border-green-900/60 bg-green-950/30 p-4 text-center">
                 <p className="text-base font-medium text-green-300">
                   Thank you for the rating.
-                </p>
-                <p className="text-sm text-gray-400">
-                  Tap 4 or 5 stars if you&apos;d like to leave a Google review.
                 </p>
               </div>
             ) : null}
@@ -353,11 +418,11 @@ export default function RatePage() {
                   }
                   onClick={() => void handleSubmit()}
                 >
-                  {submitting ? "Opening Google..." : "Submit review"}
+                  {submitting ? "Copying..." : "Submit review"}
                 </Button>
                 {review ? (
                   <p className="text-center text-xs text-gray-500">
-                    Review will be copied — paste it on Google Maps
+                    Review will be copied — you paste it on Google Maps
                   </p>
                 ) : null}
               </>
@@ -365,8 +430,12 @@ export default function RatePage() {
           </div>
         ) : null}
 
-        {hasRated ? <WhatsAppFeedbackButton /> : null}
+        {showWhatsAppFeedback ? <WhatsAppFeedbackButton /> : null}
       </div>
+
+      {copyModalOpen ? (
+        <ReviewCopiedModal onContinue={handleContinueToGoogle} />
+      ) : null}
     </div>
   );
 }
