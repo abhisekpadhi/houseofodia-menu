@@ -5,6 +5,8 @@ export type TMenuApiItem = {
 	description: string;
 	price: string;
 	is_veg: boolean;
+	/** Optional prep SOP — newline or pipe separated in Google Sheet */
+	sop?: string;
 };
 
 export type TMenu = {
@@ -55,7 +57,7 @@ export type TBill = {
 export type TBillNoResp = { bill_no: number}
 export type TBillNoUpdateResp = {success: boolean}
 
-export const TABLE_COUNT = 10;
+export const TABLE_COUNT = 12;
 
 export type OrderKind = 'table' | 'takeaway' | 'delivery';
 
@@ -65,6 +67,10 @@ export type TOrder = {
 	kind: OrderKind;
 	tableNumbers: number[];
 	items: TOrderItem[];
+	/** Group-level guest contact for takeaway / delivery (copied to orders in the group) */
+	customerName?: string;
+	/** Group-level guest phone for takeaway / delivery (also used as group key) */
+	customerPhone?: string;
 	/** Optional instructions for kitchen / service */
 	notes?: string;
 	/** Set when all items are kitchen-fulfilled */
@@ -75,6 +81,8 @@ export type TOrder = {
 	welcomeDrinkServed?: boolean;
 	/** Table-level complementary — copied to all orders in the table group when set */
 	complementaryServed?: boolean;
+	/** Group-level notes — shown on the orders card only; copied to orders in the group */
+	groupNotes?: string;
 	/** Set when table was billed and order removed from the active list */
 	billedAt?: number;
 };

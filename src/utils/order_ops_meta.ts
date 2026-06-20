@@ -12,6 +12,9 @@ import { TOrdersStore } from '@/src/models/common';
 import { getInventorySnapshotForDate, getTodayDateKey } from '@/src/utils/inventory_utils';
 import { getTodayOrderHistory } from '@/src/utils/order_history';
 import { getOrdersStore, maintainOrders } from '@/src/utils/order_utils';
+import { getDayChecklistSnapshotForDate } from '@/src/utils/day_checklist_utils';
+import { getSupplyInventorySnapshotForDate } from '@/src/utils/supply_inventory_utils';
+import { getWaitlistSnapshotForDate } from '@/src/utils/waitlist_utils';
 import localforage from 'localforage';
 
 const DEVICE_ID_PATTERN =
@@ -152,6 +155,11 @@ export async function buildOrderOpsSnapshot(): Promise<OrderOpsSnapshot> {
 	const orders = maintainOrders(store.orders, Date.now());
 	const inventory = await getInventorySnapshotForDate(businessDate);
 	const orderHistory = await getTodayOrderHistory();
+	const [dayChecklists, supplyInventory, waitlist] = await Promise.all([
+		getDayChecklistSnapshotForDate(businessDate),
+		getSupplyInventorySnapshotForDate(businessDate),
+		getWaitlistSnapshotForDate(businessDate),
+	]);
 
 	return {
 		deviceId: meta.deviceId,
@@ -160,6 +168,9 @@ export async function buildOrderOpsSnapshot(): Promise<OrderOpsSnapshot> {
 		orders,
 		inventory,
 		orderHistory,
+		dayChecklists,
+		supplyInventory,
+		waitlist,
 		sentAt: Date.now(),
 	};
 }

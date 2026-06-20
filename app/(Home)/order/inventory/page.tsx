@@ -17,6 +17,8 @@ import {
 	applyInventoryShortcut,
 	getShortcutTargetDishes,
 	INVENTORY_SHORTCUTS,
+	isDishCategoryInventoryShortcut,
+	isOutOfStockInventoryShortcut,
 	type InventoryShortcut,
 	type InventoryShortcutId,
 	shortcutConfirmMessage,
@@ -75,6 +77,9 @@ export default function InventoryPage() {
 	const dateKey = getTodayDateKey();
 	const [menuRows, setMenuRows] = useState<MenuRow[]>([]);
 	const [quantities, setQuantities] = useState<Record<string, string>>({});
+	const [savedQuantities, setSavedQuantities] = useState<
+		Record<string, number>
+	>({});
 	const [editingItems, setEditingItems] = useState<Set<string>>(new Set());
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
@@ -82,6 +87,7 @@ export default function InventoryPage() {
 	const [pendingShortcut, setPendingShortcut] =
 		useState<InventoryShortcut | null>(null);
 	const [applyingShortcut, setApplyingShortcut] = useState(false);
+	const [pendingOosDish, setPendingOosDish] = useState<string | null>(null);
 
 	const dishNames = useMemo(
 		() => menuRows.map((row) => row.name),
@@ -93,6 +99,13 @@ export default function InventoryPage() {
 			return 0;
 		}
 		return getShortcutTargetDishes(dishNames, pendingShortcut.id).length;
+	}, [dishNames, pendingShortcut]);
+
+	const pendingShortcutDishes = useMemo(() => {
+		if (!pendingShortcut) {
+			return [];
+		}
+		return getShortcutTargetDishes(dishNames, pendingShortcut.id);
 	}, [dishNames, pendingShortcut]);
 
 	const loadData = useCallback(async () => {
@@ -141,12 +154,16 @@ export default function InventoryPage() {
 			});
 
 			const nextQuantities: Record<string, string> = {};
+			const nextSaved: Record<string, number> = {};
 			rows.forEach((row) => {
-				nextQuantities[row.name] = String(savedInventory[row.name] ?? 0);
+				const qty = savedInventory[row.name] ?? 0;
+				nextQuantities[row.name] = String(qty);
+				nextSaved[row.name] = qty;
 			});
 
 			setMenuRows(rows);
 			setQuantities(nextQuantities);
+			setSavedQuantities(nextSaved);
 			setEditingItems(new Set());
 		} catch (error) {
 			console.error("Failed to load inventory page:", error);
@@ -195,6 +212,17 @@ export default function InventoryPage() {
 
 		return groups;
 	}, [visibleRows]);
+
+	const hasUnsavedChanges = useMemo(() => {
+		if (loading || menuRows.length === 0) {
+			return false;
+		}
+		return menuRows.some(
+			(row) =>
+				parseInventoryQty(quantities[row.name]) !==
+				(savedQuantities[row.name] ?? 0)
+		);
+	}, [loading, menuRows, quantities, savedQuantities]);
 
 	const handleQtyChange = (dishName: string, value: string) => {
 		if (value !== "" && !/^\d+$/.test(value)) {
@@ -248,6 +276,30 @@ export default function InventoryPage() {
 		}
 	};
 
+	const isDishOos = (dishName: string) =>
+		parseInventoryQty(quantities[dishName]) === 0;
+
+	const handleOosToggle = (dishName: string) => {
+		if (isDishOos(dishName)) {
+			setEditingItems((prev) => new Set(prev).add(dishName));
+			return;
+		}
+		setPendingOosDish(dishName);
+	};
+
+	const confirmMarkOos = () => {
+		if (!pendingOosDish) {
+			return;
+		}
+		setQuantities((prev) => ({ ...prev, [pendingOosDish]: "0" }));
+		setEditingItems((prev) => {
+			const next = new Set(prev);
+			next.delete(pendingOosDish);
+			return next;
+		});
+		setPendingOosDish(null);
+	};
+
 	return (
 		<div className="ops-app-screen">
 			<div className="ops-sticky-header bg-white border-b px-6 pb-4">
@@ -283,7 +335,11 @@ export default function InventoryPage() {
 								key={shortcut.id}
 								onClick={() => setPendingShortcut(shortcut)}
 								disabled={loading || applyingShortcut}
-								className="shrink-0 bg-gray-100 text-gray-800 active:bg-gray-200 min-w-[88px] px-3 border border-gray-300"
+								className={`shrink-0 bg-gray-100 text-gray-800 active:bg-gray-200 min-w-[88px] px-3 border ${
+									isOutOfStockInventoryShortcut(shortcut.id)
+										? "border-red-600"
+										: "border-gray-300"
+								}`}
 							>
 								{shortcut.label}
 							</TouchActionButton>
@@ -317,15 +373,39 @@ export default function InventoryPage() {
 								<div className="space-y-2">
 									{group.rows.map((row) => {
 										const isEditing = editingItems.has(row.name);
+										const oos = isDishOos(row.name);
 
 										return (
 											<div
 												key={row.name}
 												className="flex items-center justify-between gap-3 border border-gray-200 rounded-lg px-4 py-3 bg-white"
 											>
-												<p className="text-sm font-medium flex-1 min-w-0 truncate">
-													{row.name}
-												</p>
+												<div className="flex items-center gap-2 min-w-0 flex-1">
+													<button
+														type="button"
+														onClick={() => handleOosToggle(row.name)}
+														className={`shrink-0 min-h-[36px] px-2.5 rounded-lg text-[11px] font-bold tracking-wide touch-manipulation transition-colors border ${
+															oos
+																? "bg-red-600 text-white border-red-700 active:bg-red-700"
+																: "bg-gray-100 text-gray-600 border-red-600 active:bg-gray-200"
+														}`}
+														aria-pressed={oos}
+														aria-label={
+															oos
+																? `${row.name} is out of stock — tap to edit quantity`
+																: `Mark ${row.name} out of stock`
+														}
+													>
+														OOS
+													</button>
+													<p
+														className={`text-sm font-medium min-w-0 truncate ${
+															oos ? "text-gray-400" : ""
+														}`}
+													>
+														{row.name}
+													</p>
+												</div>
 												<div className="flex items-center gap-2 shrink-0">
 													<input
 														type="text"
@@ -368,7 +448,7 @@ export default function InventoryPage() {
 			<div className="fixed bottom-0 left-0 right-0 bg-white border-t px-6 py-4 shadow-lg z-20 pb-[calc(1rem+env(safe-area-inset-bottom))]">
 				<button
 					type="button"
-					disabled={loading}
+					disabled={loading || saving || !hasUnsavedChanges}
 					onClick={() => void handleSave()}
 					aria-busy={saving}
 					className="w-full min-h-[48px] inline-flex items-center justify-center rounded-lg bg-black text-white text-sm font-bold touch-manipulation active:bg-gray-800 disabled:opacity-50"
@@ -380,6 +460,31 @@ export default function InventoryPage() {
 					)}
 				</button>
 			</div>
+
+			{pendingOosDish && (
+				<div
+					className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+					onClick={() => setPendingOosDish(null)}
+				>
+					<div
+						className="w-full max-w-sm rounded-xl bg-white shadow-xl"
+						onClick={(event) => event.stopPropagation()}
+					>
+						<div className="px-5 py-4 border-b">
+							<h2 className="text-lg font-bold">Mark out of stock?</h2>
+							<p className="text-sm text-gray-600 mt-2">
+								Set inventory for{" "}
+								<span className="font-semibold">{pendingOosDish}</span> to 0?
+							</p>
+						</div>
+						<ConfirmModalActions
+							onCancel={() => setPendingOosDish(null)}
+							onConfirm={confirmMarkOos}
+							confirmLabel="Mark OOS"
+						/>
+					</div>
+				</div>
+			)}
 
 			{pendingShortcut && (
 				<div
@@ -402,6 +507,12 @@ export default function InventoryPage() {
 									pendingShortcutCount
 								)}
 							</p>
+							{isDishCategoryInventoryShortcut(pendingShortcut.id) &&
+							pendingShortcutDishes.length > 0 ? (
+								<p className="text-sm text-gray-800 mt-2 max-h-40 overflow-y-auto">
+									{pendingShortcutDishes.join(", ")}
+								</p>
+							) : null}
 						</div>
 						<ConfirmModalActions
 							onCancel={() => setPendingShortcut(null)}

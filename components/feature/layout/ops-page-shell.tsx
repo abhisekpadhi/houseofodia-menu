@@ -1,6 +1,7 @@
 'use client';
 
 import { TouchIconButton } from '@/components/ui/touch-controls';
+import { OpsMenuButton } from '@/components/feature/layout/ops-drawer';
 import { useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
 
@@ -26,6 +27,7 @@ type OpsPageShellProps = {
 	title: string;
 	titleIcon?: ReactNode;
 	backHref?: string;
+	showMenu?: boolean;
 	trailing?: ReactNode;
 	headerExtra?: ReactNode;
 	children: ReactNode;
@@ -36,6 +38,7 @@ export function OpsPageShell({
 	title,
 	titleIcon,
 	backHref = '/order',
+	showMenu = true,
 	trailing,
 	headerExtra,
 	children,
@@ -47,13 +50,16 @@ export function OpsPageShell({
 		<div className="ops-app-screen">
 			<header className="ops-sticky-header bg-white border-b px-4 sm:px-6">
 				<div className="flex items-center justify-between gap-2 py-3 min-h-[56px]">
-					<TouchIconButton
-						onClick={() => router.push(backHref)}
-						ariaLabel="Back to orders"
-						className="text-gray-700 active:bg-gray-100 -ml-1 shrink-0"
-					>
-						<BackIcon className="w-5 h-5" />
-					</TouchIconButton>
+					<div className="flex items-center gap-1 shrink-0">
+						{showMenu ? <OpsMenuButton /> : null}
+						<TouchIconButton
+							onClick={() => router.push(backHref)}
+							ariaLabel="Back to orders"
+							className="text-gray-700 active:bg-gray-100 -ml-1"
+						>
+							<BackIcon className="w-5 h-5" />
+						</TouchIconButton>
+					</div>
 					<h1 className="text-lg font-bold flex items-center justify-center gap-2 truncate flex-1 px-1">
 						{titleIcon}
 						<span className="truncate">{title}</span>

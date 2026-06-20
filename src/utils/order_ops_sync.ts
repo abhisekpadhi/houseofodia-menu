@@ -22,6 +22,9 @@ import {
 	upsertOrdersInHistory,
 } from '@/src/utils/order_history';
 import { maintainOrders } from '@/src/utils/order_utils';
+import { applyDayChecklistSnapshot } from '@/src/utils/day_checklist_utils';
+import { applySupplyInventorySnapshot } from '@/src/utils/supply_inventory_utils';
+import { applyWaitlistSnapshot } from '@/src/utils/waitlist_utils';
 import localforage from 'localforage';
 
 const ORDERS_KEY = 'orders';
@@ -137,6 +140,24 @@ export async function applyOrderOpsSnapshot(
 			);
 		} else {
 			await upsertOrdersInHistory(maintained);
+		}
+
+		if (payload.dayChecklists) {
+			await applyDayChecklistSnapshot(
+				payload.businessDate,
+				payload.dayChecklists
+			);
+		}
+
+		if (payload.supplyInventory) {
+			await applySupplyInventorySnapshot(
+				payload.businessDate,
+				payload.supplyInventory
+			);
+		}
+
+		if (payload.waitlist) {
+			await applyWaitlistSnapshot(payload.businessDate, payload.waitlist);
 		}
 
 		await setOrderOpsMetaVersion(payload.stateVersion, payload.businessDate);

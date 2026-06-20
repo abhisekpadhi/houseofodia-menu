@@ -8,6 +8,7 @@ import {
 	TCart,
 	TDish,
 } from "@/src/models/common";
+import { ConfirmModalActions } from "@/components/ui/touch-controls";
 import axios from "axios";
 import localforage from "localforage";
 import { useRouter } from "next/navigation";
@@ -26,6 +27,7 @@ const Cart = () => {
 	const [processing, setProcessing] = useState(false);
 	const [attribute, setAttribute] = useState("");
 	const [changeTo, setChangeTo] = useState("");
+	const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
 	useEffect(() => {
 		localforage.getItem<TCart>("cart").then((data) => {
@@ -43,12 +45,20 @@ const Cart = () => {
 		localforage.setItem("cart", { items: [] }).then(() => {
 			localforage.removeItem(BILLING_CONTEXT_KEY).then(() => {
 				localforage.setItem("bill", null).then(() => {
+					setClearConfirmOpen(false);
 					router.push(
 						billingContext?.source === "orders" ? "/order" : "/freeflow"
 					);
 				});
 			});
 		});
+	};
+
+	const requestClear = () => {
+		if (cart.items.length === 0) {
+			return;
+		}
+		setClearConfirmOpen(true);
 	};
 
 	const handleBack = () => {
@@ -201,8 +211,9 @@ const Cart = () => {
 					<h1 className="text-xl font-bold">Cart</h1>
 					<button
 						type="button"
-						onClick={handleClear}
-						className="text-sm font-semibold text-red-600 hover:text-red-800 px-2 py-1 rounded-lg hover:bg-red-50"
+						onClick={requestClear}
+						disabled={cart.items.length === 0}
+						className="text-sm font-semibold text-red-600 hover:text-red-800 px-2 py-1 rounded-lg hover:bg-red-50 disabled:opacity-40 disabled:hover:bg-transparent"
 					>
 						Clear
 					</button>
@@ -315,6 +326,32 @@ const Cart = () => {
 					</button>
 				</div>
 			</div>
+
+			{clearConfirmOpen ? (
+				<div
+					className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+					onClick={() => setClearConfirmOpen(false)}
+				>
+					<div
+						className="w-full max-w-sm rounded-xl bg-white shadow-xl"
+						onClick={(event) => event.stopPropagation()}
+					>
+						<div className="px-5 py-4 border-b">
+							<h2 className="text-lg font-bold">Clear cart?</h2>
+							<p className="text-sm text-gray-600 mt-2">
+								All {cart.items.length} item
+								{cart.items.length === 1 ? "" : "s"} will be removed from the
+								cart.
+							</p>
+						</div>
+						<ConfirmModalActions
+							onCancel={() => setClearConfirmOpen(false)}
+							onConfirm={handleClear}
+							confirmLabel="Clear cart"
+						/>
+					</div>
+				</div>
+			) : null}
 		</div>
 	);
 };

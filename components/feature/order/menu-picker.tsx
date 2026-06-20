@@ -25,6 +25,8 @@ type MenuPickerProps = {
   onIncrement: (item: { name: string; price: string }) => void;
   onDecrement: (item: { name: string }) => void;
   headerAction?: React.ReactNode;
+  /** When true, hide items with zero inventory. */
+  inStockOnly?: boolean;
 };
 
 export function MenuPicker({
@@ -33,6 +35,7 @@ export function MenuPicker({
   onIncrement,
   onDecrement,
   headerAction,
+  inStockOnly = false,
 }: MenuPickerProps) {
   const [fetchingMenu, setFetchingMenu] = React.useState(true);
   const [menu, setMenu] = React.useState<TMenu | null>(null);
@@ -123,8 +126,14 @@ export function MenuPicker({
       });
     }
 
+    if (inStockOnly) {
+      filtered = filtered.filter(
+        (item) => !isOutOfStock(inventory, item.name, 0)
+      );
+    }
+
     return filtered;
-  }, [allItems, selectedCategory, searchTerm]);
+  }, [allItems, selectedCategory, searchTerm, inStockOnly, inventory]);
 
   if (fetchingMenu) {
     return (

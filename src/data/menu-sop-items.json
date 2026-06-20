@@ -1,0 +1,1226 @@
+[
+  {
+    "category": "Chinese",
+    "name": "99 - chicken 65",
+    "description": "",
+    "is_veg": false,
+    "price": "99",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "99 - Crispy corn",
+    "description": "",
+    "is_veg": false,
+    "price": "99",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "99 - Double egg bread omlette",
+    "description": "",
+    "is_veg": false,
+    "price": "99",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "99 - egg fried rice",
+    "description": "",
+    "is_veg": false,
+    "price": "99",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "99 - gobi 65",
+    "description": "",
+    "is_veg": false,
+    "price": "99",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "99 - pepper mushroom",
+    "description": "",
+    "is_veg": true,
+    "price": "99",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "99 - veg noodles",
+    "description": "",
+    "is_veg": true,
+    "price": "99",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "99 - veg spring roll",
+    "description": "",
+    "is_veg": true,
+    "price": "99",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Babycorn chilli",
+    "description": "",
+    "is_veg": true,
+    "price": "219",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Chicken fried rice",
+    "description": "",
+    "is_veg": false,
+    "price": "229",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Chicken hot sour soup",
+    "description": "",
+    "is_veg": false,
+    "price": "149",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Chicken lollipop",
+    "description": "",
+    "is_veg": false,
+    "price": "249",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Chicken noodles",
+    "description": "",
+    "is_veg": false,
+    "price": "229",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Chicken schezwan fried rice",
+    "description": "",
+    "is_veg": false,
+    "price": "239",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Chicken schezwan noodles",
+    "description": "",
+    "is_veg": false,
+    "price": "239",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Chicken Thukpa",
+    "description": "",
+    "is_veg": false,
+    "price": "229",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Chilli chicken",
+    "description": "",
+    "is_veg": false,
+    "price": "229",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Chilli mushroom",
+    "description": "",
+    "is_veg": true,
+    "price": "199",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Chilli prawn",
+    "description": "",
+    "is_veg": false,
+    "price": "269",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Double egg fried rice",
+    "description": "",
+    "is_veg": false,
+    "price": "199",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Double egg, chicken fried rice",
+    "description": "",
+    "is_veg": false,
+    "price": "249",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Dragon chicken",
+    "description": "",
+    "is_veg": false,
+    "price": "249",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Egg fried rice",
+    "description": "",
+    "is_veg": false,
+    "price": "209",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Egg noodles",
+    "description": "",
+    "is_veg": false,
+    "price": "209",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Fish chilli",
+    "description": "",
+    "is_veg": false,
+    "price": "249",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Gobi manchurian",
+    "description": "",
+    "is_veg": true,
+    "price": "189",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Mushroom manchurian ",
+    "description": "",
+    "is_veg": true,
+    "price": "199",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Mushroom noodle",
+    "description": "",
+    "is_veg": true,
+    "price": "199",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Paneer 65",
+    "description": "",
+    "is_veg": true,
+    "price": "199",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Paneer chilli",
+    "description": "",
+    "is_veg": true,
+    "price": "219",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Pepper chicken",
+    "description": "",
+    "is_veg": false,
+    "price": "229",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Prawn 65",
+    "description": "",
+    "is_veg": false,
+    "price": "259",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Prawn manchurian",
+    "description": "",
+    "is_veg": false,
+    "price": "359",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Veg fried rice",
+    "description": "",
+    "is_veg": true,
+    "price": "199",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Veg hot sour soup",
+    "description": "",
+    "is_veg": true,
+    "price": "129",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Veg noodles",
+    "description": "",
+    "is_veg": true,
+    "price": "199",
+    "sop": ""
+  },
+  {
+    "category": "Chinese",
+    "name": "Veg thukpa",
+    "description": "",
+    "is_veg": true,
+    "price": "199",
+    "sop": ""
+  },
+  {
+    "category": "Combo",
+    "name": "aloo paratha combo",
+    "description": "",
+    "is_veg": true,
+    "price": "109",
+    "sop": ""
+  },
+  {
+    "category": "Combo",
+    "name": "Chandanpur chuda kadamba dalma",
+    "description": "",
+    "is_veg": true,
+    "price": "299",
+    "sop": ""
+  },
+  {
+    "category": "Combo",
+    "name": "Cutack Dahibara aloodum",
+    "description": "",
+    "is_veg": true,
+    "price": "139",
+    "sop": ""
+  },
+  {
+    "category": "Combo",
+    "name": "Ghee kissed chuda ghassa dalma",
+    "description": "",
+    "is_veg": true,
+    "price": "269",
+    "sop": ""
+  },
+  {
+    "category": "Combo",
+    "name": "paneer paratha combo",
+    "description": "",
+    "is_veg": false,
+    "price": "129",
+    "sop": ""
+  },
+  {
+    "category": "Combo",
+    "name": "Paratha + chicken",
+    "description": "",
+    "is_veg": false,
+    "price": "239",
+    "sop": ""
+  },
+  {
+    "category": "Combo",
+    "name": "Paratha + dalma",
+    "description": "",
+    "is_veg": true,
+    "price": "169",
+    "sop": ""
+  },
+  {
+    "category": "Combo",
+    "name": "Paratha + mutton",
+    "description": "",
+    "is_veg": false,
+    "price": "369",
+    "sop": ""
+  },
+  {
+    "category": "Combo",
+    "name": "Poori desi combo - aloodum",
+    "description": "",
+    "is_veg": true,
+    "price": "109",
+    "sop": ""
+  },
+  {
+    "category": "Combo",
+    "name": "Poori desi combo - dalma",
+    "description": "",
+    "is_veg": true,
+    "price": "159",
+    "sop": ""
+  },
+  {
+    "category": "Combo",
+    "name": "Roti + chicken",
+    "description": "",
+    "is_veg": false,
+    "price": "239",
+    "sop": ""
+  },
+  {
+    "category": "Combo",
+    "name": "Roti + dalma",
+    "description": "",
+    "is_veg": true,
+    "price": "169",
+    "sop": ""
+  },
+  {
+    "category": "Combo",
+    "name": "Roti + mutton",
+    "description": "",
+    "is_veg": false,
+    "price": "369",
+    "sop": ""
+  },
+  {
+    "category": "Desserts",
+    "name": "Gajar halwa glow",
+    "description": "",
+    "is_veg": true,
+    "price": "159",
+    "sop": ""
+  },
+  {
+    "category": "Desserts",
+    "name": "Ice cream",
+    "description": "",
+    "is_veg": true,
+    "price": "59",
+    "sop": ""
+  },
+  {
+    "category": "Desserts",
+    "name": "Kheer memories",
+    "description": "",
+    "is_veg": true,
+    "price": "159",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Chicken kassa royale",
+    "description": "",
+    "is_veg": false,
+    "price": "359",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Chilika crab curry",
+    "description": "",
+    "is_veg": false,
+    "price": "699",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Coastal fish curry",
+    "description": "",
+    "is_veg": false,
+    "price": "339",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Everyday chicken curry",
+    "description": "",
+    "is_veg": false,
+    "price": "349",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Fish besara classic",
+    "description": "",
+    "is_veg": false,
+    "price": "349",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Fish head chencheda",
+    "description": "",
+    "is_veg": false,
+    "price": "249",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Gopalpul coconut prawn",
+    "description": "",
+    "is_veg": false,
+    "price": "449",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Heritage mutton kassa",
+    "description": "",
+    "is_veg": false,
+    "price": "609",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Mushroom besara bliss",
+    "description": "",
+    "is_veg": true,
+    "price": "359",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Mushroom curry classic",
+    "description": "",
+    "is_veg": true,
+    "price": "349",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Odia Dalma",
+    "description": "",
+    "is_veg": true,
+    "price": "159",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Paneer classic curry",
+    "description": "",
+    "is_veg": true,
+    "price": "359",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Picnic goat mutton curry",
+    "description": "",
+    "is_veg": false,
+    "price": "559",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Poi prawn ghanta",
+    "description": "",
+    "is_veg": false,
+    "price": "259",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Prawn curry comfort",
+    "description": "",
+    "is_veg": false,
+    "price": "359",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Prawn dalma fusion",
+    "description": "",
+    "is_veg": false,
+    "price": "209",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Prawn kassa special",
+    "description": "",
+    "is_veg": false,
+    "price": "409",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Santula veg bowl",
+    "description": "",
+    "is_veg": true,
+    "price": "109",
+    "sop": ""
+  },
+  {
+    "category": "Mains",
+    "name": "Tadka tales",
+    "description": "",
+    "is_veg": true,
+    "price": "209",
+    "sop": ""
+  },
+  {
+    "category": "Packaging",
+    "name": "Packaging charge",
+    "description": "",
+    "is_veg": true,
+    "price": "20",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - chicken mini meal",
+    "description": "",
+    "is_veg": false,
+    "price": "189",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - dahivada aloodum",
+    "description": "",
+    "is_veg": true,
+    "price": "109",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - Dal khichdi",
+    "description": "",
+    "is_veg": true,
+    "price": "129",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - egg mini meal",
+    "description": "",
+    "is_veg": false,
+    "price": "159",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - fish mini meal",
+    "description": "",
+    "is_veg": false,
+    "price": "209",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - gajar halwa",
+    "description": "",
+    "is_veg": true,
+    "price": "149",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - kheer",
+    "description": "",
+    "is_veg": true,
+    "price": "149",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - Loaded aloo paratha",
+    "description": "",
+    "is_veg": true,
+    "price": "129",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - Loaded paneer paratha",
+    "description": "",
+    "is_veg": true,
+    "price": "169",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - mushroom meal",
+    "description": "",
+    "is_veg": true,
+    "price": "149",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - mutton mini meal",
+    "description": "",
+    "is_veg": false,
+    "price": "209",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - pakhala mini meal",
+    "description": "",
+    "is_veg": false,
+    "price": "209",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - paneer mini meal",
+    "description": "",
+    "is_veg": true,
+    "price": "169",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - poori",
+    "description": "",
+    "is_veg": true,
+    "price": "139",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - rabri lassi",
+    "description": "",
+    "is_veg": true,
+    "price": "99",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - Roti & dalma",
+    "description": "",
+    "is_veg": true,
+    "price": "129",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - spiced buttermilk",
+    "description": "",
+    "is_veg": true,
+    "price": "99",
+    "sop": ""
+  },
+  {
+    "category": "Quick",
+    "name": "quick - Veg mini meal",
+    "description": "",
+    "is_veg": true,
+    "price": "89",
+    "sop": ""
+  },
+  {
+    "category": "Rice",
+    "name": "Curd rice calm",
+    "description": "",
+    "is_veg": true,
+    "price": "119",
+    "sop": ""
+  },
+  {
+    "category": "Rice",
+    "name": "Jeera whisper rice",
+    "description": "",
+    "is_veg": true,
+    "price": "109",
+    "sop": ""
+  },
+  {
+    "category": "Rice",
+    "name": "Pakhala rice only",
+    "description": "",
+    "is_veg": true,
+    "price": "129",
+    "sop": ""
+  },
+  {
+    "category": "Rice",
+    "name": "Paratha 1pc",
+    "description": "",
+    "is_veg": true,
+    "price": "49",
+    "sop": ""
+  },
+  {
+    "category": "Rice",
+    "name": "Paratha 2pcs",
+    "description": "",
+    "is_veg": true,
+    "price": "85",
+    "sop": ""
+  },
+  {
+    "category": "Rice",
+    "name": "Paratha 4pcs",
+    "description": "",
+    "is_veg": true,
+    "price": "109",
+    "sop": ""
+  },
+  {
+    "category": "Rice",
+    "name": "Roti 1pc",
+    "description": "",
+    "is_veg": true,
+    "price": "39",
+    "sop": ""
+  },
+  {
+    "category": "Rice",
+    "name": "Roti 2pcs",
+    "description": "",
+    "is_veg": true,
+    "price": "75",
+    "sop": ""
+  },
+  {
+    "category": "Rice",
+    "name": "Roti 4pcs",
+    "description": "",
+    "is_veg": true,
+    "price": "99",
+    "sop": ""
+  },
+  {
+    "category": "Rice",
+    "name": "Soulful ghee rice",
+    "description": "",
+    "is_veg": true,
+    "price": "139",
+    "sop": ""
+  },
+  {
+    "category": "Rice",
+    "name": "Steam rice",
+    "description": "",
+    "is_veg": true,
+    "price": "99",
+    "sop": ""
+  },
+  {
+    "category": "Sides",
+    "name": "Ambula rai khatta",
+    "description": "",
+    "is_veg": true,
+    "price": "59",
+    "sop": ""
+  },
+  {
+    "category": "Sides",
+    "name": "Dry fish sukua paga",
+    "description": "",
+    "is_veg": false,
+    "price": "199",
+    "sop": ""
+  },
+  {
+    "category": "Sides",
+    "name": "Golden aloo karela chips",
+    "description": "",
+    "is_veg": true,
+    "price": "69",
+    "sop": ""
+  },
+  {
+    "category": "Sides",
+    "name": "Grandma's aloo bharta",
+    "description": "",
+    "is_veg": true,
+    "price": "49",
+    "sop": ""
+  },
+  {
+    "category": "Sides",
+    "name": "Grandma's peanut chilli garlic mash",
+    "description": "",
+    "is_veg": true,
+    "price": "69",
+    "sop": ""
+  },
+  {
+    "category": "Sides",
+    "name": "Keonjhar badi chura",
+    "description": "",
+    "is_veg": true,
+    "price": "89",
+    "sop": ""
+  },
+  {
+    "category": "Sides",
+    "name": "Saag swag",
+    "description": "",
+    "is_veg": true,
+    "price": "59",
+    "sop": ""
+  },
+  {
+    "category": "Sides",
+    "name": "Sukua in mustard mood",
+    "description": "",
+    "is_veg": false,
+    "price": "249",
+    "sop": ""
+  },
+  {
+    "category": "Sides",
+    "name": "Tomato thok thok poda",
+    "description": "",
+    "is_veg": true,
+    "price": "59",
+    "sop": ""
+  },
+  {
+    "category": "Sides",
+    "name": "Village style mango mashed",
+    "description": "",
+    "is_veg": true,
+    "price": "89",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Classic black coffee",
+    "description": "",
+    "is_veg": true,
+    "price": "69",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Classic black coffee - takeaway / parcel",
+    "description": "",
+    "is_veg": true,
+    "price": "30",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Dalgona coffee cloud",
+    "description": "",
+    "is_veg": true,
+    "price": "149",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Ginger / Elaichi chai",
+    "description": "",
+    "is_veg": true,
+    "price": "69",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Ginger / Elaichi chai - parcel / takeaway",
+    "description": "",
+    "is_veg": true,
+    "price": "30",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Lemon tea lift",
+    "description": "",
+    "is_veg": true,
+    "price": "59",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Lime Soda",
+    "description": "",
+    "is_veg": true,
+    "price": "89",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Milk coffee classic",
+    "description": "",
+    "is_veg": true,
+    "price": "89",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Milk coffee classic - takeaway / parcel",
+    "description": "",
+    "is_veg": true,
+    "price": "40",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Plain buttermilk",
+    "description": "",
+    "is_veg": true,
+    "price": "99",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Sahid nagar lassi",
+    "description": "",
+    "is_veg": true,
+    "price": "129",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Soft drink",
+    "description": "",
+    "is_veg": true,
+    "price": "20",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Tea masala",
+    "description": "",
+    "is_veg": true,
+    "price": "79",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Tea masala - parcel / takeaway",
+    "description": "",
+    "is_veg": true,
+    "price": "40",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Tea plain",
+    "description": "",
+    "is_veg": true,
+    "price": "59",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Tea plain - parcel / takeaway",
+    "description": "",
+    "is_veg": true,
+    "price": "25",
+    "sop": ""
+  },
+  {
+    "category": "Sips",
+    "name": "Water",
+    "description": "",
+    "is_veg": true,
+    "price": "20",
+    "sop": ""
+  },
+  {
+    "category": "Starters",
+    "name": "Berhampur chips & dips",
+    "description": "",
+    "is_veg": true,
+    "price": "139",
+    "sop": ""
+  },
+  {
+    "category": "Starters",
+    "name": "Chaul bara reloaded",
+    "description": "",
+    "is_veg": true,
+    "price": "159",
+    "sop": ""
+  },
+  {
+    "category": "Starters",
+    "name": "Classic odia fish fry",
+    "description": "",
+    "is_veg": false,
+    "price": "149",
+    "sop": ""
+  },
+  {
+    "category": "Starters",
+    "name": "Herb wrapped costal fish",
+    "description": "",
+    "is_veg": false,
+    "price": "249",
+    "sop": ""
+  },
+  {
+    "category": "Starters",
+    "name": "Monsoon chicken pakoda",
+    "description": "",
+    "is_veg": false,
+    "price": "199",
+    "sop": ""
+  },
+  {
+    "category": "Starters",
+    "name": "Mushroom poppers",
+    "description": "",
+    "is_veg": true,
+    "price": "249",
+    "sop": ""
+  },
+  {
+    "category": "Starters",
+    "name": "Onion pakoda",
+    "description": "",
+    "is_veg": true,
+    "price": "94",
+    "sop": ""
+  },
+  {
+    "category": "Starters",
+    "name": "Paneer crunchies",
+    "description": "",
+    "is_veg": true,
+    "price": "249",
+    "sop": ""
+  },
+  {
+    "category": "Starters",
+    "name": "Tawa tales fish fry",
+    "description": "",
+    "is_veg": false,
+    "price": "199",
+    "sop": ""
+  },
+  {
+    "category": "Thalis",
+    "name": "Bhojanam",
+    "description": "",
+    "is_veg": true,
+    "price": "259",
+    "sop": ""
+  },
+  {
+    "category": "Thalis",
+    "name": "Chicken thali",
+    "description": "",
+    "is_veg": false,
+    "price": "399",
+    "sop": ""
+  },
+  {
+    "category": "Thalis",
+    "name": "Crab thali",
+    "description": "",
+    "is_veg": false,
+    "price": "559",
+    "sop": ""
+  },
+  {
+    "category": "Thalis",
+    "name": "Fish thali",
+    "description": "",
+    "is_veg": false,
+    "price": "359",
+    "sop": ""
+  },
+  {
+    "category": "Thalis",
+    "name": "Mudhi chicken",
+    "description": "",
+    "is_veg": false,
+    "price": "239",
+    "sop": ""
+  },
+  {
+    "category": "Thalis",
+    "name": "Mudhi mutton",
+    "description": "",
+    "is_veg": false,
+    "price": "359",
+    "sop": ""
+  },
+  {
+    "category": "Thalis",
+    "name": "Mushroom thali",
+    "description": "",
+    "is_veg": true,
+    "price": "359",
+    "sop": ""
+  },
+  {
+    "category": "Thalis",
+    "name": "Mutton thali",
+    "description": "",
+    "is_veg": false,
+    "price": "509",
+    "sop": ""
+  },
+  {
+    "category": "Thalis",
+    "name": "Pakhala dry fish platter",
+    "description": "",
+    "is_veg": false,
+    "price": "449",
+    "sop": ""
+  },
+  {
+    "category": "Thalis",
+    "name": "Pakhala fish fry platter",
+    "description": "",
+    "is_veg": false,
+    "price": "399",
+    "sop": ""
+  },
+  {
+    "category": "Thalis",
+    "name": "Pakhala veg platter",
+    "description": "",
+    "is_veg": true,
+    "price": "299",
+    "sop": ""
+  },
+  {
+    "category": "Thalis",
+    "name": "Paneer thali",
+    "description": "",
+    "is_veg": true,
+    "price": "309",
+    "sop": ""
+  },
+  {
+    "category": "Thalis",
+    "name": "Prawn thali",
+    "description": "",
+    "is_veg": false,
+    "price": "449",
+    "sop": ""
+  },
+  {
+    "category": "Thalis",
+    "name": "Prawn thali",
+    "description": "",
+    "is_veg": false,
+    "price": "409",
+    "sop": ""
+  },
+  {
+    "category": "Thalis",
+    "name": "Veg thali",
+    "description": "",
+    "is_veg": true,
+    "price": "259",
+    "sop": ""
+  }
+]

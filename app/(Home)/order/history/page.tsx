@@ -18,7 +18,7 @@ import {
 	shareOrderHistoryAsExcel,
 	sortOrderHistory,
 } from '@/src/utils/order_history';
-import { formatOrderTime, orderTotal } from '@/src/utils/order_utils';
+import { formatCustomerContact, formatOrderTime, orderTotal } from '@/src/utils/order_utils';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -197,6 +197,7 @@ export default function OrderHistoryPage() {
 						{filteredOrders.map((order) => {
 							const status = getOrderHistoryStatus(order);
 							const total = orderTotal(order.items);
+							const customerContact = formatCustomerContact(order);
 
 							return (
 								<li
@@ -211,6 +212,11 @@ export default function OrderHistoryPage() {
 											<p className="text-xs text-gray-500 mt-0.5">
 												{formatOrderTime(order.createdAt)}
 											</p>
+											{customerContact ? (
+												<p className="text-xs font-medium text-gray-700 mt-1">
+													{customerContact}
+												</p>
+											) : null}
 										</div>
 										<div className="flex flex-col items-end gap-1 shrink-0">
 											<span

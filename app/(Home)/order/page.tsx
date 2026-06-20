@@ -4,6 +4,8 @@ import { ItemGroup, OrderGroup, TCart, TMenuApiItem, TOrder, TOrdersStore, Billi
 import {
 	formatOrderLabel,
 	formatOrderTime,
+	getGroupCustomerDetails,
+	getGroupNotes,
 	fulfillNextUnitForDish,
 	getGroupLateByMs,
 	getOrderItemUnitDisplay,
@@ -30,6 +32,7 @@ import {
 	isUnitLastFulfilled,
 	isUnitNextToFulfill,
 	unfulfillLastUnitForDish,
+	updateGroupNotes,
 	updateOrders,
 	cancelItemUnit,
 } from "@/src/utils/order_utils";
@@ -38,6 +41,7 @@ import { itemCancelReasonLabel } from "@/src/utils/item_cancel_reasons";
 import { EditOrderModal } from "@/components/feature/order/edit-order-modal";
 import { CancelItemModal } from "@/components/feature/order/cancel-item-modal";
 import { OrderOpsSyncIndicator } from "@/components/feature/order/order-ops-sync-indicator";
+import { OpsMenuButton } from "@/components/feature/layout/ops-drawer";
 import {
 	ConfirmModalActions,
 	LoadingSpinner,
@@ -112,6 +116,45 @@ function PlusIcon({ className }: { className?: string }) {
 		>
 			<path d="M5 12h14" />
 			<path d="M12 5v14" />
+		</svg>
+	);
+}
+
+function NoteIcon({ className }: { className?: string }) {
+	return (
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			className={className}
+			aria-hidden
+		>
+			<path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z" />
+			<path d="M15 3v4a2 2 0 0 0 2 2h4" />
+			<path d="M8 13h6" />
+			<path d="M8 17h4" />
+		</svg>
+	);
+}
+
+function PhoneIcon({ className }: { className?: string }) {
+	return (
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			className={className}
+			aria-hidden
+		>
+			<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
 		</svg>
 	);
 }
@@ -332,6 +375,93 @@ function OrderRow({
 	);
 }
 
+function TableServicePill({
+	label,
+	checked,
+	loading,
+	onClick,
+}: {
+	label: string;
+	checked: boolean;
+	loading?: boolean;
+	onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			disabled={checked || loading}
+			aria-pressed={checked}
+			aria-busy={loading}
+			className={`inline-flex min-h-[36px] items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold touch-manipulation transition-colors ${
+				checked
+					? "bg-green-100 border border-green-600 text-green-800"
+					: "bg-white border border-gray-300 text-gray-700 active:bg-gray-100"
+			}`}
+		>
+			<span>{label}</span>
+			{loading ? (
+				<LoadingSpinner className="h-4 w-4 shrink-0" />
+			) : checked ? (
+				<CheckIcon checked className="w-4 h-4 shrink-0 text-green-700" />
+			) : null}
+		</button>
+	);
+}
+
+function GroupNotesModal({
+	group,
+	draft,
+	saving,
+	onDraftChange,
+	onClose,
+	onSave,
+}: {
+	group: OrderGroup;
+	draft: string;
+	saving: boolean;
+	onDraftChange: (value: string) => void;
+	onClose: () => void;
+	onSave: () => void;
+}) {
+	return (
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+			onClick={() => {
+				if (!saving) {
+					onClose();
+				}
+			}}
+		>
+			<div
+				className="w-full max-w-sm rounded-xl bg-white shadow-xl"
+				onClick={(event) => event.stopPropagation()}
+			>
+				<div className="px-5 py-4 border-b">
+					<h2 className="text-lg font-bold">Table notes</h2>
+					<p className="text-sm text-gray-600 mt-2">
+						Notes for {group.label} — visible on this orders view only.
+					</p>
+					<textarea
+						value={draft}
+						onChange={(e) => onDraftChange(e.target.value)}
+						placeholder="e.g. birthday, allergy, seating preference..."
+						rows={4}
+						className="mt-3 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none"
+					/>
+				</div>
+				<ConfirmModalActions
+					onCancel={onClose}
+					onConfirm={onSave}
+					confirmLabel="Save notes"
+					confirming={saving}
+					cancelDisabled={saving}
+				/>
+			</div>
+		</div>
+	);
+}
+
 function TableOrderCard({
 	group,
 	now,
@@ -343,6 +473,7 @@ function TableOrderCard({
 	onRequestWelcomeDrink,
 	onRequestComplementary,
 	onRequestCancelItem,
+	onEditNotes,
 }: {
 	group: OrderGroup;
 	now: number;
@@ -358,11 +489,12 @@ function TableOrderCard({
 		itemIndex: number,
 		unitIndex: number
 	) => void;
+	onEditNotes: (group: OrderGroup) => void;
 }) {
 	const addOrderHref =
 		group.kind === "table" && group.tableNumbers?.length
 			? `/order/new?tables=${group.tableNumbers.join(",")}`
-			: `/order/new?type=${group.kind}`;
+			: `/order/new?type=${group.kind}&groupKey=${encodeURIComponent(group.key)}`;
 
 	const isLate = group.kind === "table" && isGroupLate(group, now);
 	const allDone = group.kind === "table" && isGroupFullyMarkedDone(group);
@@ -374,6 +506,11 @@ function TableOrderCard({
 	const drinkServed = isTableWelcomeDrinkServed(group);
 	const compServed = isTableComplementaryServed(group);
 	const showTableService = group.kind === "table";
+	const groupCustomer = getGroupCustomerDetails(group);
+	const hasGroupCustomer =
+		groupCustomer.name !== undefined || groupCustomer.phone !== undefined;
+	const groupNotes = getGroupNotes(group);
+	const notesPending = isActionPending(`notes:${group.key}`);
 
 	return (
 		<div
@@ -408,41 +545,76 @@ function TableOrderCard({
 						</TouchActionButton>
 						<h3 className="text-lg font-semibold truncate">{group.label}</h3>
 					</div>
-					<Link
-						href={addOrderHref}
-						className="inline-flex min-h-[44px] items-center gap-1 rounded-full bg-green-100 text-green-700 hover:bg-green-200 touch-manipulation px-3 shrink-0"
-						aria-label={`Add order to ${group.label}`}
-					>
-						<PlusIcon className="w-4 h-4 shrink-0" />
-						<span className="text-xs font-semibold">New order</span>
-					</Link>
+					<div className="flex items-center gap-2 shrink-0">
+						<button
+							type="button"
+							onClick={() => onEditNotes(group)}
+							disabled={notesPending}
+							className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full touch-manipulation transition-colors disabled:opacity-50 ${
+								groupNotes
+									? "bg-green-500 text-white hover:bg-green-600 active:bg-green-700"
+									: "bg-gray-100 text-gray-700 hover:bg-gray-200 active:bg-gray-300"
+							}`}
+							aria-label={groupNotes ? "Edit table notes" : "Add table notes"}
+						>
+							{notesPending ? (
+								<LoadingSpinner
+									className={`h-4 w-4 shrink-0 ${groupNotes ? "text-white" : "text-gray-600"}`}
+								/>
+							) : (
+								<NoteIcon className="w-4 h-4 shrink-0" />
+							)}
+						</button>
+						<Link
+							href={addOrderHref}
+							className="inline-flex min-h-[44px] items-center gap-1 rounded-full bg-green-100 text-green-700 hover:bg-green-200 touch-manipulation px-3 shrink-0"
+							aria-label={`Add order to ${group.label}`}
+						>
+							<PlusIcon className="w-4 h-4 shrink-0" />
+							<span className="text-xs font-semibold">add order</span>
+						</Link>
+					</div>
 				</div>
+				{hasGroupCustomer ? (
+					<div className="flex items-center gap-2 flex-wrap text-sm font-medium text-gray-700">
+						{groupCustomer.name ? <span>{groupCustomer.name}</span> : null}
+						{groupCustomer.name && groupCustomer.phone ? (
+							<span className="text-gray-400">·</span>
+						) : null}
+						{groupCustomer.phone ? (
+							<span className="inline-flex items-center gap-1.5">
+								<span>{groupCustomer.phone}</span>
+								<a
+									href={`tel:${groupCustomer.phone}`}
+									className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-full bg-green-100 text-green-700 hover:bg-green-200 active:bg-green-300 touch-manipulation"
+									aria-label={`Call ${groupCustomer.phone}`}
+								>
+									<PhoneIcon className="w-4 h-4 shrink-0" />
+								</a>
+							</span>
+						) : null}
+					</div>
+				) : null}
+				{groupNotes ? (
+					<p className="text-xs text-gray-600 leading-relaxed">
+						<span className="font-semibold text-gray-700">Note:</span>{" "}
+						{groupNotes}
+					</p>
+				) : null}
 				{showTableService ? (
 					<div className="flex items-center gap-2 flex-wrap pt-1">
-						<TouchActionButton
-							onClick={() => onRequestWelcomeDrink(group)}
+						<TableServicePill
+							label="🥤 Drink"
+							checked={drinkServed}
 							loading={drinkPending}
-							disabled={drinkServed || drinkPending}
-							className={
-								drinkServed
-									? "bg-green-600 border border-green-600 text-white min-w-[88px]"
-									: "bg-white border border-gray-300 text-gray-700 active:bg-gray-100 min-w-[88px]"
-							}
-						>
-							Drink
-						</TouchActionButton>
-						<TouchActionButton
-							onClick={() => onRequestComplementary(group)}
+							onClick={() => onRequestWelcomeDrink(group)}
+						/>
+						<TableServicePill
+							label="🫓 Complementary"
+							checked={compServed}
 							loading={compPending}
-							disabled={compServed || compPending}
-							className={
-								compServed
-									? "bg-green-600 border border-green-600 text-white min-w-[88px]"
-									: "bg-white border border-gray-300 text-gray-700 active:bg-gray-100 min-w-[88px]"
-							}
-						>
-							Complementary
-						</TouchActionButton>
+							onClick={() => onRequestComplementary(group)}
+						/>
 					</div>
 				) : null}
 				<p className="text-xs text-gray-500">
@@ -568,11 +740,13 @@ function ItemGroupCard({
 	orders,
 	onToggleUnit,
 	onRequestCancelUnit,
+	aggregatesView,
 }: {
 	group: ItemGroup;
 	orders: TOrder[];
 	onToggleUnit: (dishName: string, wasFulfilled: boolean) => Promise<void>;
 	onRequestCancelUnit: (unit: ItemGroup["units"][number]) => void;
+	aggregatesView: boolean;
 }) {
 	const [pendingAction, setPendingAction] = useState<{
 		unitIndex: number;
@@ -583,14 +757,77 @@ function ItemGroupCard({
 	const pendingUnit =
 		pendingAction != null ? group.units[pendingAction.unitIndex] : null;
 
+	const dishAggregates = useMemo(() => {
+		const map = new Map<
+			string,
+			{ totalQty: number; pendingQty: number; fulfilledQty: number; cancelledQty: number }
+		>();
+		for (const unit of group.units) {
+			const entry = map.get(unit.dishName) ?? {
+				totalQty: 0,
+				pendingQty: 0,
+				fulfilledQty: 0,
+				cancelledQty: 0,
+			};
+			entry.totalQty += 1;
+			if (unit.cancelled) {
+				entry.cancelledQty += 1;
+			} else if (unit.fulfilled) {
+				entry.fulfilledQty += 1;
+			} else {
+				entry.pendingQty += 1;
+			}
+			map.set(unit.dishName, entry);
+		}
+		return Array.from(map.entries())
+			.map(([dishName, counts]) => ({ dishName, ...counts }))
+			.sort((a, b) => a.dishName.localeCompare(b.dishName));
+	}, [group.units]);
+
 	return (
 		<div className="rounded-xl border bg-white shadow-md">
 			<div className="p-6 pb-3">
 				<h3 className="text-lg font-semibold">{group.name}</h3>
 				<p className="text-xs text-gray-500 mt-1">
-					{group.remainingQty} of {group.totalQty} pending
+					{aggregatesView
+						? `${dishAggregates.length} dish${dishAggregates.length === 1 ? "" : "es"} · ${group.totalQty} total`
+						: `${group.remainingQty} of ${group.totalQty} pending`}
 				</p>
 			</div>
+			{aggregatesView ? (
+				<ul className="px-4 pb-6 space-y-1">
+					{dishAggregates.map(
+						({ dishName, totalQty, pendingQty, fulfilledQty, cancelledQty }) => (
+							<li
+								key={dishName}
+								className="flex items-center gap-3 min-h-[52px] px-2 rounded-lg"
+							>
+								<QtyBadge qty={totalQty} />
+								<p className="text-base font-medium leading-snug min-w-0 flex-1">
+									{dishName}
+								</p>
+								<div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+									{pendingQty > 0 ? (
+										<span className="text-xs font-medium text-amber-700">
+											{pendingQty} pending
+										</span>
+									) : null}
+									{fulfilledQty > 0 ? (
+										<span className="text-xs font-medium text-green-700">
+											{fulfilledQty} ready
+										</span>
+									) : null}
+									{cancelledQty > 0 ? (
+										<span className="text-xs font-medium text-red-600">
+											{cancelledQty} cancelled
+										</span>
+									) : null}
+								</div>
+							</li>
+						)
+					)}
+				</ul>
+			) : (
 			<ul className="px-4 pb-6 space-y-1">
 				{group.units.map((unit, index) => {
 					const canCheck = isUnitNextToFulfill(orders, unit);
@@ -680,8 +917,9 @@ function ItemGroupCard({
 					);
 				})}
 			</ul>
+			)}
 
-			{pendingAction && pendingUnit && (
+			{!aggregatesView && pendingAction && pendingUnit && (
 				<ConfirmItemModal
 					dishName={pendingUnit.dishName}
 					unit={pendingUnit}
@@ -763,6 +1001,7 @@ export default function OrderPage() {
 	const [itemGroups, setItemGroups] = useState<ItemGroup[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [activeTab, setActiveTab] = useState<TabId>("tables");
+	const [itemsAggregatesView, setItemsAggregatesView] = useState(false);
 	const [readyModalOpen, setReadyModalOpen] = useState(false);
 	const [editingOrder, setEditingOrder] = useState<TOrder | null>(null);
 	const [pendingMarkDone, setPendingMarkDone] = useState<TOrder | null>(null);
@@ -770,6 +1009,10 @@ export default function OrderPage() {
 		useState<OrderGroup | null>(null);
 	const [pendingComplementary, setPendingComplementary] =
 		useState<OrderGroup | null>(null);
+	const [editingNotesGroup, setEditingNotesGroup] = useState<OrderGroup | null>(
+		null
+	);
+	const [notesDraft, setNotesDraft] = useState("");
 	const [pendingCancelItem, setPendingCancelItem] = useState<{
 		orderId: string;
 		itemIndex: number;
@@ -1015,6 +1258,24 @@ export default function OrderPage() {
 		});
 	};
 
+	const openNotesModal = (group: OrderGroup) => {
+		setEditingNotesGroup(group);
+		setNotesDraft(getGroupNotes(group) ?? "");
+	};
+
+	const handleSaveGroupNotes = async () => {
+		if (!editingNotesGroup) {
+			return;
+		}
+		await runPendingAction(`notes:${editingNotesGroup.key}`, async () => {
+			await persistOrders(
+				updateGroupNotes(orders, editingNotesGroup, notesDraft)
+			);
+			setEditingNotesGroup(null);
+			setNotesDraft("");
+		});
+	};
+
 	const handleKotPrint = (order: TOrder) => {
 		router.push(`/kot?orderId=${encodeURIComponent(order.id)}`);
 	};
@@ -1046,7 +1307,10 @@ export default function OrderPage() {
 				<div className="flex items-start justify-between gap-3">
 					<div className="min-w-0 flex-1">
 						<div className="flex items-center justify-between gap-2">
-							<h1 className="text-xl font-bold">Orders</h1>
+							<div className="flex items-center gap-2 min-w-0">
+								<OpsMenuButton />
+								<h1 className="text-xl font-bold truncate">Orders</h1>
+							</div>
 							<div className="flex items-center gap-2 shrink-0">
 								<OrderOpsSyncIndicator />
 								<button
@@ -1093,7 +1357,9 @@ export default function OrderPage() {
 						<p className="text-sm text-gray-500 mt-1">
 							{activeTab === "tables"
 								? "Grouped by table · active first, all-done at bottom"
-								: "Grouped by kitchen section · FCFS fulfillment"}
+								: itemsAggregatesView
+									? "Grouped by kitchen section · totals per dish"
+									: "Grouped by kitchen section · FCFS fulfillment"}
 						</p>
 					</div>
 				</div>
@@ -1122,6 +1388,33 @@ export default function OrderPage() {
 						By item
 					</button>
 				</div>
+
+				{activeTab === "items" ? (
+					<div className="flex gap-2 mt-3">
+						<button
+							type="button"
+							onClick={() => setItemsAggregatesView(false)}
+							className={`flex-1 min-h-[40px] py-2 rounded-lg text-xs font-semibold touch-manipulation transition-colors ${
+								!itemsAggregatesView
+									? "bg-gray-800 text-white"
+									: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
+							}`}
+						>
+							Each item
+						</button>
+						<button
+							type="button"
+							onClick={() => setItemsAggregatesView(true)}
+							className={`flex-1 min-h-[40px] py-2 rounded-lg text-xs font-semibold touch-manipulation transition-colors ${
+								itemsAggregatesView
+									? "bg-gray-800 text-white"
+									: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
+							}`}
+						>
+							Aggregates
+						</button>
+					</div>
+				) : null}
 			</div>
 
 			<div className="p-6 space-y-4">
@@ -1153,6 +1446,7 @@ export default function OrderPage() {
 									onRequestWelcomeDrink={setPendingWelcomeDrink}
 									onRequestComplementary={setPendingComplementary}
 									onRequestCancelItem={handleRequestCancelItem}
+									onEditNotes={openNotesModal}
 								/>
 							))
 						)}
@@ -1177,6 +1471,7 @@ export default function OrderPage() {
 							orders={orders}
 							onToggleUnit={handleToggleDishUnit}
 							onRequestCancelUnit={handleRequestCancelUnit}
+							aggregatesView={itemsAggregatesView}
 						/>
 					))
 				)}
@@ -1186,10 +1481,10 @@ export default function OrderPage() {
 				type="button"
 				onClick={() => router.push("/order/new")}
 				className="fixed right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-green-500 text-white text-sm font-semibold shadow-lg px-4 hover:bg-green-600 touch-manipulation z-20"
-				aria-label="New table"
+				aria-label="New order"
 			>
 				<PlusIcon className="w-5 h-5 shrink-0" />
-				New table
+				Order
 			</button>
 
 			{readyModalOpen && readyOrders.length > 0 && (
@@ -1229,6 +1524,20 @@ export default function OrderPage() {
 					confirming={confirmingAction === `comp:${pendingComplementary.key}`}
 					onCancel={() => setPendingComplementary(null)}
 					onConfirm={() => void handleComplementary(pendingComplementary)}
+				/>
+			)}
+
+			{editingNotesGroup && (
+				<GroupNotesModal
+					group={editingNotesGroup}
+					draft={notesDraft}
+					saving={Boolean(pendingActions[`notes:${editingNotesGroup.key}`])}
+					onDraftChange={setNotesDraft}
+					onClose={() => {
+						setEditingNotesGroup(null);
+						setNotesDraft("");
+					}}
+					onSave={() => void handleSaveGroupNotes()}
 				/>
 			)}
 

@@ -40,6 +40,23 @@ export type OrderOpsSnapshot = {
 	inventory: Record<string, number>;
 	/** Archived orders for today, including billed tables */
 	orderHistory: TOrder[];
+	dayChecklists?: {
+		open: Record<string, boolean>;
+		close: Record<string, boolean>;
+	};
+	supplyInventory?: {
+		utensils: Record<string, number>;
+		tableware: Record<string, number>;
+		'raw-materials': Record<string, number>;
+	};
+	waitlist?: Array<{
+		id: string;
+		name: string;
+		number: string;
+		checked: boolean;
+		createdAt: number;
+		checkedAt?: number;
+	}>;
 	sentAt: number;
 };
 

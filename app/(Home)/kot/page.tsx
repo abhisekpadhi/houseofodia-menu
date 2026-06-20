@@ -1,7 +1,7 @@
 "use client";
 
 import { TOrder } from "@/src/models/common";
-import { formatOrderLabel, formatOrderTime, getOrdersStore } from "@/src/utils/order_utils";
+import { formatCustomerContact, formatOrderLabel, formatOrderTime, getOrdersStore } from "@/src/utils/order_utils";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { FaPrint } from "react-icons/fa";
@@ -57,6 +57,7 @@ function KotContent() {
 		month: "2-digit",
 		year: "2-digit",
 	});
+	const customerContact = formatCustomerContact(order);
 
 	return (
 		<div className="min-h-screen bg-gray-50">
@@ -93,6 +94,14 @@ function KotContent() {
 					<span>Time</span>
 					<span>{formatOrderTime(order.createdAt)}</span>
 				</div>
+				{customerContact ? (
+					<>
+						<div className="flex justify-between">
+							<span>Customer</span>
+							<span className="text-right max-w-[60%]">{customerContact}</span>
+						</div>
+					</>
+				) : null}
 				<Divider />
 				<div>
 					{order.items.map((item, index) => (

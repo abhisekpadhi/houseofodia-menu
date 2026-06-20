@@ -42,6 +42,7 @@ export async function GET() {
 			description: row.length > 3 ? row[3] : '',
 			is_veg: row.length > 4 ? row[4].toLowerCase() === 'veg' : false,
 			price: row.length > 5 ? `${row[5]}` : '0',
+			sop: row.length > 6 ? `${row[6] ?? ''}`.trim() : '',
 		}));
 
 		return NextResponse.json(jsonData);

@@ -292,7 +292,7 @@ export function orderBelongsToBillingGroup(
 	}
 
 	if (context.kind === 'takeaway' || context.kind === 'delivery') {
-		return true;
+		return getOrderGroupKey(order) === context.groupKey;
 	}
 
 	const orderTables = [...(order.tableNumbers ?? [])].sort((a, b) => a - b);
@@ -331,6 +331,109 @@ export function formatTableGroupLabel(tableNumbers: number[]): string {
 	return `Table ${tableNumbers.join(' & ')}`;
 }
 
+export const CUSTOMER_PHONE_DIGITS = 10;
+
+export function isValidCustomerPhone(phone: string): boolean {
+	return new RegExp(`^\\d{${CUSTOMER_PHONE_DIGITS}}$`).test(phone.trim());
+}
+
+export function formatCustomerContact(order: TOrder): string | null {
+	const name = order.customerName?.trim();
+	const phone = order.customerPhone?.trim();
+	if (!name && !phone) {
+		return null;
+	}
+	if (name && phone) {
+		return `${name} · ${phone}`;
+	}
+	return name ?? phone ?? null;
+}
+
+export function getOrderGroupKey(order: TOrder): string {
+	if (order.kind === 'table') {
+		const tableNumbers = (order.tableNumbers ?? [])
+			.filter((n) => n >= 1 && n <= TABLE_COUNT)
+			.sort((a, b) => a - b);
+		if (tableNumbers.length === 0) {
+			return `table-unknown-${order.id}`;
+		}
+		return `table-${tableNumbers.join('-')}`;
+	}
+
+	const phone = order.customerPhone?.trim();
+	if (phone && isValidCustomerPhone(phone)) {
+		return `${order.kind}-${phone}`;
+	}
+
+	return `${order.kind}-${order.id}`;
+}
+
+export function getCustomerContactFlagsForGroupKey(
+	orders: TOrder[],
+	groupKey: string,
+	kind: OrderKind
+): Pick<TOrder, 'customerName' | 'customerPhone' | 'groupNotes'> {
+	if (kind !== 'takeaway' && kind !== 'delivery') {
+		return {};
+	}
+
+	for (const order of orders) {
+		if (order.kind !== kind || getOrderGroupKey(order) !== groupKey) {
+			continue;
+		}
+
+		const name = order.customerName?.trim();
+		const phone = order.customerPhone?.trim();
+		const groupNotes = order.groupNotes?.trim();
+		if (name || phone || groupNotes) {
+			return {
+				...(name ? { customerName: name } : {}),
+				...(phone ? { customerPhone: phone } : {}),
+				...(groupNotes ? { groupNotes } : {}),
+			};
+		}
+	}
+
+	return {};
+}
+
+export function getGroupNotes(group: OrderGroup): string | null {
+	for (const order of group.orders) {
+		const notes = order.groupNotes?.trim();
+		if (notes) {
+			return notes;
+		}
+	}
+	return null;
+}
+
+export function formatGroupCustomerContact(group: OrderGroup): string | null {
+	for (const order of group.orders) {
+		const contact = formatCustomerContact(order);
+		if (contact) {
+			return contact;
+		}
+	}
+	return null;
+}
+
+export function getGroupCustomerDetails(group: OrderGroup): {
+	name?: string;
+	phone?: string;
+} {
+	for (const order of group.orders) {
+		const name = order.customerName?.trim();
+		const phone = order.customerPhone?.trim();
+		if (name || phone) {
+			return {
+				...(name ? { name } : {}),
+				...(phone ? { phone } : {}),
+			};
+		}
+	}
+	return {};
+}
+
 export function groupOrdersByTable(orders: TOrder[]): OrderGroup[] {
 	const groupMap = new Map<string, OrderGroup>();
 
@@ -354,15 +457,10 @@ export function groupOrdersByTable(orders: TOrder[]): OrderGroup[] {
 	};
 
 	for (const order of orders) {
-		if (order.kind === 'takeaway') {
-			const group = ensureGroup('takeaway', 'Takeaway', 'takeaway');
-			group.orders.push(order);
-			group.oldestOrderAt = Math.min(group.oldestOrderAt, order.createdAt);
-			continue;
-		}
-
-		if (order.kind === 'delivery') {
-			const group = ensureGroup('delivery', 'Delivery', 'delivery');
+		if (order.kind === 'takeaway' || order.kind === 'delivery') {
+			const key = getOrderGroupKey(order);
+			const label = order.kind === 'takeaway' ? 'Takeaway' : 'Delivery';
+			const group = ensureGroup(key, label, order.kind);
 			group.orders.push(order);
 			group.oldestOrderAt = Math.min(group.oldestOrderAt, order.createdAt);
 			continue;
@@ -496,6 +594,9 @@ export function ordersStoreChanged(before: TOrder[], after: TOrder[]): boolean {
 			order.markedDoneAt !== next.markedDoneAt ||
 			order.welcomeDrinkServed !== next.welcomeDrinkServed ||
 			order.complementaryServed !== next.complementaryServed ||
+			order.customerName !== next.customerName ||
+			order.customerPhone !== next.customerPhone ||
+			order.groupNotes !== next.groupNotes ||
 			order.items.length !== next.items.length
 		) {
 			return true;
@@ -611,6 +712,26 @@ function orderIdsInGroup(group: OrderGroup): Set<string> {
 	return new Set(group.orders.map((order) => order.id));
 }
 
+export function updateGroupNotes(
+	orders: TOrder[],
+	group: OrderGroup,
+	notes: string
+): TOrder[] {
+	const trimmed = notes.trim();
+	const orderIds = orderIdsInGroup(group);
+
+	return orders.map((order) => {
+		if (!orderIds.has(order.id)) {
+			return order;
+		}
+		if (!trimmed) {
+			const { groupNotes: _removed, ...rest } = order;
+			return rest;
+		}
+		return { ...order, groupNotes: trimmed };
+	});
+}
+
 export function isTableWelcomeDrinkServed(group: OrderGroup): boolean {
 	return group.orders.some((order) => order.welcomeDrinkServed);
 }
@@ -622,7 +743,7 @@ export function isTableComplementaryServed(group: OrderGroup): boolean {
 export function getTableServiceFlagsForTables(
 	orders: TOrder[],
 	tableNumbers: number[]
-): Pick<TOrder, 'welcomeDrinkServed' | 'complementaryServed'> {
+): Pick<TOrder, 'welcomeDrinkServed' | 'complementaryServed' | 'groupNotes'> {
 	const context: BillingContext = {
 		source: 'orders',
 		groupKey: '',
@@ -634,6 +755,9 @@ export function getTableServiceFlagsForTables(
 	const tableOrders = orders.filter((order) =>
 		orderBelongsToBillingGroup(order, context)
 	);
+	const groupNotes = tableOrders
+		.map((order) => order.groupNotes?.trim())
+		.find((notes) => notes);
 
 	return {
 		...(tableOrders.some((order) => order.welcomeDrinkServed)
@@ -642,6 +766,7 @@ export function getTableServiceFlagsForTables(
 		...(tableOrders.some((order) => order.complementaryServed)
 			? { complementaryServed: true }
 			: {}),
+		...(groupNotes ? { groupNotes } : {}),
 	};
 }
 
