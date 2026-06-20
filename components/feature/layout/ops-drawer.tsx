@@ -166,12 +166,15 @@ export function OpsMenuButton({
 }: {
 	className?: string;
 }) {
-	const { openDrawer } = useOpsDrawer();
+	const context = useContext(OpsDrawerContext);
+	if (!context) {
+		return null;
+	}
 
 	return (
 		<button
 			type="button"
-			onClick={openDrawer}
+			onClick={context.openDrawer}
 			className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300 touch-manipulation shrink-0 ${className}`}
 			aria-label="Open menu"
 		>

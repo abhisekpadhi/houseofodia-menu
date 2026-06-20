@@ -3,6 +3,7 @@ import '../globals.css';
 import { Inter, Niconne, DM_Sans } from 'next/font/google';
 import type { Metadata, Viewport } from 'next';
 import clsx from 'clsx';
+import { HomeProviders } from './providers';
 
 const inter = Inter({ subsets: ['latin'] });
 const dmSans = DM_Sans({ subsets: ['latin'] });
@@ -54,7 +55,7 @@ export default function RootLayout({
 					'bg-background h-full antialiased'
 				)}
 			>
-				{children}
+				<HomeProviders>{children}</HomeProviders>
 			</body>
 		</html>
 	);

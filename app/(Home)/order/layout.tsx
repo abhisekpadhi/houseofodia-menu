@@ -2,7 +2,6 @@
 
 import { OrderOpsSyncProvider } from '@/context/order-ops-sync';
 import { OrderSyncNotificationListener } from '@/components/feature/order/order-sync-notification';
-import { OpsDrawerProvider } from '@/components/feature/layout/ops-drawer';
 
 export default function OrderLayout({
 	children,
@@ -11,10 +10,8 @@ export default function OrderLayout({
 }) {
 	return (
 		<OrderOpsSyncProvider>
-			<OpsDrawerProvider>
-				<OrderSyncNotificationListener />
-				{children}
-			</OpsDrawerProvider>
+			<OrderSyncNotificationListener />
+			{children}
 		</OrderOpsSyncProvider>
 	);
 }
