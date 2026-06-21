@@ -5,6 +5,7 @@ import {
 	getAvailableQty,
 	getInventoryForDate,
 	getTodayDateKey,
+	isInfiniteInventoryDish,
 	isOutOfStock,
 } from "@/src/utils/inventory_utils";
 import { stringToColor } from "@/src/utils/menu_utils";
@@ -190,9 +191,10 @@ export function MenuPicker({
       <div className="space-y-3">
         {visibleItems.map((item, index) => {
           const cartQty = quantities[item.name] ?? 0;
+          const infiniteStock = isInfiniteInventoryDish(item.name);
           const availableQty = getAvailableQty(inventory, item.name, cartQty);
           const oos = isOutOfStock(inventory, item.name, cartQty);
-          const canIncrement = availableQty > 0;
+          const canIncrement = infiniteStock || availableQty > 0;
 
           return (
             <div
@@ -223,7 +225,7 @@ export function MenuPicker({
                     {item.category}
                   </p>
                   <p className="text-[10px] font-medium text-gray-600">
-                    Stock: {availableQty}
+                    Stock: {infiniteStock ? "∞" : availableQty}
                   </p>
                 </div>
               </div>

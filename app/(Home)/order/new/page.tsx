@@ -172,6 +172,7 @@ function AddOrderContent() {
 	const [placing, setPlacing] = useState(false);
 	const [cartModalOpen, setCartModalOpen] = useState(false);
 	const [inStockOnly, setInStockOnly] = useState(false);
+	const [kidMenuEnabled, setKidMenuEnabled] = useState(false);
 
 	const isFromTableCard = preselectedTables.length > 0;
 	const isFromExistingGroup = preselectedGroupKey !== null;
@@ -244,6 +245,17 @@ function AddOrderContent() {
 			setPreselectedTables([]);
 		}
 	}, [searchParams]);
+
+	useEffect(() => {
+		if (orderKind !== "table" || selectedTables.length === 0) {
+			setKidMenuEnabled(false);
+			return;
+		}
+		void getOrdersStore().then((store) => {
+			const flags = getTableServiceFlagsForTables(store.orders, selectedTables);
+			setKidMenuEnabled(flags.kidMenuEnabled === true);
+		});
+	}, [orderKind, selectedTables]);
 
 	const isTableDisabled = (tableNumber: number) => {
 		if (!occupiedTables.has(tableNumber)) {
@@ -393,6 +405,9 @@ function AddOrderContent() {
 				...(trimmedNotes ? { notes: trimmedNotes } : {}),
 				...customerFlags,
 				...tableServiceFlags,
+				...(orderKind === "table" && kidMenuEnabled
+					? { kidMenuEnabled: true }
+					: {}),
 			};
 
 			await addOrder(order);
@@ -554,6 +569,28 @@ function AddOrderContent() {
 					</div>
 				) : null}
 			</div>
+
+			{orderKind === "table" && selectedTables.length > 0 ? (
+				<div className="px-6 pt-2">
+					<p className="text-xs font-medium text-gray-600 mb-2">Table options</p>
+					<button
+						type="button"
+						onClick={() => setKidMenuEnabled((prev) => !prev)}
+						aria-pressed={kidMenuEnabled}
+						className={`inline-flex min-h-[36px] items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold touch-manipulation transition-colors ${
+							kidMenuEnabled
+								? "bg-green-100 border border-green-600 text-green-800"
+								: "bg-gray-100 border border-gray-300 text-gray-700 hover:bg-gray-200"
+						}`}
+					>
+						<span>👶 Kid menu</span>
+					</button>
+					<p className="mt-1.5 text-xs text-gray-500">
+						When enabled, the kid menu button appears on this table&apos;s order
+						card.
+					</p>
+				</div>
+			) : null}
 
 			<div className="px-6 pt-4">
 				<label className="block text-xs font-medium text-gray-600 mb-1">

@@ -2,6 +2,14 @@ import { INVENTORY_KEY, TDish, TInventoryStore } from '@/src/models/common';
 import { notifyOrderOpsChange, isSyncNotifySuppressed } from '@/src/utils/order_ops_sync';
 import localforage from 'localforage';
 
+export const PACKAGING_CHARGE_DISH_NAME = 'Packaging charge';
+
+const INFINITE_INVENTORY_QTY = Number.MAX_SAFE_INTEGER;
+
+export function isInfiniteInventoryDish(dishName: string): boolean {
+	return dishName.trim().toLowerCase() === PACKAGING_CHARGE_DISH_NAME.toLowerCase();
+}
+
 export function getTodayDateKey(date = new Date()): string {
 	const year = date.getFullYear();
 	const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -81,11 +89,14 @@ export async function saveInventoryForDate(
 	}
 }
 
-/** Missing entries default to 0 for the day. */
+/** Missing entries default to 0 for the day. Infinite-inventory dishes always read as unlimited. */
 export function getInventoryQty(
 	inventory: Record<string, number>,
 	dishName: string
 ): number {
+	if (isInfiniteInventoryDish(dishName)) {
+		return INFINITE_INVENTORY_QTY;
+	}
 	return inventory[dishName] ?? 0;
 }
 
@@ -94,6 +105,9 @@ export function getAvailableQty(
 	dishName: string,
 	cartQty: number
 ): number {
+	if (isInfiniteInventoryDish(dishName)) {
+		return INFINITE_INVENTORY_QTY;
+	}
 	return Math.max(0, getInventoryQty(inventory, dishName) - cartQty);
 }
 
@@ -102,6 +116,9 @@ export function isOutOfStock(
 	dishName: string,
 	cartQty = 0
 ): boolean {
+	if (isInfiniteInventoryDish(dishName)) {
+		return false;
+	}
 	return getAvailableQty(inventory, dishName, cartQty) <= 0;
 }
 
@@ -133,6 +150,9 @@ async function adjustInventoryDelta(
 	const dayInventory = { ...base };
 
 	for (const item of items) {
+		if (isInfiniteInventoryDish(item.name)) {
+			continue;
+		}
 		const current = dayInventory[item.name] ?? 0;
 		if (mode === 'decrement') {
 			dayInventory[item.name] = Math.max(0, current - item.qty);
@@ -176,6 +196,9 @@ export async function adjustInventoryForOrderEdit(
 	const toReplenish: TDish[] = [];
 
 	for (const name of Array.from(dishNames)) {
+		if (isInfiniteInventoryDish(name)) {
+			continue;
+		}
 		const delta = (afterMap[name] ?? 0) - (beforeMap[name] ?? 0);
 		if (delta > 0) {
 			toDecrement.push({ name, qty: delta, price: 0 });

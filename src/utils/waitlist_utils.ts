@@ -7,6 +7,7 @@ export type WaitlistEntry = {
 	id: string;
 	name: string;
 	number: string;
+	pax?: number;
 	checked: boolean;
 	createdAt: number;
 	checkedAt?: number;
@@ -92,7 +93,7 @@ function escapeCsvCell(value: string | number): string {
 
 function buildWaitlistCsv(entries: WaitlistEntry[]): string {
 	const rows = [
-		['Name', 'Phone', 'Status', 'Added', 'Seated at'].map(escapeCsvCell).join(','),
+		['Name', 'Phone', 'Pax', 'Status', 'Added', 'Seated at'].map(escapeCsvCell).join(','),
 	];
 
 	for (const entry of sortWaitlistEntries(entries)) {
@@ -104,6 +105,7 @@ function buildWaitlistCsv(entries: WaitlistEntry[]): string {
 			[
 				entry.name,
 				entry.number,
+				entry.pax ?? '',
 				entry.checked ? 'Seated' : 'Waiting',
 				added,
 				seated,

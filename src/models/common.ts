@@ -36,6 +36,8 @@ export type TOrderItem = TDish & {
 	/** @deprecated Derived from unitStates during normalization */
 	fulfilledQty?: number;
 	unitStates?: OrderItemUnitState[];
+	/** Per-unit parcel / takeaway packing flag (parallel to unitStates) */
+	parcelUnits?: boolean[];
 };
 
 export type TCart = {items: TDish[]}
@@ -57,7 +59,7 @@ export type TBill = {
 export type TBillNoResp = { bill_no: number}
 export type TBillNoUpdateResp = {success: boolean}
 
-export const TABLE_COUNT = 12;
+export const TABLE_COUNT = 11;
 
 export type OrderKind = 'table' | 'takeaway' | 'delivery';
 
@@ -81,6 +83,10 @@ export type TOrder = {
 	welcomeDrinkServed?: boolean;
 	/** Table-level complementary — copied to all orders in the table group when set */
 	complementaryServed?: boolean;
+	/** Table has kids — show kid menu action on the orders card when set */
+	kidMenuEnabled?: boolean;
+	/** Table-level kid menu — copied to all orders in the table group when set */
+	kidMenuServed?: boolean;
 	/** Group-level notes — shown on the orders card only; copied to orders in the group */
 	groupNotes?: string;
 	/** Set when table was billed and order removed from the active list */

@@ -17,6 +17,11 @@ import {
 	KITCHEN_ITEM_GROUPS,
 	mapCategoryToKitchenGroup,
 } from '@/src/utils/menu_utils';
+import {
+	isInfiniteInventoryDish,
+	PACKAGING_CHARGE_DISH_NAME,
+} from '@/src/utils/inventory_utils';
+import { getCachedMenuItems, fetchAndCacheMenuItems } from '@/src/utils/menu_cache';
 import { notifyOrderOpsChange, isSyncNotifySuppressed } from '@/src/utils/order_ops_sync';
 import { upsertOrdersInHistory } from '@/src/utils/order_history';
 import localforage from 'localforage';
@@ -51,6 +56,17 @@ function buildUnitStatesFromLegacy(item: TOrderItem): OrderItemUnitState[] {
 	);
 }
 
+function normalizeParcelUnits(item: TOrderItem, qty: number): boolean[] {
+	const existing = item.parcelUnits ?? [];
+	if (existing.length < qty) {
+		return [
+			...existing,
+			...Array.from({ length: qty - existing.length }, () => false),
+		];
+	}
+	return existing.slice(0, qty);
+}
+
 export function normalizeOrderItem(item: TOrderItem): TOrderItem {
 	let states = item.unitStates;
 	if (!states || states.length === 0) {
@@ -70,7 +86,8 @@ export function normalizeOrderItem(item: TOrderItem): TOrderItem {
 	}
 
 	const fulfilledQty = states.filter((state) => state === 'fulfilled').length;
-	return { ...item, unitStates: states, fulfilledQty };
+	const parcelUnits = normalizeParcelUnits(item, item.qty);
+	return { ...item, unitStates: states, fulfilledQty, parcelUnits };
 }
 
 export function getItemUnitStates(item: TOrderItem): OrderItemUnitState[] {
@@ -109,6 +126,11 @@ export function getOrderItemUnitDisplay(
 	return 'pending';
 }
 
+export function isItemUnitParcel(item: TOrderItem, unitIndex: number): boolean {
+	const normalized = normalizeOrderItem(item);
+	return normalized.parcelUnits?.[unitIndex] === true;
+}
+
 function dishUnitFromItem(
 	order: TOrder,
 	item: TOrderItem,
@@ -131,7 +153,7 @@ function dishUnitFromItem(
 
 function serializeItemForCompare(item: TOrderItem): string {
 	const normalized = normalizeOrderItem(item);
-	return `${normalized.qty}:${JSON.stringify(normalized.unitStates)}`;
+	return `${normalized.qty}:${JSON.stringify(normalized.unitStates)}:${JSON.stringify(normalized.parcelUnits ?? [])}`;
 }
 
 export function generateOrderId(): string {
@@ -186,10 +208,13 @@ export function normalizeOrderItemsAfterEdit(
 		.map((item) => {
 			const existing = existingByName.get(item.name);
 			let states: OrderItemUnitState[];
+			let parcelUnits: boolean[] | undefined;
 			if (existing) {
 				const previous = getItemUnitStates(existing);
+				const previousParcel = normalizeOrderItem(existing).parcelUnits ?? [];
 				if (item.qty <= previous.length) {
 					states = previous.slice(0, item.qty);
+					parcelUnits = previousParcel.slice(0, item.qty);
 				} else {
 					states = [
 						...previous,
@@ -198,11 +223,18 @@ export function normalizeOrderItemsAfterEdit(
 							() => 'pending' as const
 						),
 					];
+					parcelUnits = [
+						...previousParcel,
+						...Array.from(
+							{ length: item.qty - previousParcel.length },
+							() => false
+						),
+					];
 				}
 			} else {
 				states = Array.from({ length: item.qty }, () => 'pending' as const);
 			}
-			return normalizeOrderItem({ ...item, unitStates: states });
+			return normalizeOrderItem({ ...item, unitStates: states, parcelUnits });
 		});
 
 	let updated: TOrder = { ...order, items: normalizedItems };
@@ -257,30 +289,144 @@ export function orderTotal(items: TOrder['items']): number {
 	}, 0);
 }
 
+const PARCEL_LINE_SUFFIX = ' (parcel)';
+
+function addCartLine(
+	itemMap: Map<string, TDish>,
+	name: string,
+	price: number,
+	qty: number
+): void {
+	if (qty <= 0) {
+		return;
+	}
+	const existing = itemMap.get(name);
+	if (existing) {
+		existing.qty += qty;
+		return;
+	}
+	itemMap.set(name, { name, price, qty });
+}
+
 export function orderGroupToCart(group: OrderGroup): TCart {
 	const itemMap = new Map<string, TDish>();
 
 	for (const order of group.orders) {
 		for (const item of order.items) {
 			const normalized = normalizeOrderItem(item);
-			const billableQty = getItemBillableQty(normalized);
-			if (billableQty <= 0) {
-				continue;
+			const states = getItemUnitStates(normalized);
+			let regularQty = 0;
+			let parcelQty = 0;
+
+			for (let unitIndex = 0; unitIndex < normalized.qty; unitIndex++) {
+				if (isUnitStateCancelled(states[unitIndex])) {
+					continue;
+				}
+				if (order.kind === 'table' && isItemUnitParcel(normalized, unitIndex)) {
+					parcelQty += 1;
+				} else {
+					regularQty += 1;
+				}
 			}
-			const existing = itemMap.get(item.name);
-			if (existing) {
-				existing.qty += billableQty;
-			} else {
-				itemMap.set(item.name, {
-					name: item.name,
-					price: item.price,
-					qty: billableQty,
-				});
-			}
+
+			addCartLine(itemMap, item.name, item.price, regularQty);
+			addCartLine(
+				itemMap,
+				`${item.name}${PARCEL_LINE_SUFFIX}`,
+				item.price,
+				parcelQty
+			);
 		}
 	}
 
 	return { items: Array.from(itemMap.values()) };
+}
+
+export function groupHasBillableItems(group: OrderGroup): boolean {
+	return orderGroupToCart(group).items.length > 0;
+}
+
+/** Billable units that need packaging: all units for takeaway; parcel units for table. */
+export function getPackagingUnitCount(group: OrderGroup): number {
+	if (group.kind !== 'table' && group.kind !== 'takeaway') {
+		return 0;
+	}
+
+	let count = 0;
+
+	for (const order of group.orders) {
+		for (const item of order.items) {
+			const normalized = normalizeOrderItem(item);
+			if (isInfiniteInventoryDish(item.name)) {
+				continue;
+			}
+
+			const states = getItemUnitStates(normalized);
+			for (let unitIndex = 0; unitIndex < normalized.qty; unitIndex++) {
+				if (isUnitStateCancelled(states[unitIndex])) {
+					continue;
+				}
+				if (group.kind === 'takeaway') {
+					count += 1;
+				} else if (isItemUnitParcel(normalized, unitIndex)) {
+					count += 1;
+				}
+			}
+		}
+	}
+
+	return count;
+}
+
+export function addPackagingChargeToCart(
+	cart: TCart,
+	unitCount: number,
+	packagingPrice: number
+): TCart {
+	if (unitCount <= 0) {
+		return cart;
+	}
+
+	const items = cart.items.map((item) => ({ ...item }));
+	const existing = items.find((item) => isInfiniteInventoryDish(item.name));
+
+	if (existing) {
+		existing.qty += unitCount;
+	} else {
+		items.push({
+			name: PACKAGING_CHARGE_DISH_NAME,
+			price: packagingPrice,
+			qty: unitCount,
+		});
+	}
+
+	return { items };
+}
+
+const DEFAULT_PACKAGING_CHARGE_PRICE = 20;
+
+export async function getPackagingChargePrice(): Promise<number> {
+	try {
+		let menuItems = await getCachedMenuItems();
+		if (!menuItems?.length) {
+			menuItems = await fetchAndCacheMenuItems();
+		}
+		const match = menuItems?.find((item) => isInfiniteInventoryDish(item.name));
+		const price = match ? parseFloat(match.price) : Number.NaN;
+		return Number.isNaN(price) ? DEFAULT_PACKAGING_CHARGE_PRICE : price;
+	} catch {
+		return DEFAULT_PACKAGING_CHARGE_PRICE;
+	}
+}
+
+export async function orderGroupToBillCart(group: OrderGroup): Promise<TCart> {
+	const cart = orderGroupToCart(group);
+	const packagingQty = getPackagingUnitCount(group);
+	if (packagingQty <= 0) {
+		return cart;
+	}
+	const packagingPrice = await getPackagingChargePrice();
+	return addPackagingChargeToCart(cart, packagingQty, packagingPrice);
 }
 
 export function orderBelongsToBillingGroup(
@@ -594,6 +740,8 @@ export function ordersStoreChanged(before: TOrder[], after: TOrder[]): boolean {
 			order.markedDoneAt !== next.markedDoneAt ||
 			order.welcomeDrinkServed !== next.welcomeDrinkServed ||
 			order.complementaryServed !== next.complementaryServed ||
+			order.kidMenuEnabled !== next.kidMenuEnabled ||
+			order.kidMenuServed !== next.kidMenuServed ||
 			order.customerName !== next.customerName ||
 			order.customerPhone !== next.customerPhone ||
 			order.groupNotes !== next.groupNotes ||
@@ -740,10 +888,25 @@ export function isTableComplementaryServed(group: OrderGroup): boolean {
 	return group.orders.some((order) => order.complementaryServed);
 }
 
+export function isTableKidMenuServed(group: OrderGroup): boolean {
+	return group.orders.some((order) => order.kidMenuServed);
+}
+
+export function isTableKidMenuEnabled(group: OrderGroup): boolean {
+	return group.orders.some((order) => order.kidMenuEnabled);
+}
+
 export function getTableServiceFlagsForTables(
 	orders: TOrder[],
 	tableNumbers: number[]
-): Pick<TOrder, 'welcomeDrinkServed' | 'complementaryServed' | 'groupNotes'> {
+): Pick<
+	TOrder,
+	| 'welcomeDrinkServed'
+	| 'complementaryServed'
+	| 'kidMenuEnabled'
+	| 'kidMenuServed'
+	| 'groupNotes'
+> {
 	const context: BillingContext = {
 		source: 'orders',
 		groupKey: '',
@@ -765,6 +928,12 @@ export function getTableServiceFlagsForTables(
 			: {}),
 		...(tableOrders.some((order) => order.complementaryServed)
 			? { complementaryServed: true }
+			: {}),
+		...(tableOrders.some((order) => order.kidMenuEnabled)
+			? { kidMenuEnabled: true }
+			: {}),
+		...(tableOrders.some((order) => order.kidMenuServed)
+			? { kidMenuServed: true }
 			: {}),
 		...(groupNotes ? { groupNotes } : {}),
 	};
@@ -795,6 +964,20 @@ export function markTableComplementaryServed(
 	const orderIds = orderIdsInGroup(group);
 	return orders.map((order) =>
 		orderIds.has(order.id) ? { ...order, complementaryServed: true } : order
+	);
+}
+
+export function markTableKidMenuServed(
+	orders: TOrder[],
+	group: OrderGroup
+): TOrder[] {
+	if (isTableKidMenuServed(group)) {
+		return orders;
+	}
+
+	const orderIds = orderIdsInGroup(group);
+	return orders.map((order) =>
+		orderIds.has(order.id) ? { ...order, kidMenuServed: true } : order
 	);
 }
 
@@ -1044,6 +1227,36 @@ export function cancelItemUnit(
 				cancelledAt: Date.now(),
 			};
 			return normalizeOrderItem({ ...item, unitStates: states });
+		});
+
+		return { ...order, items };
+	});
+}
+
+export function toggleItemUnitParcel(
+	orders: TOrder[],
+	orderId: string,
+	itemIndex: number,
+	unitIndex: number
+): TOrder[] {
+	return updateOrderById(orders, orderId, (order) => {
+		if (isOrderMarkedDone(order)) {
+			return order;
+		}
+
+		const items = order.items.map((item, idx) => {
+			if (idx !== itemIndex) {
+				return normalizeOrderItem(item);
+			}
+
+			const states = getItemUnitStates(item);
+			if (states[unitIndex] !== 'pending') {
+				return normalizeOrderItem(item);
+			}
+
+			const parcelUnits = [...(normalizeOrderItem(item).parcelUnits ?? [])];
+			parcelUnits[unitIndex] = !parcelUnits[unitIndex];
+			return normalizeOrderItem({ ...item, parcelUnits });
 		});
 
 		return { ...order, items };

@@ -53,6 +53,7 @@ export type OrderOpsSnapshot = {
 		id: string;
 		name: string;
 		number: string;
+		pax?: number;
 		checked: boolean;
 		createdAt: number;
 		checkedAt?: number;

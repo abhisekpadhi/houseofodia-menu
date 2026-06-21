@@ -57,6 +57,7 @@ export function WaitlistPage() {
 	const [sharing, setSharing] = useState(false);
 	const [name, setName] = useState('');
 	const [phone, setPhone] = useState('');
+	const [pax, setPax] = useState('');
 	const [adding, setAdding] = useState(false);
 	const [pendingCheckId, setPendingCheckId] = useState<string | null>(null);
 	const [checking, setChecking] = useState(false);
@@ -151,12 +152,18 @@ export function WaitlistPage() {
 	const handleAdd = async () => {
 		const trimmedName = name.trim();
 		const trimmedPhone = phone.trim();
-		if (!trimmedName || !trimmedPhone) {
-			alert('Enter name and phone number.');
+		const trimmedPax = pax.trim();
+		if (!trimmedName || !trimmedPhone || !trimmedPax) {
+			alert('Enter name, phone, and pax.');
 			return;
 		}
 		if (!isValidCustomerPhone(trimmedPhone)) {
 			alert('Enter a valid 10-digit phone number.');
+			return;
+		}
+		const paxNumber = parseInt(trimmedPax, 10);
+		if (Number.isNaN(paxNumber) || paxNumber < 1) {
+			alert('Enter a valid pax count (at least 1).');
 			return;
 		}
 
@@ -168,6 +175,7 @@ export function WaitlistPage() {
 					id: generateWaitlistId(),
 					name: trimmedName,
 					number: trimmedPhone,
+					pax: paxNumber,
 					checked: false,
 					createdAt: Date.now(),
 				},
@@ -175,6 +183,7 @@ export function WaitlistPage() {
 			await persist(next);
 			setName('');
 			setPhone('');
+			setPax('');
 		} finally {
 			setAdding(false);
 		}
@@ -216,23 +225,23 @@ export function WaitlistPage() {
 		>
 			<div className="border border-gray-200 rounded-xl bg-white p-4 mb-4">
 				<p className="text-xs font-semibold text-gray-500 mb-3">Add to list</p>
-				<div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-					<div>
-						<label
-							htmlFor="waitlist-name"
-							className="block text-xs text-gray-500 mb-1"
-						>
-							Name
-						</label>
-						<input
-							id="waitlist-name"
-							type="text"
-							value={name}
-							onChange={(e) => setName(e.target.value)}
-							placeholder="Guest name"
-							className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-						/>
-					</div>
+				<div className="mb-3">
+					<label
+						htmlFor="waitlist-name"
+						className="block text-xs text-gray-500 mb-1"
+					>
+						Name
+					</label>
+					<input
+						id="waitlist-name"
+						type="text"
+						value={name}
+						onChange={(e) => setName(e.target.value)}
+						placeholder="Guest name"
+						className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+					/>
+				</div>
+				<div className="grid grid-cols-[1fr_5.5rem] gap-3 mb-3">
 					<div>
 						<label
 							htmlFor="waitlist-phone"
@@ -256,6 +265,26 @@ export function WaitlistPage() {
 							autoComplete="tel"
 							maxLength={CUSTOMER_PHONE_DIGITS}
 							className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+						/>
+					</div>
+					<div>
+						<label
+							htmlFor="waitlist-pax"
+							className="block text-xs text-gray-500 mb-1"
+						>
+							Pax
+						</label>
+						<input
+							id="waitlist-pax"
+							type="text"
+							inputMode="numeric"
+							pattern="[0-9]*"
+							value={pax}
+							onChange={(e) =>
+								setPax(e.target.value.replace(/\D/g, '').slice(0, 3))
+							}
+							placeholder="4"
+							className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-center"
 						/>
 					</div>
 				</div>
@@ -326,6 +355,12 @@ export function WaitlistPage() {
 											}`}
 										>
 											{entry.number}
+											{entry.pax != null ? (
+												<span className="text-gray-400">
+													{' '}
+													· {entry.pax} pax
+												</span>
+											) : null}
 										</span>
 									</span>
 								</button>
@@ -363,6 +398,12 @@ export function WaitlistPage() {
 									<>
 										{' '}
 										· {pendingCheckEntry.number}
+									</>
+								) : null}
+								{pendingCheckEntry.pax != null ? (
+									<>
+										{' '}
+										· {pendingCheckEntry.pax} pax
 									</>
 								) : null}{' '}
 								will be moved to the bottom of the list.

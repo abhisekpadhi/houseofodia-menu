@@ -21,13 +21,19 @@ import {
 	isOrderMarkedDone,
 	isOrderReady,
 	isTableComplementaryServed,
+	isTableKidMenuEnabled,
+	isTableKidMenuServed,
 	isTableWelcomeDrinkServed,
+	isItemUnitParcel,
 	isUnitPending,
 	maintainOrders,
 	markOrderDone,
 	markTableComplementaryServed,
+	markTableKidMenuServed,
 	markTableWelcomeDrinkServed,
-	orderGroupToCart,
+	orderGroupToBillCart,
+	groupHasBillableItems,
+	closeTableFromBilling,
 	ordersStoreChanged,
 	isUnitLastFulfilled,
 	isUnitNextToFulfill,
@@ -35,6 +41,7 @@ import {
 	updateGroupNotes,
 	updateOrders,
 	cancelItemUnit,
+	toggleItemUnitParcel,
 } from "@/src/utils/order_utils";
 import { buildDishCategoryMap } from "@/src/utils/menu_utils";
 import { itemCancelReasonLabel } from "@/src/utils/item_cancel_reasons";
@@ -241,12 +248,18 @@ function OrderRow({
 	onKotPrint,
 	onRequestMarkDone,
 	onRequestCancelItem,
+	onRequestToggleParcel,
 }: {
 	order: TOrder;
 	onEdit: (order: TOrder) => void;
 	onKotPrint: (order: TOrder) => void;
 	onRequestMarkDone: (order: TOrder) => void;
 	onRequestCancelItem: (
+		order: TOrder,
+		itemIndex: number,
+		unitIndex: number
+	) => void;
+	onRequestToggleParcel: (
 		order: TOrder,
 		itemIndex: number,
 		unitIndex: number
@@ -296,7 +309,7 @@ function OrderRow({
 			<div className="mb-2 flex items-center gap-2 flex-wrap">
 				<TouchActionButton
 					onClick={() => onKotPrint(order)}
-					className="bg-yellow-100 border border-yellow-400 text-yellow-900 active:bg-yellow-200 min-w-[56px] shrink-0"
+					className="rounded-full bg-yellow-100 border border-yellow-400 text-yellow-900 active:bg-yellow-200 min-w-[56px] shrink-0"
 				>
 					KOT
 				</TouchActionButton>
@@ -334,14 +347,18 @@ function OrderRow({
 									{item.name}
 								</span>
 								<span className="inline-flex items-center gap-1 ml-1 flex-wrap">
-									{unitDisplays.map((display, unitIndex) => (
+									{unitDisplays.map((display, unitIndex) => {
+										const isParcel = isItemUnitParcel(item, unitIndex);
+										return (
 										<span
 											key={unitIndex}
 											className="inline-flex items-center gap-0.5"
 											title={
 												display === "cancelled" && cancelReasons[unitIndex]
 													? itemCancelReasonLabel(cancelReasons[unitIndex]!)
-													: undefined
+													: isParcel
+														? "Parcel"
+														: undefined
 											}
 										>
 											{display === "fulfilled" ? (
@@ -352,19 +369,46 @@ function OrderRow({
 												<CheckIcon checked={false} className="w-4 h-4 shrink-0 text-gray-300" />
 											)}
 											{display === "pending" && editable ? (
-												<button
-													type="button"
-													onClick={() =>
-														onRequestCancelItem(order, itemIndex, unitIndex)
-													}
-													className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 touch-manipulation active:bg-red-100"
-													aria-label={`Cancel ${item.name}`}
+												<>
+													<button
+														type="button"
+														onClick={() =>
+															onRequestToggleParcel(order, itemIndex, unitIndex)
+														}
+														className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border touch-manipulation ${
+															isParcel
+																? "border-amber-400 bg-amber-200 text-amber-900 active:bg-amber-300"
+																: "border-amber-200 bg-amber-50 text-amber-800 active:bg-amber-100"
+														}`}
+														aria-label={`${isParcel ? "Unmark" : "Mark"} ${item.name} for parcel`}
+														aria-pressed={isParcel}
+													>
+														<span className="text-base leading-none" aria-hidden>
+															📦
+														</span>
+													</button>
+													<button
+														type="button"
+														onClick={() =>
+															onRequestCancelItem(order, itemIndex, unitIndex)
+														}
+														className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-700 touch-manipulation active:bg-red-100"
+														aria-label={`Cancel ${item.name}`}
+													>
+														<CrossIcon className="w-5 h-5" />
+													</button>
+												</>
+											) : isParcel ? (
+												<span
+													className="inline-flex min-h-[28px] min-w-[28px] items-center justify-center rounded-full bg-amber-100 text-sm"
+													aria-label="Parcel"
 												>
-													<CrossIcon className="w-5 h-5" />
-												</button>
+													📦
+												</span>
 											) : null}
 										</span>
-									))}
+									);
+									})}
 								</span>
 							</div>
 						</li>
@@ -472,7 +516,9 @@ function TableOrderCard({
 	onRequestMarkDone,
 	onRequestWelcomeDrink,
 	onRequestComplementary,
+	onRequestKidMenu,
 	onRequestCancelItem,
+	onRequestToggleParcel,
 	onEditNotes,
 }: {
 	group: OrderGroup;
@@ -484,7 +530,13 @@ function TableOrderCard({
 	onRequestMarkDone: (order: TOrder) => void;
 	onRequestWelcomeDrink: (group: OrderGroup) => void;
 	onRequestComplementary: (group: OrderGroup) => void;
+	onRequestKidMenu: (group: OrderGroup) => void;
 	onRequestCancelItem: (
+		order: TOrder,
+		itemIndex: number,
+		unitIndex: number
+	) => void;
+	onRequestToggleParcel: (
 		order: TOrder,
 		itemIndex: number,
 		unitIndex: number
@@ -499,12 +551,15 @@ function TableOrderCard({
 	const isLate = group.kind === "table" && isGroupLate(group, now);
 	const allDone = group.kind === "table" && isGroupFullyMarkedDone(group);
 	const lateByMs = isLate ? getGroupLateByMs(group, now) : 0;
-	const hasItems = group.orders.some((order) => order.items.length > 0);
+	const hasOrdersInGroup = group.orders.length > 0;
 	const billingPending = isActionPending(`bill:${group.key}`);
 	const drinkPending = isActionPending(`drink:${group.key}`);
 	const compPending = isActionPending(`comp:${group.key}`);
+	const kidPending = isActionPending(`kid:${group.key}`);
 	const drinkServed = isTableWelcomeDrinkServed(group);
 	const compServed = isTableComplementaryServed(group);
+	const kidServed = isTableKidMenuServed(group);
+	const kidEnabled = isTableKidMenuEnabled(group);
 	const showTableService = group.kind === "table";
 	const groupCustomer = getGroupCustomerDetails(group);
 	const hasGroupCustomer =
@@ -533,17 +588,16 @@ function TableOrderCard({
 				</div>
 			) : null}
 			<div className="flex flex-col space-y-1.5 p-6 pb-3">
-				<div className="flex items-center justify-between">
+				<div className="flex items-center justify-between gap-2">
 					<div className="flex items-center gap-2 min-w-0">
 						<TouchActionButton
 							onClick={() => onBill(group)}
 							loading={billingPending}
-							disabled={!hasItems || billingPending}
-							className="bg-green-500 border border-green-600 text-white active:bg-green-600 shrink-0 min-w-[72px] disabled:opacity-40"
+							disabled={!hasOrdersInGroup || billingPending}
+							className="rounded-full bg-green-500 border border-green-600 text-white active:bg-green-600 shrink-0 min-w-[72px] disabled:opacity-40"
 						>
 							₹ Bill
 						</TouchActionButton>
-						<h3 className="text-lg font-semibold truncate">{group.label}</h3>
 					</div>
 					<div className="flex items-center gap-2 shrink-0">
 						<button
@@ -575,6 +629,7 @@ function TableOrderCard({
 						</Link>
 					</div>
 				</div>
+				<h3 className="text-lg font-semibold">{group.label}</h3>
 				{hasGroupCustomer ? (
 					<div className="flex items-center gap-2 flex-wrap text-sm font-medium text-gray-700">
 						{groupCustomer.name ? <span>{groupCustomer.name}</span> : null}
@@ -615,6 +670,14 @@ function TableOrderCard({
 							loading={compPending}
 							onClick={() => onRequestComplementary(group)}
 						/>
+						{kidEnabled ? (
+							<TableServicePill
+								label="👶 Kid"
+								checked={kidServed}
+								loading={kidPending}
+								onClick={() => onRequestKidMenu(group)}
+							/>
+						) : null}
 					</div>
 				) : null}
 				<p className="text-xs text-gray-500">
@@ -630,6 +693,7 @@ function TableOrderCard({
 						onKotPrint={onKotPrint}
 						onRequestMarkDone={onRequestMarkDone}
 						onRequestCancelItem={onRequestCancelItem}
+						onRequestToggleParcel={onRequestToggleParcel}
 					/>
 				))}
 			</div>
@@ -641,6 +705,7 @@ function ConfirmOrderActionModal({
 	title,
 	message,
 	confirmLabel,
+	cancelLabel,
 	confirming,
 	onConfirm,
 	onCancel,
@@ -648,6 +713,7 @@ function ConfirmOrderActionModal({
 	title: string;
 	message: string;
 	confirmLabel: string;
+	cancelLabel?: string;
 	confirming?: boolean;
 	onConfirm: () => void;
 	onCancel: () => void;
@@ -673,6 +739,7 @@ function ConfirmOrderActionModal({
 					onCancel={onCancel}
 					onConfirm={onConfirm}
 					confirmLabel={confirmLabel}
+					cancelLabel={cancelLabel}
 					confirming={confirming}
 					cancelDisabled={confirming}
 				/>
@@ -907,7 +974,7 @@ function ItemGroupCard({
 								<button
 									type="button"
 									onClick={() => onRequestCancelUnit(unit)}
-									className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700 touch-manipulation active:bg-red-100"
+									className="inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-700 touch-manipulation active:bg-red-100"
 									aria-label={`Cancel ${unit.dishName}`}
 								>
 									<CrossIcon className="w-5 h-5" />
@@ -1009,6 +1076,10 @@ export default function OrderPage() {
 		useState<OrderGroup | null>(null);
 	const [pendingComplementary, setPendingComplementary] =
 		useState<OrderGroup | null>(null);
+	const [pendingKidMenu, setPendingKidMenu] = useState<OrderGroup | null>(null);
+	const [pendingCloseTable, setPendingCloseTable] = useState<OrderGroup | null>(
+		null
+	);
 	const [editingNotesGroup, setEditingNotesGroup] = useState<OrderGroup | null>(
 		null
 	);
@@ -1018,6 +1089,13 @@ export default function OrderPage() {
 		itemIndex: number;
 		unitIndex: number;
 		dishName: string;
+	} | null>(null);
+	const [pendingParcelItem, setPendingParcelItem] = useState<{
+		orderId: string;
+		itemIndex: number;
+		unitIndex: number;
+		dishName: string;
+		isParcel: boolean;
 	} | null>(null);
 	const [pendingActions, setPendingActions] = useState<Record<string, boolean>>(
 		{}
@@ -1258,6 +1336,50 @@ export default function OrderPage() {
 		});
 	};
 
+	const handleKidMenu = async (group: OrderGroup) => {
+		await runConfirmingAction(`kid:${group.key}`, async () => {
+			await persistOrders(markTableKidMenuServed(orders, group));
+			setPendingKidMenu(null);
+		});
+	};
+
+	const handleRequestToggleParcel = (
+		order: TOrder,
+		itemIndex: number,
+		unitIndex: number
+	) => {
+		const item = order.items[itemIndex];
+		if (!item || !isOrderEditable(order)) {
+			return;
+		}
+		setPendingParcelItem({
+			orderId: order.id,
+			itemIndex,
+			unitIndex,
+			dishName: item.name,
+			isParcel: isItemUnitParcel(item, unitIndex),
+		});
+	};
+
+	const handleToggleParcel = async () => {
+		if (!pendingParcelItem) {
+			return;
+		}
+		const { orderId, itemIndex, unitIndex } = pendingParcelItem;
+		const order = orders.find((entry) => entry.id === orderId);
+		if (!order || !isOrderEditable(order)) {
+			setPendingParcelItem(null);
+			return;
+		}
+		const key = `parcel:${orderId}:${itemIndex}:${unitIndex}`;
+		await runConfirmingAction(key, async () => {
+			await persistOrders(
+				toggleItemUnitParcel(orders, orderId, itemIndex, unitIndex)
+			);
+			setPendingParcelItem(null);
+		});
+	};
+
 	const openNotesModal = (group: OrderGroup) => {
 		setEditingNotesGroup(group);
 		setNotesDraft(getGroupNotes(group) ?? "");
@@ -1282,10 +1404,13 @@ export default function OrderPage() {
 
 	const handleBill = async (group: OrderGroup) => {
 		await runPendingAction(`bill:${group.key}`, async () => {
-			const cart = orderGroupToCart(group);
-			if (cart.items.length === 0) {
+			if (!groupHasBillableItems(group)) {
+				if (group.orders.length > 0) {
+					setPendingCloseTable(group);
+				}
 				return;
 			}
+			const cart = await orderGroupToBillCart(group);
 			const billingContext: BillingContext = {
 				source: "orders",
 				groupKey: group.key,
@@ -1296,6 +1421,21 @@ export default function OrderPage() {
 			await localforage.setItem<TCart>("cart", cart);
 			await localforage.setItem(BILLING_CONTEXT_KEY, billingContext);
 			router.push("/cart");
+		});
+	};
+
+	const handleCloseTable = async (group: OrderGroup) => {
+		await runConfirmingAction(`close:${group.key}`, async () => {
+			const billingContext: BillingContext = {
+				source: "orders",
+				groupKey: group.key,
+				kind: group.kind,
+				tableNumbers: group.tableNumbers ?? [],
+				label: group.label,
+			};
+			const remaining = await closeTableFromBilling(billingContext);
+			applyOrderState(remaining);
+			setPendingCloseTable(null);
 		});
 	};
 
@@ -1445,7 +1585,9 @@ export default function OrderPage() {
 									onRequestMarkDone={setPendingMarkDone}
 									onRequestWelcomeDrink={setPendingWelcomeDrink}
 									onRequestComplementary={setPendingComplementary}
+									onRequestKidMenu={setPendingKidMenu}
 									onRequestCancelItem={handleRequestCancelItem}
+									onRequestToggleParcel={handleRequestToggleParcel}
 									onEditNotes={openNotesModal}
 								/>
 							))
@@ -1527,6 +1669,35 @@ export default function OrderPage() {
 				/>
 			)}
 
+			{pendingKidMenu && (
+				<ConfirmOrderActionModal
+					title="Kid menu served?"
+					message={`Is kid menu served for ${pendingKidMenu.label}?`}
+					confirmLabel="Yes, served"
+					confirming={confirmingAction === `kid:${pendingKidMenu.key}`}
+					onCancel={() => setPendingKidMenu(null)}
+					onConfirm={() => void handleKidMenu(pendingKidMenu)}
+				/>
+			)}
+
+			{pendingCloseTable && (
+				<ConfirmOrderActionModal
+					title="Nothing to bill"
+					message={`All items on ${pendingCloseTable.label} are cancelled or removed. ${
+						pendingCloseTable.kind === "table"
+							? "Close the table to clear it from active orders."
+							: "Close this group to clear it from active orders."
+					}`}
+					confirmLabel={
+						pendingCloseTable.kind === "table" ? "Close table" : "Close"
+					}
+					cancelLabel="Don't do anything"
+					confirming={confirmingAction === `close:${pendingCloseTable.key}`}
+					onCancel={() => setPendingCloseTable(null)}
+					onConfirm={() => void handleCloseTable(pendingCloseTable)}
+				/>
+			)}
+
 			{editingNotesGroup && (
 				<GroupNotesModal
 					group={editingNotesGroup}
@@ -1546,6 +1717,26 @@ export default function OrderPage() {
 					order={editingOrder}
 					onClose={() => setEditingOrder(null)}
 					onSaved={() => loadOrders({ background: true })}
+				/>
+			)}
+
+			{pendingParcelItem && (
+				<ConfirmOrderActionModal
+					title={
+						pendingParcelItem.isParcel ? "Remove parcel?" : "Mark for parcel?"
+					}
+					message={
+						pendingParcelItem.isParcel
+							? `Remove parcel packing for ${pendingParcelItem.dishName}?`
+							: `Mark ${pendingParcelItem.dishName} for parcel packing?`
+					}
+					confirmLabel={pendingParcelItem.isParcel ? "Remove parcel" : "Mark parcel"}
+					confirming={
+						confirmingAction ===
+						`parcel:${pendingParcelItem.orderId}:${pendingParcelItem.itemIndex}:${pendingParcelItem.unitIndex}`
+					}
+					onCancel={() => setPendingParcelItem(null)}
+					onConfirm={() => void handleToggleParcel()}
 				/>
 			)}
 

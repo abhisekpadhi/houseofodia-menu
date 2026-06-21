@@ -18,8 +18,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FaStar, FaWhatsapp } from "react-icons/fa";
 
 const niconne = Niconne({ subsets: ["latin"], weight: "400" });
+const REDIRECT_DELAY_MS = 3500;
 
 type PageMode = "form" | "saved";
+type RedirectNotice = "copied" | "redirecting" | null;
 
 function StarPicker({
   rating,
@@ -81,48 +83,6 @@ function WhatsAppFeedbackButton() {
   );
 }
 
-function ReviewCopiedModal({ onContinue }: { onContinue: () => void }) {
-  const [showButton, setShowButton] = useState(false);
-
-  useEffect(() => {
-    const redirectTimer = window.setTimeout(() => {
-      onContinue();
-    }, 1000);
-
-    const buttonTimer = window.setTimeout(() => {
-      setShowButton(true);
-    }, 5000);
-
-    return () => {
-      window.clearTimeout(redirectTimer);
-      window.clearTimeout(buttonTimer);
-    };
-  }, [onContinue]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-      <div className="w-full max-w-sm rounded-xl border border-gray-800 bg-gray-950 p-6 text-center shadow-xl">
-        <p className="text-lg font-semibold text-green-300">Review copied!</p>
-        <p className="mt-3 text-sm leading-relaxed text-gray-300">
-          Your review is on the clipboard. On the next page, just paste it in
-          the review box.
-        </p>
-        {!showButton ? (
-          <p className="mt-6 text-sm text-gray-500">Opening Google review...</p>
-        ) : (
-          <Button
-            type="button"
-            className="mt-6 w-full bg-yellow-500 text-black hover:bg-yellow-400"
-            onClick={onContinue}
-          >
-            Open Google review
-          </Button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export default function RatePage() {
   const [mode, setMode] = useState<PageMode>("form");
   const [rating, setRating] = useState(0);
@@ -133,9 +93,34 @@ export default function RatePage() {
   const [generating, setGenerating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [copyModalOpen, setCopyModalOpen] = useState(false);
+  const [redirectNotice, setRedirectNotice] = useState<RedirectNotice>(null);
   const [error, setError] = useState<string | null>(null);
   const ratingRef = useRef(0);
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearRedirectTimer = useCallback(() => {
+    if (redirectTimerRef.current) {
+      clearTimeout(redirectTimerRef.current);
+      redirectTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleGoogleRedirect = useCallback(
+    (notice: Exclude<RedirectNotice, null>) => {
+      clearRedirectTimer();
+      setRedirectNotice(notice);
+      redirectTimerRef.current = setTimeout(() => {
+        redirectTimerRef.current = null;
+        setRedirectNotice(null);
+        openGoogleMapsReview();
+      }, REDIRECT_DELAY_MS);
+    },
+    [clearRedirectTimer]
+  );
+
+  useEffect(() => {
+    return () => clearRedirectTimer();
+  }, [clearRedirectTimer]);
 
   const applySavedRecord = useCallback((record: TangifyRatingRecord) => {
     setSavedRecord(record);
@@ -167,33 +152,62 @@ export default function RatePage() {
     setMode("saved");
   }, []);
 
-  const generateReview = useCallback(async (nextRating: number) => {
-    if (!shouldGenerateReviews(nextRating)) {
-      return;
-    }
-    setGenerating(true);
-    setError(null);
-    try {
-      const nextReview = await generateTangifyReview(nextRating);
-      if (!shouldGenerateReviews(ratingRef.current)) {
+  const persistHighRating = useCallback(
+    (nextRating: number, nextReview: string, markSubmitted: boolean) => {
+      const record: TangifyRatingRecord = {
+        rating: nextRating,
+        review: nextReview.trim(),
+        updatedAt: Date.now(),
+        submitted: markSubmitted,
+      };
+      saveTangifyRating(record);
+      setSavedRecord(record);
+      setSubmitted(markSubmitted);
+      return record;
+    },
+    []
+  );
+
+  const generateReview = useCallback(
+    async (nextRating: number) => {
+      if (!shouldGenerateReviews(nextRating)) {
         return;
       }
-      setReview(nextReview);
-    } catch (err) {
-      console.error("Failed to generate review:", err);
-      if (shouldGenerateReviews(ratingRef.current)) {
-        setError("Could not generate review right now. Try again?");
+      clearRedirectTimer();
+      setRedirectNotice(null);
+      setGenerating(true);
+      setError(null);
+      setReview("");
+
+      try {
+        const nextReview = await generateTangifyReview(nextRating);
+        if (!shouldGenerateReviews(ratingRef.current)) {
+          return;
+        }
+        setReview(nextReview);
+        await copyReviewToClipboard(nextReview);
+        persistHighRating(nextRating, nextReview, true);
+        scheduleGoogleRedirect("copied");
+      } catch (err) {
+        console.error("Failed to generate review:", err);
+        if (shouldGenerateReviews(ratingRef.current)) {
+          persistHighRating(nextRating, "", false);
+          scheduleGoogleRedirect("redirecting");
+        }
+      } finally {
+        setGenerating(false);
       }
-    } finally {
-      setGenerating(false);
-    }
-  }, []);
+    },
+    [clearRedirectTimer, persistHighRating, scheduleGoogleRedirect]
+  );
 
   const handleRatingChange = (nextRating: number) => {
     const previousRating = ratingRef.current;
     setRating(nextRating);
     ratingRef.current = nextRating;
     setError(null);
+    clearRedirectTimer();
+    setRedirectNotice(null);
 
     if (nextRating !== previousRating) {
       setSubmitted(false);
@@ -205,7 +219,6 @@ export default function RatePage() {
     }
 
     if (previousRating > 0 && isLowRating(previousRating)) {
-      setReview("");
       void generateReview(nextRating);
       setMode("form");
       return;
@@ -221,7 +234,6 @@ export default function RatePage() {
     }
 
     if (nextRating > previousRating) {
-      setReview("");
       void generateReview(nextRating);
     }
   };
@@ -230,6 +242,8 @@ export default function RatePage() {
     if (!savedRecord) {
       return;
     }
+    clearRedirectTimer();
+    setRedirectNotice(null);
     setRating(savedRecord.rating);
     ratingRef.current = savedRecord.rating;
     setReview(savedRecord.review);
@@ -239,46 +253,32 @@ export default function RatePage() {
   };
 
   const handleSubmit = async () => {
-    if (rating < 1 || rating > 5) {
-      setError("Pick a star rating first.");
-      return;
-    }
-    if (!review.trim()) {
-      setError("Review text is empty.");
+    if (rating < 1 || rating > 5 || !review.trim()) {
       return;
     }
 
     setSubmitting(true);
     setError(null);
 
-    const record: TangifyRatingRecord = {
-      rating,
-      review: review.trim(),
-      updatedAt: Date.now(),
-      submitted: true,
-    };
-    saveTangifyRating(record);
-    setSavedRecord(record);
-    setSubmitted(true);
-    setMode("saved");
-
+    persistHighRating(rating, review, true);
     await copyReviewToClipboard(review.trim());
-    setCopyModalOpen(true);
+    scheduleGoogleRedirect("copied");
     setSubmitting(false);
   };
 
   const handleOpenGoogleFromSaved = async () => {
     if (!savedRecord?.review.trim()) {
+      scheduleGoogleRedirect("redirecting");
       return;
     }
     await copyReviewToClipboard(savedRecord.review);
-    setCopyModalOpen(true);
+    scheduleGoogleRedirect("copied");
   };
 
-  const handleContinueToGoogle = useCallback(() => {
-    setCopyModalOpen(false);
-    openGoogleMapsReview();
-  }, []);
+  const reviewReady =
+    shouldGenerateReviews(rating) && review.trim() !== "" && !generating;
+  const showSubmitButton =
+    reviewReady && redirectNotice === null && mode === "form";
 
   const showWhatsAppFeedback =
     submitted && mode === "saved" && savedRecord !== null;
@@ -341,9 +341,11 @@ export default function RatePage() {
                   ))}
                 </div>
               </div>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-200">
-                {savedRecord.review}
-              </p>
+              {savedRecord.review ? (
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-200">
+                  {savedRecord.review}
+                </p>
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="secondary" onClick={startEditing}>
                   Edit review
@@ -351,6 +353,7 @@ export default function RatePage() {
                 <Button
                   type="button"
                   className="bg-yellow-500 text-black hover:bg-yellow-400"
+                  disabled={redirectNotice !== null}
                   onClick={() => void handleOpenGoogleFromSaved()}
                 >
                   Copy & open Google review
@@ -365,7 +368,7 @@ export default function RatePage() {
             <StarPicker
               rating={rating}
               onChange={handleRatingChange}
-              disabled={generating || submitting}
+              disabled={generating || submitting || redirectNotice !== null}
             />
 
             {rating > 0 ? (
@@ -383,24 +386,37 @@ export default function RatePage() {
             ) : null}
 
             {generating ? (
-              <p className="text-center text-sm text-gray-400">
-                Writing your review...
+              <p className="text-center text-sm text-yellow-400/90">
+                Tangify AI is generating a comment.
               </p>
             ) : null}
 
-            {review && shouldGenerateReviews(rating) ? (
+            {redirectNotice === "copied" ? (
+              <div className="rounded-xl border border-green-900/60 bg-green-950/30 p-4 text-center">
+                <p className="text-sm leading-relaxed text-green-300">
+                  Your comment is copied. You will only need to paste it in Google
+                  reviews. Thank you.
+                </p>
+                <p className="mt-2 text-xs text-gray-500">
+                  Opening Google review...
+                </p>
+              </div>
+            ) : null}
+
+            {redirectNotice === "redirecting" ? (
+              <div className="rounded-xl border border-gray-700 bg-gray-900/50 p-4 text-center">
+                <p className="text-sm leading-relaxed text-gray-300">
+                  Redirecting to Google review...
+                </p>
+              </div>
+            ) : null}
+
+            {reviewReady ? (
               <div className="space-y-2">
-                <label htmlFor="review-text" className="text-sm text-gray-400">
-                  Your review (edit if you want)
-                </label>
-                <textarea
-                  id="review-text"
-                  value={review}
-                  onChange={(event) => setReview(event.target.value)}
-                  rows={5}
-                  className="w-full rounded-lg border border-gray-700 bg-black px-3 py-2 text-sm text-white outline-none focus:border-yellow-500"
-                  disabled={submitting}
-                />
+                <p className="text-sm text-gray-400">Your review</p>
+                <p className="whitespace-pre-wrap rounded-lg border border-gray-700 bg-black px-3 py-2 text-sm leading-relaxed text-gray-200">
+                  {review}
+                </p>
               </div>
             ) : null}
 
@@ -408,34 +424,44 @@ export default function RatePage() {
               <p className="text-center text-sm text-red-400">{error}</p>
             ) : null}
 
-            {shouldGenerateReviews(rating) ? (
+            {showSubmitButton ? (
               <>
                 <Button
                   type="button"
                   className="w-full bg-yellow-500 text-black hover:bg-yellow-400"
-                  disabled={
-                    submitting || generating || rating < 1 || !review.trim()
-                  }
+                  disabled={submitting}
                   onClick={() => void handleSubmit()}
                 >
                   {submitting ? "Copying..." : "Submit review"}
                 </Button>
-                {review ? (
-                  <p className="text-center text-xs text-gray-500">
-                    Review will be copied — you paste it on Google Maps
-                  </p>
-                ) : null}
+                <p className="text-center text-xs text-gray-500">
+                  Tap submit to open Google Maps and paste your review
+                </p>
               </>
             ) : null}
           </div>
         ) : null}
 
+        {redirectNotice === "copied" && mode === "saved" ? (
+          <div className="rounded-xl border border-green-900/60 bg-green-950/30 p-4 text-center">
+            <p className="text-sm leading-relaxed text-green-300">
+              Your comment is copied. You will only need to paste it in Google
+              reviews. Thank you.
+            </p>
+            <p className="mt-2 text-xs text-gray-500">Opening Google review...</p>
+          </div>
+        ) : null}
+
+        {redirectNotice === "redirecting" && mode === "saved" ? (
+          <div className="rounded-xl border border-gray-700 bg-gray-900/50 p-4 text-center">
+            <p className="text-sm leading-relaxed text-gray-300">
+              Redirecting to Google review...
+            </p>
+          </div>
+        ) : null}
+
         {showWhatsAppFeedback ? <WhatsAppFeedbackButton /> : null}
       </div>
-
-      {copyModalOpen ? (
-        <ReviewCopiedModal onContinue={handleContinueToGoogle} />
-      ) : null}
     </div>
   );
 }

@@ -1,3 +1,5 @@
+import { isInfiniteInventoryDish } from '@/src/utils/inventory_utils';
+
 export type InventoryShortcutId =
 	| 'all-100'
 	| 'all-oos'
@@ -167,6 +169,10 @@ export function dishMatchesInventoryShortcut(
 	dishName: string,
 	shortcut: InventoryShortcutId
 ): boolean {
+	if (isInfiniteInventoryDish(dishName)) {
+		return false;
+	}
+
 	if (shortcut === 'all-100' || shortcut === 'all-oos') {
 		return true;
 	}

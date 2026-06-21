@@ -11,6 +11,7 @@ import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
 import {
 	getInventoryForDate,
 	getTodayDateKey,
+	isInfiniteInventoryDish,
 	saveInventoryForDate,
 } from "@/src/utils/inventory_utils";
 import {
@@ -141,6 +142,9 @@ export default function InventoryPage() {
 
 			Object.entries(menu).forEach(([category, items]) => {
 				items.forEach((item) => {
+					if (isInfiniteInventoryDish(item.name)) {
+						return;
+					}
 					rows.push({ category, name: item.name });
 				});
 			});

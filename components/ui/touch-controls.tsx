@@ -138,6 +138,7 @@ type ConfirmModalActionsProps = {
 	onCancel: () => void;
 	onConfirm: () => void;
 	confirmLabel: string;
+	cancelLabel?: string;
 	confirming?: boolean;
 	cancelDisabled?: boolean;
 	confirmDisabled?: boolean;
@@ -147,6 +148,7 @@ export function ConfirmModalActions({
 	onCancel,
 	onConfirm,
 	confirmLabel,
+	cancelLabel = 'Cancel',
 	confirming = false,
 	cancelDisabled = false,
 	confirmDisabled = false,
@@ -159,7 +161,7 @@ export function ConfirmModalActions({
 				disabled={cancelDisabled || confirming}
 				className="flex-1 min-h-[44px] rounded-lg bg-gray-100 border border-gray-300 text-sm font-semibold touch-manipulation active:bg-gray-200 disabled:opacity-60"
 			>
-				Cancel
+				{cancelLabel}
 			</button>
 			<button
 				type="button"
