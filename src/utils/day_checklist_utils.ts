@@ -37,7 +37,7 @@ export async function saveDayChecklistForDate(
 		'@/src/utils/order_ops_sync'
 	);
 	if (!isSyncNotifySuppressed()) {
-		await notifyOrderOpsChange();
+		await notifyOrderOpsChange('dayChecklists');
 	}
 }
 

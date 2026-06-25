@@ -2,6 +2,7 @@
 
 import {
 	getOrderOpsChannel,
+	maxOrderOpsVersion,
 	OrderOpsPresenceData,
 	OrderOpsSnapshot,
 	SyncConflict,
@@ -117,7 +118,8 @@ async function updateChannelPresence(channel: RealtimeChannel) {
 	const data: OrderOpsPresenceData = {
 		deviceId: meta.deviceId,
 		deviceName: getDeviceDisplayName(),
-		stateVersion: meta.stateVersion,
+		versions: meta.versions,
+		stateVersion: maxOrderOpsVersion(meta.versions),
 		businessDate: meta.businessDate,
 		initializedForToday: meta.initializedForToday ?? false,
 	};
@@ -136,15 +138,60 @@ async function publishSyncRequest(
 	await channel.publish('sync:request', payload);
 }
 
-function safeTeardownAbly(
+type ConnectionHandlers = {
+	onConnecting: () => void;
+	onConnected: () => void;
+	onDisconnected: () => void;
+	onFailed: (stateChange: Ably.ConnectionStateChange) => void;
+};
+
+async function teardownAbly(
 	realtime: Realtime | null,
-	channel: RealtimeChannel | null
-): void {
+	channel: RealtimeChannel | null,
+	handlers: ConnectionHandlers | null
+): Promise<void> {
+	if (realtime && handlers) {
+		realtime.connection.off('connecting', handlers.onConnecting);
+		realtime.connection.off('connected', handlers.onConnected);
+		realtime.connection.off('disconnected', handlers.onDisconnected);
+		realtime.connection.off('failed', handlers.onFailed);
+	}
+
 	if (channel) {
+		try {
+			channel.presence.unsubscribe();
+		} catch {
+			// Presence may not be subscribed yet during hot reload / Strict Mode.
+		}
+
 		try {
 			channel.unsubscribe();
 		} catch {
 			// Channel may already be detached during hot reload / Strict Mode.
+		}
+
+		try {
+			if (
+				channel.state === 'attached' ||
+				channel.state === 'attaching' ||
+				channel.state === 'suspended'
+			) {
+				await channel.presence.leave();
+			}
+		} catch {
+			// Ignore leave errors while tearing down.
+		}
+
+		try {
+			if (
+				channel.state === 'attached' ||
+				channel.state === 'attaching' ||
+				channel.state === 'suspended'
+			) {
+				await channel.detach();
+			}
+		} catch {
+			// Ignore detach errors while tearing down.
 		}
 	}
 
@@ -155,13 +202,14 @@ function safeTeardownAbly(
 	const connectionState = realtime.connection.state;
 	if (
 		connectionState === 'closed' ||
-		connectionState === 'closing'
+		connectionState === 'closing' ||
+		connectionState === 'failed'
 	) {
 		return;
 	}
 
 	try {
-		realtime.close();
+		realtime.connection.close();
 	} catch {
 		// Ably can throw if the connection is already closed.
 	}
@@ -181,6 +229,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 
 	const realtimeRef = useRef<Realtime | null>(null);
 	const channelRef = useRef<RealtimeChannel | null>(null);
+	const connectionHandlersRef = useRef<ConnectionHandlers | null>(null);
 	const selfDeviceIdRef = useRef('');
 	const cancelledRef = useRef(false);
 	const connectPromiseRef = useRef<Promise<void> | null>(null);
@@ -207,7 +256,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 
 	const refreshMeta = useCallback(async () => {
 		const meta = await getOrderOpsMeta();
-		setStateVersion(meta.stateVersion);
+		setStateVersion(maxOrderOpsVersion(meta.versions));
 		setBusinessDate(meta.businessDate);
 	}, []);
 
@@ -296,7 +345,8 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 					const data: OrderOpsPresenceData = {
 						deviceId: meta.deviceId,
 						deviceName: getDeviceDisplayName(),
-						stateVersion: meta.stateVersion,
+						versions: meta.versions,
+						stateVersion: maxOrderOpsVersion(meta.versions),
 						businessDate: meta.businessDate,
 						initializedForToday: meta.initializedForToday ?? false,
 					};
@@ -367,6 +417,12 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			realtime.connection.on('connected', onConnected);
 			realtime.connection.on('disconnected', onDisconnected);
 			realtime.connection.on('failed', onFailed);
+			connectionHandlersRef.current = {
+				onConnecting,
+				onConnected,
+				onDisconnected,
+				onFailed,
+			};
 
 			channel.subscribe('sync:request', async (message) => {
 				const payload = message.data as SyncRequestMessage;
@@ -612,9 +668,14 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			document.removeEventListener('visibilitychange', onVisibilityChange);
 			unregisterOrderOpsPublisher();
 			unregisterOrderOpsPresenceUpdater();
-			safeTeardownAbly(realtimeRef.current, channelRef.current);
+			void teardownAbly(
+				realtimeRef.current,
+				channelRef.current,
+				connectionHandlersRef.current
+			);
 			realtimeRef.current = null;
 			channelRef.current = null;
+			connectionHandlersRef.current = null;
 			connectPromiseRef.current = null;
 		};
 	}, [connect, setupRealtime, runWithSyncIndicator]);

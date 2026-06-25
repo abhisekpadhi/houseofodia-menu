@@ -1,6 +1,7 @@
 'use client';
 
 import { useOrderOpsSync } from '@/context/order-ops-sync';
+import { maxOrderOpsVersion } from '@/src/models/order_ops';
 import { formatStateVersionDisplay } from '@/src/utils/format_state_version';
 import { useEffect, useState } from 'react';
 
@@ -316,7 +317,9 @@ export function OrderOpsSyncIndicator() {
 								<span className="float-right font-medium text-right max-w-[55%]">
 									{sync.syncConflict.localDeviceName}
 									<span className="block text-xs font-normal text-gray-500 mt-0.5">
-										{formatStateVersionDisplay(sync.syncConflict.localVersion)}
+										{formatStateVersionDisplay(
+											maxOrderOpsVersion(sync.syncConflict.localVersions)
+										)}
 									</span>
 								</span>
 							</p>

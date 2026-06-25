@@ -73,6 +73,8 @@ export type TOrder = {
 	customerName?: string;
 	/** Group-level guest phone for takeaway / delivery (also used as group key) */
 	customerPhone?: string;
+	/** Guest count for the table / order group */
+	pax?: number;
 	/** Optional instructions for kitchen / service */
 	notes?: string;
 	/** Set when all items are kitchen-fulfilled */

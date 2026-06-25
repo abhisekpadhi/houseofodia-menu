@@ -1,20 +1,27 @@
 import { INVENTORY_KEY, TOrdersStore } from '@/src/models/common';
 import {
+	OrderOpsDomain,
 	OrderOpsSnapshot,
+	OrderOpsVersions,
+	resolveSnapshotVersions,
 	SyncConflict,
 	SyncConflictPeer,
 	SyncRequestMessage,
 	SyncResponseMessage,
 	StateDeltaMessage,
+	isAnyDomainBehind,
+	maxOrderOpsVersion,
+	mergeOrderOpsVersions,
 } from '@/src/models/order_ops';
 import {
 	buildOrderOpsSnapshot,
-	bumpOrderOpsMeta,
+	bumpAllOrderOpsDomains,
+	bumpOrderOpsDomain,
 	dispatchNewOrdersSynced,
 	dispatchOrderOpsUpdated,
 	getDeviceDisplayName,
 	getOrderOpsMeta,
-	setOrderOpsMetaVersion,
+	setOrderOpsMetaVersions,
 } from '@/src/utils/order_ops_meta';
 import { getTodayDateKey } from '@/src/utils/inventory_utils';
 import {
@@ -80,12 +87,14 @@ export async function runWithoutSyncNotify<T>(fn: () => Promise<T>): Promise<T> 
 	}
 }
 
-export async function notifyOrderOpsChange(): Promise<void> {
+export async function notifyOrderOpsChange(
+	domain: OrderOpsDomain
+): Promise<void> {
 	if (suppressSyncNotify || typeof window === 'undefined') {
 		return;
 	}
 
-	await bumpOrderOpsMeta();
+	await bumpOrderOpsDomain(domain);
 	const snapshot = await buildOrderOpsSnapshot();
 
 	if (updatePresenceData) {
@@ -99,6 +108,37 @@ export async function notifyOrderOpsChange(): Promise<void> {
 	dispatchOrderOpsUpdated();
 }
 
+export async function notifyOrderOpsFullBroadcast(): Promise<void> {
+	if (suppressSyncNotify || typeof window === 'undefined') {
+		return;
+	}
+
+	await bumpAllOrderOpsDomains();
+	const snapshot = await buildOrderOpsSnapshot();
+
+	if (updatePresenceData) {
+		await updatePresenceData(snapshot);
+	}
+
+	if (publishStateDelta) {
+		await publishStateDelta(snapshot);
+	}
+
+	dispatchOrderOpsUpdated();
+}
+
+function shouldApplyDomain(
+	localVersions: OrderOpsVersions,
+	remoteVersions: OrderOpsVersions,
+	domain: OrderOpsDomain,
+	legacyApplyAll: boolean
+): boolean {
+	if (legacyApplyAll) {
+		return true;
+	}
+	return remoteVersions[domain] > localVersions[domain];
+}
+
 export async function applyOrderOpsSnapshot(
 	payload: OrderOpsSnapshot
 ): Promise<boolean> {
@@ -109,58 +149,107 @@ export async function applyOrderOpsSnapshot(
 		return false;
 	}
 
-	if (payload.stateVersion <= meta.stateVersion) {
+	const remoteVersions = resolveSnapshotVersions(payload);
+	const localVersions = meta.versions;
+	const legacyApplyAll =
+		!payload.versions &&
+		maxOrderOpsVersion(remoteVersions) > maxOrderOpsVersion(localVersions);
+
+	if (!legacyApplyAll && !isAnyDomainBehind(localVersions, remoteVersions)) {
 		return false;
 	}
 
 	let newOrderIds: string[] = [];
+	const appliedVersions: OrderOpsVersions = { ...localVersions };
 
 	await runWithoutSyncNotify(async () => {
-		const existing = await localforage.getItem<TOrdersStore>(ORDERS_KEY);
-		const beforeIds = new Set((existing?.orders ?? []).map((order) => order.id));
-
-		const maintained = maintainOrders(payload.orders, Date.now());
-		newOrderIds = maintained
-			.filter((order) => !beforeIds.has(order.id))
-			.map((order) => order.id);
-
-		await localforage.setItem<TOrdersStore>(ORDERS_KEY, { orders: maintained });
-
-		const inventoryStore =
-			(await localforage.getItem<Record<string, Record<string, number>>>(
-				INVENTORY_KEY
-			)) ?? {};
-		inventoryStore[payload.businessDate] = { ...payload.inventory };
-		await localforage.setItem(INVENTORY_KEY, inventoryStore);
-
-		if (payload.orderHistory) {
-			await replaceOrderHistoryFromSync(
-				payload.businessDate,
-				payload.orderHistory
+		if (
+			shouldApplyDomain(localVersions, remoteVersions, 'orders', legacyApplyAll)
+		) {
+			const existing = await localforage.getItem<TOrdersStore>(ORDERS_KEY);
+			const beforeIds = new Set(
+				(existing?.orders ?? []).map((order) => order.id)
 			);
-		} else {
-			await upsertOrdersInHistory(maintained);
+
+			const maintained = maintainOrders(payload.orders, Date.now());
+			newOrderIds = maintained
+				.filter((order) => !beforeIds.has(order.id))
+				.map((order) => order.id);
+
+			await localforage.setItem<TOrdersStore>(ORDERS_KEY, {
+				orders: maintained,
+			});
+
+			if (payload.orderHistory) {
+				await replaceOrderHistoryFromSync(
+					payload.businessDate,
+					payload.orderHistory
+				);
+			} else {
+				await upsertOrdersInHistory(maintained);
+			}
+
+			appliedVersions.orders = remoteVersions.orders;
 		}
 
-		if (payload.dayChecklists) {
+		if (
+			shouldApplyDomain(
+				localVersions,
+				remoteVersions,
+				'inventory',
+				legacyApplyAll
+			)
+		) {
+			const inventoryStore =
+				(await localforage.getItem<Record<string, Record<string, number>>>(
+					INVENTORY_KEY
+				)) ?? {};
+			inventoryStore[payload.businessDate] = { ...payload.inventory };
+			await localforage.setItem(INVENTORY_KEY, inventoryStore);
+			appliedVersions.inventory = remoteVersions.inventory;
+		}
+
+		if (
+			shouldApplyDomain(
+				localVersions,
+				remoteVersions,
+				'dayChecklists',
+				legacyApplyAll
+			) &&
+			payload.dayChecklists
+		) {
 			await applyDayChecklistSnapshot(
 				payload.businessDate,
 				payload.dayChecklists
 			);
+			appliedVersions.dayChecklists = remoteVersions.dayChecklists;
 		}
 
-		if (payload.supplyInventory) {
+		if (
+			shouldApplyDomain(
+				localVersions,
+				remoteVersions,
+				'supplyInventory',
+				legacyApplyAll
+			) &&
+			payload.supplyInventory
+		) {
 			await applySupplyInventorySnapshot(
 				payload.businessDate,
 				payload.supplyInventory
 			);
+			appliedVersions.supplyInventory = remoteVersions.supplyInventory;
 		}
 
-		if (payload.waitlist) {
+		if (
+			shouldApplyDomain(localVersions, remoteVersions, 'waitlist', legacyApplyAll) &&
+			payload.waitlist
+		) {
 			await applyWaitlistSnapshot(payload.businessDate, payload.waitlist);
+			appliedVersions.waitlist = remoteVersions.waitlist;
 		}
 
-		await setOrderOpsMetaVersion(payload.stateVersion, payload.businessDate);
+		await setOrderOpsMetaVersions(appliedVersions, payload.businessDate);
 
 		if (updatePresenceData) {
 			const snapshot = await buildOrderOpsSnapshot();
@@ -181,9 +270,24 @@ export type PresenceMember = {
 	data?: Record<string, unknown>;
 };
 
+function getPeerVersions(member: PresenceMember): OrderOpsVersions {
+	const versions = member.data?.versions;
+	if (versions && typeof versions === 'object') {
+		return resolveSnapshotVersions({
+			versions: versions as OrderOpsVersions,
+			stateVersion:
+				typeof member.data?.stateVersion === 'number'
+					? member.data.stateVersion
+					: undefined,
+		});
+	}
+	const legacyVersion =
+		typeof member.data?.stateVersion === 'number' ? member.data.stateVersion : 0;
+	return resolveSnapshotVersions({ stateVersion: legacyVersion });
+}
+
 function getPeerStateVersion(member: PresenceMember): number {
-	const version = member.data?.stateVersion;
-	return typeof version === 'number' ? version : 0;
+	return maxOrderOpsVersion(getPeerVersions(member));
 }
 
 function getPeerBusinessDate(member: PresenceMember): string | null {
@@ -235,20 +339,22 @@ export async function detectSyncConflict(
 		return null;
 	}
 
-	const peers: SyncConflictPeer[] = todayPeers.map((member) => ({
-		clientId: member.clientId,
-		deviceName: getPeerDeviceName(member),
-		stateVersion: getPeerStateVersion(member),
-		initializedForToday: getPeerInitialized(member),
-	}));
+	const peers: SyncConflictPeer[] = todayPeers.map((member) => {
+		const versions = getPeerVersions(member);
+		return {
+			clientId: member.clientId,
+			deviceName: getPeerDeviceName(member),
+			versions,
+			stateVersion: maxOrderOpsVersion(versions),
+			initializedForToday: getPeerInitialized(member),
+		};
+	});
 
 	const hasInitializedPeer = peers.some(
 		(peer) => peer.initializedForToday || peer.stateVersion > 0
 	);
 	const localInitialized = meta.initializedForToday ?? false;
 
-	// Only prompt when this device joins mid-day with stale/uninitialized state.
-	// Version drift between initialized peers is handled by auto-sync, not the modal.
 	if (localInitialized || !hasInitializedPeer) {
 		return null;
 	}
@@ -259,7 +365,7 @@ export async function detectSyncConflict(
 
 	return {
 		businessDate: today,
-		localVersion: meta.stateVersion,
+		localVersions: meta.versions,
 		localInitialized,
 		localDeviceName: getDeviceDisplayName(),
 		recommendedPeerClientId: recommendedPeer.clientId,
@@ -277,13 +383,14 @@ export async function requestSyncFromPeer(
 	await publish({
 		requesterId: selfClientId,
 		targetId: targetClientId,
-		requesterVersion: meta.stateVersion,
+		requesterVersions: meta.versions,
+		requesterVersion: maxOrderOpsVersion(meta.versions),
 		requesterBusinessDate: getTodayDateKey(),
 	});
 }
 
 export async function resolveSyncKeepLocal(): Promise<void> {
-	await notifyOrderOpsChange();
+	await notifyOrderOpsFullBroadcast();
 }
 
 export async function handleSyncRequest(
@@ -305,7 +412,13 @@ export async function handleSyncRequest(
 		return;
 	}
 
-	if (meta.stateVersion < message.requesterVersion) {
+	const requesterVersions = message.requesterVersions
+		? message.requesterVersions
+		: resolveSnapshotVersions({ stateVersion: message.requesterVersion });
+
+	if (
+		maxOrderOpsVersion(meta.versions) < maxOrderOpsVersion(requesterVersions)
+	) {
 		return;
 	}
 
@@ -358,17 +471,18 @@ export async function maybeRequestSyncFromPeers(
 		return best;
 	});
 
-	const sourceVersion = getPeerStateVersion(source);
+	const sourceVersions = getPeerVersions(source);
 	const needsInitialSync = !meta.initializedForToday;
+	const needsCatchUp = isAnyDomainBehind(meta.versions, sourceVersions);
 
-	if (!needsInitialSync && sourceVersion <= meta.stateVersion) {
+	if (!needsInitialSync && !needsCatchUp) {
 		return;
 	}
 
 	if (
 		needsInitialSync &&
-		sourceVersion <= meta.stateVersion &&
-		meta.stateVersion > 0
+		!needsCatchUp &&
+		maxOrderOpsVersion(meta.versions) > 0
 	) {
 		return;
 	}
@@ -382,7 +496,8 @@ export async function maybeRequestSyncFromPeers(
 	const payload: SyncRequestMessage = {
 		requesterId: selfClientId,
 		targetId: source.clientId,
-		requesterVersion: meta.stateVersion,
+		requesterVersions: meta.versions,
+		requesterVersion: maxOrderOpsVersion(meta.versions),
 		requesterBusinessDate: today,
 	};
 

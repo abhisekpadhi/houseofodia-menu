@@ -6,6 +6,7 @@ import {
 	formatOrderTime,
 	getGroupCustomerDetails,
 	getGroupNotes,
+	getGroupPax,
 	fulfillNextUnitForDish,
 	getGroupLateByMs,
 	getOrderItemUnitDisplay,
@@ -565,6 +566,7 @@ function TableOrderCard({
 	const hasGroupCustomer =
 		groupCustomer.name !== undefined || groupCustomer.phone !== undefined;
 	const groupNotes = getGroupNotes(group);
+	const groupPax = getGroupPax(group);
 	const notesPending = isActionPending(`notes:${group.key}`);
 
 	return (
@@ -630,6 +632,9 @@ function TableOrderCard({
 					</div>
 				</div>
 				<h3 className="text-lg font-semibold">{group.label}</h3>
+				{groupPax != null ? (
+					<p className="text-sm font-medium text-gray-700">{groupPax} pax</p>
+				) : null}
 				{hasGroupCustomer ? (
 					<div className="flex items-center gap-2 flex-wrap text-sm font-medium text-gray-700">
 						{groupCustomer.name ? <span>{groupCustomer.name}</span> : null}

@@ -60,7 +60,7 @@ export async function saveWaitlistEntries(
 		'@/src/utils/order_ops_sync'
 	);
 	if (!isSyncNotifySuppressed()) {
-		await notifyOrderOpsChange();
+		await notifyOrderOpsChange('waitlist');
 	}
 }
 

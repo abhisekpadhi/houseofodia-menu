@@ -85,7 +85,7 @@ export async function saveInventoryForDate(
 	store[dateKey] = items;
 	await localforage.setItem(INVENTORY_KEY, store);
 	if (!isSyncNotifySuppressed()) {
-		await notifyOrderOpsChange();
+		await notifyOrderOpsChange('inventory');
 	}
 }
 
@@ -164,7 +164,7 @@ async function adjustInventoryDelta(
 	store[dateKey] = dayInventory;
 	await localforage.setItem(INVENTORY_KEY, store);
 	if (!isSyncNotifySuppressed()) {
-		await notifyOrderOpsChange();
+		await notifyOrderOpsChange('inventory');
 	}
 }
 

@@ -4,9 +4,16 @@ import {
 	ORDER_OPS_META_KEY,
 	ORDER_OPS_EVENT,
 	ORDER_OPS_NEW_ORDERS_EVENT,
+	maxOrderOpsVersion,
+	mergeOrderOpsVersions,
+	OrderOpsDomain,
 	OrderOpsMeta,
 	OrderOpsNewOrdersDetail,
 	OrderOpsSnapshot,
+	OrderOpsVersions,
+	ORDER_OPS_DOMAINS,
+	ZERO_ORDER_OPS_VERSIONS,
+	versionsFromLegacyStateVersion,
 } from '@/src/models/order_ops';
 import { TOrdersStore } from '@/src/models/common';
 import { getInventorySnapshotForDate, getTodayDateKey } from '@/src/utils/inventory_utils';
@@ -63,14 +70,21 @@ export function setDeviceDisplayName(name: string): void {
 	localStorage.removeItem(ORDER_OPS_DEVICE_NAME_KEY);
 }
 
-function nextStateVersion(current: number): number {
+function nextDomainVersion(current: number): number {
 	return Math.max(current + 1, Date.now());
+}
+
+function migrateMetaVersions(stored: OrderOpsMeta): OrderOpsVersions {
+	if (stored.versions) {
+		return mergeOrderOpsVersions(ZERO_ORDER_OPS_VERSIONS, stored.versions);
+	}
+	return versionsFromLegacyStateVersion(stored.stateVersion ?? 0);
 }
 
 function createFreshMeta(deviceId: string): OrderOpsMeta {
 	return {
 		deviceId,
-		stateVersion: 0,
+		versions: { ...ZERO_ORDER_OPS_VERSIONS },
 		businessDate: getTodayDateKey(),
 		lastUpdatedAt: Date.now(),
 		initializedForToday: false,
@@ -78,10 +92,12 @@ function createFreshMeta(deviceId: string): OrderOpsMeta {
 }
 
 function normalizeMetaForToday(stored: OrderOpsMeta, today: string): OrderOpsMeta {
+	const versions = migrateMetaVersions(stored);
+
 	if (stored.businessDate !== today) {
 		return {
 			deviceId: stored.deviceId,
-			stateVersion: 0,
+			versions: { ...ZERO_ORDER_OPS_VERSIONS },
 			businessDate: today,
 			lastUpdatedAt: Date.now(),
 			initializedForToday: false,
@@ -89,10 +105,12 @@ function normalizeMetaForToday(stored: OrderOpsMeta, today: string): OrderOpsMet
 	}
 
 	return {
-		...stored,
+		deviceId: stored.deviceId,
+		versions,
 		businessDate: today,
+		lastUpdatedAt: stored.lastUpdatedAt,
 		initializedForToday:
-			stored.initializedForToday ?? stored.stateVersion > 0,
+			stored.initializedForToday ?? maxOrderOpsVersion(versions) > 0,
 	};
 }
 
@@ -108,9 +126,13 @@ export async function getOrderOpsMeta(): Promise<OrderOpsMeta> {
 	}
 
 	const meta = normalizeMetaForToday(stored, today);
+	const storedVersions = migrateMetaVersions(stored);
+	const versionsChanged = ORDER_OPS_DOMAINS.some(
+		(domain) => meta.versions[domain] !== storedVersions[domain]
+	);
 	if (
 		meta.businessDate !== stored.businessDate ||
-		meta.stateVersion !== stored.stateVersion ||
+		versionsChanged ||
 		meta.initializedForToday !== stored.initializedForToday
 	) {
 		await localforage.setItem(ORDER_OPS_META_KEY, meta);
@@ -118,12 +140,18 @@ export async function getOrderOpsMeta(): Promise<OrderOpsMeta> {
 	return meta;
 }
 
-export async function bumpOrderOpsMeta(): Promise<OrderOpsMeta> {
-	const meta = await getOrderOpsMeta();
+export async function bumpOrderOpsDomain(
+	domain: OrderOpsDomain,
+	meta?: OrderOpsMeta
+): Promise<OrderOpsMeta> {
+	const current = meta ?? (await getOrderOpsMeta());
 	const today = getTodayDateKey();
 	const next: OrderOpsMeta = {
-		...meta,
-		stateVersion: nextStateVersion(meta.stateVersion),
+		...current,
+		versions: {
+			...current.versions,
+			[domain]: nextDomainVersion(current.versions[domain]),
+		},
 		businessDate: today,
 		lastUpdatedAt: Date.now(),
 		initializedForToday: true,
@@ -132,14 +160,27 @@ export async function bumpOrderOpsMeta(): Promise<OrderOpsMeta> {
 	return next;
 }
 
-export async function setOrderOpsMetaVersion(
-	stateVersion: number,
+export async function bumpAllOrderOpsDomains(): Promise<OrderOpsMeta> {
+	let meta = await getOrderOpsMeta();
+	for (const domain of ORDER_OPS_DOMAINS) {
+		meta = await bumpOrderOpsDomain(domain, meta);
+	}
+	return meta;
+}
+
+/** @deprecated Use bumpOrderOpsDomain(domain) */
+export async function bumpOrderOpsMeta(): Promise<OrderOpsMeta> {
+	return bumpAllOrderOpsDomains();
+}
+
+export async function setOrderOpsMetaVersions(
+	versions: OrderOpsVersions,
 	businessDate: string
 ): Promise<OrderOpsMeta> {
 	const meta = await getOrderOpsMeta();
 	const next: OrderOpsMeta = {
 		...meta,
-		stateVersion,
+		versions: mergeOrderOpsVersions(meta.versions, versions),
 		businessDate,
 		lastUpdatedAt: Date.now(),
 		initializedForToday: true,
@@ -163,7 +204,8 @@ export async function buildOrderOpsSnapshot(): Promise<OrderOpsSnapshot> {
 
 	return {
 		deviceId: meta.deviceId,
-		stateVersion: meta.stateVersion,
+		versions: meta.versions,
+		stateVersion: maxOrderOpsVersion(meta.versions),
 		businessDate,
 		orders,
 		inventory,

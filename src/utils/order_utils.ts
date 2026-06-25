@@ -183,7 +183,7 @@ export async function saveOrdersStore(store: TOrdersStore): Promise<void> {
 		await localforage.setItem(ORDERS_KEY, store);
 		await upsertOrdersInHistory(store.orders);
 		if (!isSyncNotifySuppressed()) {
-			await notifyOrderOpsChange();
+			await notifyOrderOpsChange('orders');
 		}
 	} catch (error) {
 		console.error('Failed to save orders to storage:', error);
@@ -518,7 +518,7 @@ export function getCustomerContactFlagsForGroupKey(
 	orders: TOrder[],
 	groupKey: string,
 	kind: OrderKind
-): Pick<TOrder, 'customerName' | 'customerPhone' | 'groupNotes'> {
+): Pick<TOrder, 'customerName' | 'customerPhone' | 'groupNotes' | 'pax'> {
 	if (kind !== 'takeaway' && kind !== 'delivery') {
 		return {};
 	}
@@ -531,16 +531,28 @@ export function getCustomerContactFlagsForGroupKey(
 		const name = order.customerName?.trim();
 		const phone = order.customerPhone?.trim();
 		const groupNotes = order.groupNotes?.trim();
-		if (name || phone || groupNotes) {
+		const pax = order.pax;
+		if (name || phone || groupNotes || (pax != null && pax >= 1)) {
 			return {
 				...(name ? { customerName: name } : {}),
 				...(phone ? { customerPhone: phone } : {}),
 				...(groupNotes ? { groupNotes } : {}),
+				...(pax != null && pax >= 1 ? { pax } : {}),
 			};
 		}
 	}
 
 	return {};
+}
+
+export function getGroupPax(group: OrderGroup): number | null {
+	const sorted = [...group.orders].sort((a, b) => a.createdAt - b.createdAt);
+	for (const order of sorted) {
+		if (order.pax != null && order.pax >= 1) {
+			return order.pax;
+		}
+	}
+	return null;
 }
 
 export function getGroupNotes(group: OrderGroup): string | null {
@@ -744,6 +756,7 @@ export function ordersStoreChanged(before: TOrder[], after: TOrder[]): boolean {
 			order.kidMenuServed !== next.kidMenuServed ||
 			order.customerName !== next.customerName ||
 			order.customerPhone !== next.customerPhone ||
+			order.pax !== next.pax ||
 			order.groupNotes !== next.groupNotes ||
 			order.items.length !== next.items.length
 		) {
@@ -906,6 +919,7 @@ export function getTableServiceFlagsForTables(
 	| 'kidMenuEnabled'
 	| 'kidMenuServed'
 	| 'groupNotes'
+	| 'pax'
 > {
 	const context: BillingContext = {
 		source: 'orders',
@@ -921,6 +935,9 @@ export function getTableServiceFlagsForTables(
 	const groupNotes = tableOrders
 		.map((order) => order.groupNotes?.trim())
 		.find((notes) => notes);
+	const groupPax = tableOrders
+		.map((order) => order.pax)
+		.find((value) => value != null && value >= 1);
 
 	return {
 		...(tableOrders.some((order) => order.welcomeDrinkServed)
@@ -936,6 +953,7 @@ export function getTableServiceFlagsForTables(
 			? { kidMenuServed: true }
 			: {}),
 		...(groupNotes ? { groupNotes } : {}),
+		...(groupPax != null ? { pax: groupPax } : {}),
 	};
 }
 

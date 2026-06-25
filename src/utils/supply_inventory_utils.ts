@@ -38,7 +38,7 @@ export async function saveSupplyInventoryForDate(
 		'@/src/utils/order_ops_sync'
 	);
 	if (!isSyncNotifySuppressed()) {
-		await notifyOrderOpsChange();
+		await notifyOrderOpsChange('supplyInventory');
 	}
 }
 

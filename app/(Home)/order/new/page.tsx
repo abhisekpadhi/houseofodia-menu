@@ -173,6 +173,7 @@ function AddOrderContent() {
 	const [cartModalOpen, setCartModalOpen] = useState(false);
 	const [inStockOnly, setInStockOnly] = useState(false);
 	const [kidMenuEnabled, setKidMenuEnabled] = useState(false);
+	const [pax, setPax] = useState("");
 
 	const isFromTableCard = preselectedTables.length > 0;
 	const isFromExistingGroup = preselectedGroupKey !== null;
@@ -248,14 +249,37 @@ function AddOrderContent() {
 
 	useEffect(() => {
 		if (orderKind !== "table" || selectedTables.length === 0) {
-			setKidMenuEnabled(false);
+			if (orderKind === "table") {
+				setKidMenuEnabled(false);
+				setPax("");
+			}
 			return;
 		}
 		void getOrdersStore().then((store) => {
 			const flags = getTableServiceFlagsForTables(store.orders, selectedTables);
 			setKidMenuEnabled(flags.kidMenuEnabled === true);
+			setPax(flags.pax != null ? String(flags.pax) : "");
 		});
 	}, [orderKind, selectedTables]);
+
+	useEffect(() => {
+		if (
+			(orderKind !== "takeaway" && orderKind !== "delivery") ||
+			!preselectedGroupKey
+		) {
+			return;
+		}
+		void getOrdersStore().then((store) => {
+			const flags = getCustomerContactFlagsForGroupKey(
+				store.orders,
+				preselectedGroupKey,
+				orderKind
+			);
+			if (flags.pax != null) {
+				setPax(String(flags.pax));
+			}
+		});
+	}, [orderKind, preselectedGroupKey]);
 
 	const isTableDisabled = (tableNumber: number) => {
 		if (!occupiedTables.has(tableNumber)) {
@@ -290,9 +314,14 @@ function AddOrderContent() {
 		!isFromExistingGroup;
 	const hasCustomerDetails =
 		customerName.trim().length > 0 && isValidCustomerPhone(customerPhone);
+	const paxNumber = parseInt(pax.trim(), 10);
+	const hasValidPax = !Number.isNaN(paxNumber) && paxNumber >= 1;
+	const showPaxField =
+		orderKind !== "table" || selectedTables.length > 0;
 	const canPlaceOrder =
 		cartItems.length > 0 &&
 		!needsTableSelection &&
+		hasValidPax &&
 		(!needsCustomerDetails || hasCustomerDetails);
 
 	const canAddMore = (name: string) =>
@@ -373,6 +402,11 @@ function AddOrderContent() {
 			return;
 		}
 
+		if (!hasValidPax) {
+			alert("Enter a valid pax count (at least 1).");
+			return;
+		}
+
 		setPlacing(true);
 		try {
 			const trimmedNotes = orderNotes.trim();
@@ -408,6 +442,7 @@ function AddOrderContent() {
 				...(orderKind === "table" && kidMenuEnabled
 					? { kidMenuEnabled: true }
 					: {}),
+				pax: paxNumber,
 			};
 
 			await addOrder(order);
@@ -446,6 +481,7 @@ function AddOrderContent() {
 									if (kind !== "table") {
 										setSelectedTables([]);
 									}
+									setPax("");
 								}}
 								className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold capitalize transition-colors ${
 									orderKind === kind
@@ -568,6 +604,33 @@ function AddOrderContent() {
 						) : null}
 					</div>
 				) : null}
+
+				{showPaxField ? (
+					<div className="mt-4">
+						<label
+							htmlFor="order-pax"
+							className="block text-xs font-medium text-gray-600 mb-1"
+						>
+							Pax
+						</label>
+						<input
+							id="order-pax"
+							type="text"
+							inputMode="numeric"
+							value={pax}
+							onChange={(e) =>
+								setPax(e.target.value.replace(/\D/g, "").slice(0, 3))
+							}
+							placeholder="Number of guests"
+							className="w-full max-w-[8rem] border border-gray-300 rounded-lg px-3 py-2 text-sm"
+						/>
+						{!hasValidPax ? (
+							<p className="text-xs font-medium text-red-600 mt-1.5">
+								Enter pax (at least 1) before placing the order.
+							</p>
+						) : null}
+					</div>
+				) : null}
 			</div>
 
 			{orderKind === "table" && selectedTables.length > 0 ? (
@@ -657,9 +720,11 @@ function AddOrderContent() {
 						? "Placing..."
 						: needsTableSelection
 							? "Select a table"
-							: needsCustomerDetails && !hasCustomerDetails
-								? "Enter customer details"
-								: "Place Order"}
+							: !hasValidPax
+								? "Enter pax"
+								: needsCustomerDetails && !hasCustomerDetails
+									? "Enter customer details"
+									: "Place Order"}
 				</Button>
 			</div>
 

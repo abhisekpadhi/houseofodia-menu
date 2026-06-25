@@ -1,5 +1,9 @@
 import { TOrder } from '@/src/models/common';
 import { getTodayDateKey } from '@/src/utils/inventory_utils';
+import {
+	formatTableGroupLabel,
+	getOrderGroupKey,
+} from '@/src/utils/order_utils';
 import localforage from 'localforage';
 
 export const ORDER_HISTORY_KEY = 'order_history';
@@ -245,10 +249,210 @@ function escapeCsvCell(value: string | number): string {
 	return text;
 }
 
+function orderLineTotal(order: TOrder): number {
+	return order.items.reduce((sum, item) => sum + item.price * item.qty, 0);
+}
+
+function formatHistoryClockTime(ms: number): string {
+	return new Date(ms).toLocaleString('en-IN', {
+		hour: '2-digit',
+		minute: '2-digit',
+		hour12: true,
+	});
+}
+
+function formatSessionDateTime(ms: number): string {
+	return new Date(ms).toLocaleString('en-IN', {
+		day: '2-digit',
+		month: '2-digit',
+		hour: '2-digit',
+		minute: '2-digit',
+		hour12: true,
+	});
+}
+
+function sessionPax(orders: TOrder[]): number | '' {
+	for (const order of orders) {
+		if (order.pax != null && order.pax >= 1) {
+			return order.pax;
+		}
+	}
+	return '';
+}
+
+export type OrderHistorySession = {
+	sessionLabel: string;
+	groupKey: string;
+	tableLabel: string;
+	sessionNumber: number;
+	startedAt: number;
+	closedAt: number | null;
+	pax: number | '';
+	sessionTotal: number;
+	orders: TOrder[];
+};
+
+/** Groups orders into table/takeaway/delivery sessions closed by "Close table" (billedAt batch). */
+export function buildOrderHistorySessions(orders: TOrder[]): OrderHistorySession[] {
+	const byGroup = new Map<string, TOrder[]>();
+
+	for (const order of orders) {
+		const groupKey = getOrderGroupKey(order);
+		const groupOrders = byGroup.get(groupKey) ?? [];
+		groupOrders.push(order);
+		byGroup.set(groupKey, groupOrders);
+	}
+
+	const sessions: OrderHistorySession[] = [];
+
+	for (const [groupKey, groupOrders] of Array.from(byGroup.entries())) {
+		const closedByBilledAt = new Map<number, TOrder[]>();
+		const openOrders: TOrder[] = [];
+
+		for (const order of groupOrders) {
+			if (order.billedAt != null) {
+				const batch = closedByBilledAt.get(order.billedAt) ?? [];
+				batch.push(order);
+				closedByBilledAt.set(order.billedAt, batch);
+			} else {
+				openOrders.push(order);
+			}
+		}
+
+		const tableLabel =
+			groupOrders[0]?.kind === 'table'
+				? formatTableGroupLabel(groupOrders[0].tableNumbers ?? [])
+				: getOrderHistoryTableLabel(groupOrders[0]);
+
+		let sessionNumber = 1;
+
+		const closedSessions = Array.from(closedByBilledAt.entries()).sort(
+			(a, b) => a[0] - b[0]
+		);
+
+		for (const [closedAt, sessionOrders] of closedSessions) {
+			const sortedOrders = [...sessionOrders].sort(
+				(a, b) => a.createdAt - b.createdAt
+			);
+			const startedAt = sortedOrders[0]?.createdAt ?? closedAt;
+			sessions.push({
+				sessionLabel: `${tableLabel} · Session ${sessionNumber}`,
+				groupKey,
+				tableLabel,
+				sessionNumber,
+				startedAt,
+				closedAt,
+				pax: sessionPax(sortedOrders),
+				sessionTotal: sortedOrders.reduce(
+					(sum, order) => sum + orderLineTotal(order),
+					0
+				),
+				orders: sortedOrders,
+			});
+			sessionNumber += 1;
+		}
+
+		if (openOrders.length > 0) {
+			const sortedOrders = [...openOrders].sort(
+				(a, b) => a.createdAt - b.createdAt
+			);
+			const startedAt = sortedOrders[0]?.createdAt ?? Date.now();
+			sessions.push({
+				sessionLabel: `${tableLabel} · Session ${sessionNumber}`,
+				groupKey,
+				tableLabel,
+				sessionNumber,
+				startedAt,
+				closedAt: null,
+				pax: sessionPax(sortedOrders),
+				sessionTotal: sortedOrders.reduce(
+					(sum, order) => sum + orderLineTotal(order),
+					0
+				),
+				orders: sortedOrders,
+			});
+		}
+	}
+
+	sessions.sort(
+		(a, b) =>
+			a.startedAt - b.startedAt ||
+			a.tableLabel.localeCompare(b.tableLabel) ||
+			a.sessionNumber - b.sessionNumber
+	);
+
+	return sessions;
+}
+
+export function formatOrderHistorySessionTime(ms: number): string {
+	return formatSessionDateTime(ms);
+}
+
+export function getOrderHistoryTotalPax(
+	sessions: OrderHistorySession[]
+): number {
+	return sessions.reduce((sum, session) => {
+		if (typeof session.pax === 'number') {
+			return sum + session.pax;
+		}
+		return sum;
+	}, 0);
+}
+
+export function sortOrderHistorySessions(
+	sessions: OrderHistorySession[],
+	sort: OrderHistorySort
+): OrderHistorySession[] {
+	const sorted = [...sessions];
+
+	switch (sort) {
+		case 'time-desc':
+			sorted.sort(
+				(a, b) =>
+					b.startedAt - a.startedAt ||
+					a.tableLabel.localeCompare(b.tableLabel) ||
+					a.sessionNumber - b.sessionNumber
+			);
+			break;
+		case 'table-asc':
+			sorted.sort(
+				(a, b) =>
+					a.tableLabel.localeCompare(b.tableLabel) ||
+					a.sessionNumber - b.sessionNumber ||
+					a.startedAt - b.startedAt
+			);
+			break;
+		case 'amount-desc':
+			sorted.sort(
+				(a, b) =>
+					b.sessionTotal - a.sessionTotal ||
+					a.startedAt - b.startedAt ||
+					a.tableLabel.localeCompare(b.tableLabel)
+			);
+			break;
+		case 'time-asc':
+		default:
+			sorted.sort(
+				(a, b) =>
+					a.startedAt - b.startedAt ||
+					a.tableLabel.localeCompare(b.tableLabel) ||
+					a.sessionNumber - b.sessionNumber
+			);
+			break;
+	}
+
+	return sorted;
+}
+
 export function buildOrderHistoryCsv(orders: TOrder[]): string {
 	const header = [
-		'Time',
+		'Session',
 		'Table',
+		'Session Start',
+		'Session End',
+		'Session Pax',
+		'Session Total',
+		'Order Time',
 		'Order ID',
 		'Item',
 		'Qty',
@@ -260,58 +464,74 @@ export function buildOrderHistoryCsv(orders: TOrder[]): string {
 	];
 
 	const rows = [header.join(',')];
+	const sessions = buildOrderHistorySessions(orders);
 
-	for (const order of orders) {
-		const orderTotal = order.items.reduce(
-			(sum, item) => sum + item.price * item.qty,
-			0
-		);
-		const tableLabel = getOrderHistoryTableLabel(order);
-		const status = getOrderHistoryStatus(order);
-		const time = new Date(order.createdAt).toLocaleString('en-IN', {
-			hour: '2-digit',
-			minute: '2-digit',
-			hour12: true,
-		});
-		const notes = order.notes?.trim() ?? '';
+	for (let sessionIndex = 0; sessionIndex < sessions.length; sessionIndex++) {
+		const session = sessions[sessionIndex];
+		const sessionStart = formatSessionDateTime(session.startedAt);
+		const sessionEnd =
+			session.closedAt != null
+				? formatSessionDateTime(session.closedAt)
+				: 'Open';
 
-		if (order.items.length === 0) {
-			rows.push(
-				[
-					time,
-					tableLabel,
-					order.id,
-					'',
-					0,
-					0,
-					0,
-					orderTotal,
-					status,
-					notes,
-				]
-					.map(escapeCsvCell)
-					.join(',')
-			);
-			continue;
+		for (const order of session.orders) {
+			const orderTotal = orderLineTotal(order);
+			const status = getOrderHistoryStatus(order);
+			const orderTime = formatHistoryClockTime(order.createdAt);
+			const notes = order.notes?.trim() ?? '';
+
+			if (order.items.length === 0) {
+				rows.push(
+					[
+						session.sessionLabel,
+						session.tableLabel,
+						sessionStart,
+						sessionEnd,
+						session.pax,
+						session.sessionTotal,
+						orderTime,
+						order.id,
+						'',
+						0,
+						0,
+						0,
+						orderTotal,
+						status,
+						notes,
+					]
+						.map(escapeCsvCell)
+						.join(',')
+				);
+				continue;
+			}
+
+			for (const item of order.items) {
+				rows.push(
+					[
+						session.sessionLabel,
+						session.tableLabel,
+						sessionStart,
+						sessionEnd,
+						session.pax,
+						session.sessionTotal,
+						orderTime,
+						order.id,
+						item.name,
+						item.qty,
+						item.price,
+						item.price * item.qty,
+						orderTotal,
+						status,
+						notes,
+					]
+						.map(escapeCsvCell)
+						.join(',')
+				);
+			}
 		}
 
-		for (const item of order.items) {
-			rows.push(
-				[
-					time,
-					tableLabel,
-					order.id,
-					item.name,
-					item.qty,
-					item.price,
-					item.price * item.qty,
-					orderTotal,
-					status,
-					notes,
-				]
-					.map(escapeCsvCell)
-					.join(',')
-			);
+		if (sessionIndex < sessions.length - 1) {
+			rows.push('');
 		}
 	}
 
