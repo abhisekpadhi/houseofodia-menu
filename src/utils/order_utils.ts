@@ -419,6 +419,175 @@ export async function getPackagingChargePrice(): Promise<number> {
 	}
 }
 
+export const WATER_DISH_NAME = 'Water';
+
+const DEFAULT_WATER_BOTTLE_PRICE = 20;
+
+export async function getWaterBottlePrice(): Promise<number> {
+	try {
+		let menuItems = await getCachedMenuItems();
+		if (!menuItems?.length) {
+			menuItems = await fetchAndCacheMenuItems();
+		}
+		const match = menuItems?.find((item) => item.name === WATER_DISH_NAME);
+		const price = match ? parseFloat(match.price) : Number.NaN;
+		return Number.isNaN(price) ? DEFAULT_WATER_BOTTLE_PRICE : price;
+	} catch {
+		return DEFAULT_WATER_BOTTLE_PRICE;
+	}
+}
+
+export function getGroupWaterBottleCount(group: OrderGroup): number {
+	let count = 0;
+
+	for (const order of group.orders) {
+		for (const item of order.items) {
+			if (item.name !== WATER_DISH_NAME) {
+				continue;
+			}
+			count += getItemBillableQty(normalizeOrderItem(item));
+		}
+	}
+
+	return count;
+}
+
+export function syncGroupWaterBottleCount(
+	orders: TOrder[],
+	group: OrderGroup,
+	targetQty: number,
+	waterPrice: number
+): TOrder[] {
+	if (targetQty < 0) {
+		return orders;
+	}
+
+	const currentQty = getGroupWaterBottleCount(group);
+	if (targetQty === currentQty) {
+		return orders;
+	}
+
+	const orderIds = new Set(group.orders.map((order) => order.id));
+	let nextOrders = orders.map((order) => ({
+		...order,
+		items: order.items.map((item) => ({ ...item })),
+	}));
+
+	const groupOrders = nextOrders
+		.filter((order) => orderIds.has(order.id))
+		.sort((a, b) => b.createdAt - a.createdAt);
+
+	if (targetQty > currentQty) {
+		const addQty = targetQty - currentQty;
+		const orderWithWater = groupOrders.find((order) =>
+			order.items.some((item) => item.name === WATER_DISH_NAME)
+		);
+
+		if (orderWithWater) {
+			return nextOrders.map((order) => {
+				if (order.id !== orderWithWater.id) {
+					return order;
+				}
+				const items = order.items.map((item) => ({ ...item }));
+				const waterIndex = items.findIndex(
+					(item) => item.name === WATER_DISH_NAME
+				);
+				if (waterIndex === -1) {
+					return order;
+				}
+				items[waterIndex] = {
+					...items[waterIndex],
+					qty: items[waterIndex].qty + addQty,
+				};
+				return normalizeOrderItemsAfterEdit(order, items);
+			});
+		}
+
+		const template = groupOrders[0];
+		if (!template) {
+			return orders;
+		}
+
+		const tableNumbers = template.tableNumbers ?? group.tableNumbers ?? [];
+		const tableServiceFlags = getTableServiceFlagsForTables(
+			nextOrders,
+			tableNumbers
+		);
+		const pax = template.pax ?? getGroupPax(group) ?? undefined;
+		const newOrder: TOrder = {
+			id: generateOrderId(),
+			createdAt: Date.now(),
+			kind: 'table',
+			tableNumbers,
+			items: [
+				normalizeOrderItem({
+					name: WATER_DISH_NAME,
+					price: waterPrice,
+					qty: addQty,
+				}),
+			],
+			...(pax != null ? { pax } : {}),
+			...tableServiceFlags,
+		};
+
+		nextOrders.push(newOrder);
+		return nextOrders;
+	}
+
+	let toRemove = currentQty - targetQty;
+
+	for (const order of groupOrders) {
+		if (toRemove <= 0) {
+			break;
+		}
+
+		const orderIndex = nextOrders.findIndex((entry) => entry.id === order.id);
+		if (orderIndex === -1) {
+			continue;
+		}
+
+		const items = nextOrders[orderIndex].items.map((item) => ({ ...item }));
+		let changed = false;
+
+		for (let itemIndex = items.length - 1; itemIndex >= 0; itemIndex--) {
+			if (toRemove <= 0) {
+				break;
+			}
+
+			const item = items[itemIndex];
+			if (item.name !== WATER_DISH_NAME) {
+				continue;
+			}
+
+			const billable = getItemBillableQty(normalizeOrderItem(item));
+			if (billable <= 0) {
+				continue;
+			}
+
+			const removeFromItem = Math.min(toRemove, billable);
+			items[itemIndex] = {
+				...item,
+				qty: item.qty - removeFromItem,
+			};
+			toRemove -= removeFromItem;
+			changed = true;
+		}
+
+		if (!changed) {
+			continue;
+		}
+
+		const updated = normalizeOrderItemsAfterEdit(nextOrders[orderIndex], items);
+		if (updated.items.length === 0) {
+			nextOrders.splice(orderIndex, 1);
+		} else {
+			nextOrders[orderIndex] = updated;
+		}
+	}
+
+	return nextOrders;
+}
+
 export async function orderGroupToBillCart(group: OrderGroup): Promise<TCart> {
 	const cart = orderGroupToCart(group);
 	const packagingQty = getPackagingUnitCount(group);
@@ -677,6 +846,88 @@ export function getOccupiedTableNumbers(orders: TOrder[]): Set<number> {
 	}
 
 	return occupied;
+}
+
+export function normalizeTableNumbers(tableNumbers: number[]): number[] {
+	return [...tableNumbers]
+		.filter((tableNumber) => tableNumber >= 1 && tableNumber <= TABLE_COUNT)
+		.sort((a, b) => a - b);
+}
+
+export function tableNumbersEqual(
+	left: number[],
+	right: number[]
+): boolean {
+	const normalizedLeft = normalizeTableNumbers(left);
+	const normalizedRight = normalizeTableNumbers(right);
+	return (
+		normalizedLeft.length === normalizedRight.length &&
+		normalizedLeft.every(
+			(tableNumber, index) => tableNumber === normalizedRight[index]
+		)
+	);
+}
+
+export function isTableAvailableForGroupMove(
+	tableNumber: number,
+	group: OrderGroup,
+	occupiedTables: Set<number>
+): boolean {
+	if ((group.tableNumbers ?? []).includes(tableNumber)) {
+		return true;
+	}
+	return !occupiedTables.has(tableNumber);
+}
+
+export function canMoveTableGroupToTables(
+	orders: TOrder[],
+	group: OrderGroup,
+	newTableNumbers: number[]
+): boolean {
+	const target = normalizeTableNumbers(newTableNumbers);
+	if (target.length === 0) {
+		return false;
+	}
+	if (tableNumbersEqual(target, group.tableNumbers ?? [])) {
+		return false;
+	}
+
+	const orderIds = orderIdsInGroup(group);
+	const targetSet = new Set(target);
+
+	for (const order of orders) {
+		if (order.kind !== 'table' || orderIds.has(order.id)) {
+			continue;
+		}
+
+		for (const tableNumber of order.tableNumbers ?? []) {
+			if (targetSet.has(tableNumber)) {
+				return false;
+			}
+		}
+	}
+
+	return true;
+}
+
+export function moveTableGroupToTables(
+	orders: TOrder[],
+	group: OrderGroup,
+	newTableNumbers: number[]
+): TOrder[] {
+	const target = normalizeTableNumbers(newTableNumbers);
+	if (target.length === 0) {
+		return orders;
+	}
+
+	const orderIds = orderIdsInGroup(group);
+
+	return orders.map((order) => {
+		if (!orderIds.has(order.id) || order.kind !== 'table') {
+			return order;
+		}
+		return { ...order, tableNumbers: target };
+	});
 }
 
 export function parseTableParam(value: string | null): number[] {
@@ -1258,17 +1509,14 @@ export function toggleItemUnitParcel(
 	unitIndex: number
 ): TOrder[] {
 	return updateOrderById(orders, orderId, (order) => {
-		if (isOrderMarkedDone(order)) {
-			return order;
-		}
-
 		const items = order.items.map((item, idx) => {
 			if (idx !== itemIndex) {
 				return normalizeOrderItem(item);
 			}
 
 			const states = getItemUnitStates(item);
-			if (states[unitIndex] !== 'pending') {
+			const state = states[unitIndex];
+			if (state !== "pending" && state !== "fulfilled") {
 				return normalizeOrderItem(item);
 			}
 

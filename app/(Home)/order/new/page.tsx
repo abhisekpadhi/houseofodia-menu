@@ -1,6 +1,10 @@
 "use client";
 
 import { MenuPicker } from "@/components/feature/order/menu-picker";
+import {
+	ParcelUnitButtons,
+	resizeParcelUnits,
+} from "@/components/feature/order/parcel-unit-buttons";
 import { OrderOpsSyncIndicator } from "@/components/feature/order/order-ops-sync-indicator";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,12 +30,14 @@ import {
 	getOrdersStore,
 	getTableServiceFlagsForTables,
 	isValidCustomerPhone,
-	orderTotal,
+	normalizeOrderItem,
 	parseTableParam,
 	formatCustomerContact,
 } from "@/src/utils/order_utils";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
+
+const PAX_QUICK_PICK_OPTIONS = Array.from({ length: 30 }, (_, index) => index + 1);
 
 function CartIcon({ className }: { className?: string }) {
 	return (
@@ -55,13 +61,17 @@ function CartIcon({ className }: { className?: string }) {
 
 function OrderCartModal({
 	items,
-	total,
+	showParcelToggle,
+	parcelUnitsByName,
+	onToggleParcel,
 	onClose,
 	onIncrement,
 	onDecrement,
 }: {
 	items: TDish[];
-	total: number;
+	showParcelToggle: boolean;
+	parcelUnitsByName: Record<string, boolean[]>;
+	onToggleParcel: (name: string, unitIndex: number) => void;
 	onClose: () => void;
 	onIncrement: (item: TDish) => void;
 	onDecrement: (item: TDish) => void;
@@ -95,8 +105,9 @@ function OrderCartModal({
 							{items.map((item) => (
 								<li
 									key={item.name}
-									className="flex items-center justify-between gap-3 border border-gray-200 rounded-lg px-4 py-3"
+									className="border border-gray-200 rounded-lg px-4 py-3"
 								>
+									<div className="flex items-center justify-between gap-3">
 									<div className="min-w-0 flex-1">
 										<p className="text-sm font-semibold truncate">
 											{item.name}
@@ -124,18 +135,28 @@ function OrderCartModal({
 											+
 										</button>
 									</div>
+									</div>
+									{showParcelToggle ? (
+										<div className="mt-3 pt-3 border-t border-gray-100">
+											<ParcelUnitButtons
+												itemName={item.name}
+												qty={item.qty}
+												parcelUnits={parcelUnitsByName[item.name] ?? []}
+												onToggle={(unitIndex) =>
+													onToggleParcel(item.name, unitIndex)
+												}
+											/>
+										</div>
+									) : null}
 								</li>
 							))}
 						</ul>
 					)}
 				</div>
 				<div className="border-t px-5 py-4">
-					<div className="flex items-center justify-between mb-3">
-						<span className="text-sm text-gray-600">
-							{items.length} item{items.length === 1 ? "" : "s"}
-						</span>
-						<span className="text-lg font-bold">₹{total}</span>
-					</div>
+					<p className="text-sm text-gray-600 mb-3">
+						{items.length} item{items.length === 1 ? "" : "s"}
+					</p>
 					<button
 						type="button"
 						onClick={onClose}
@@ -174,6 +195,9 @@ function AddOrderContent() {
 	const [inStockOnly, setInStockOnly] = useState(false);
 	const [kidMenuEnabled, setKidMenuEnabled] = useState(false);
 	const [pax, setPax] = useState("");
+	const [parcelUnitsByName, setParcelUnitsByName] = useState<
+		Record<string, boolean[]>
+	>({});
 
 	const isFromTableCard = preselectedTables.length > 0;
 	const isFromExistingGroup = preselectedGroupKey !== null;
@@ -301,7 +325,6 @@ function AddOrderContent() {
 			}));
 	}, [quantities, itemPrices]);
 
-	const cartTotal = useMemo(() => orderTotal(cartItems), [cartItems]);
 	const cartItemCount = useMemo(
 		() => cartItems.reduce((sum, item) => sum + item.qty, 0),
 		[cartItems]
@@ -316,6 +339,13 @@ function AddOrderContent() {
 		customerName.trim().length > 0 && isValidCustomerPhone(customerPhone);
 	const paxNumber = parseInt(pax.trim(), 10);
 	const hasValidPax = !Number.isNaN(paxNumber) && paxNumber >= 1;
+	const selectedQuickPickPax =
+		hasValidPax &&
+		paxNumber >= 1 &&
+		paxNumber <= PAX_QUICK_PICK_OPTIONS.length &&
+		String(paxNumber) === pax.trim()
+			? paxNumber
+			: null;
 	const showPaxField =
 		orderKind !== "table" || selectedTables.length > 0;
 	const canPlaceOrder =
@@ -326,6 +356,21 @@ function AddOrderContent() {
 
 	const canAddMore = (name: string) =>
 		!isOutOfStock(inventory, name, quantities[name] ?? 0);
+
+	const getParcelUnitsForName = (name: string, qty = quantities[name] ?? 0) =>
+		resizeParcelUnits(parcelUnitsByName[name], qty);
+
+	const toggleParcelUnit = (name: string, unitIndex: number) => {
+		setParcelUnitsByName((prev) => {
+			const qty = quantities[name] ?? 0;
+			const units = resizeParcelUnits(prev[name], qty);
+			const next = [...units];
+			next[unitIndex] = !next[unitIndex];
+			return { ...prev, [name]: next };
+		});
+	};
+
+	const showParcelToggle = orderKind === "table";
 
 	const toggleTable = (tableNumber: number) => {
 		if (isTableDisabled(tableNumber)) {
@@ -364,15 +409,27 @@ function AddOrderContent() {
 	};
 
 	const handleDecrement = (item: { name: string }) => {
-		setQuantities((prev) => {
-			const current = prev[item.name] ?? 0;
-			if (current <= 1) {
+		const current = quantities[item.name] ?? 0;
+		if (current <= 1) {
+			setQuantities((prev) => {
 				const next = { ...prev };
 				delete next[item.name];
 				return next;
-			}
-			return { ...prev, [item.name]: current - 1 };
-		});
+			});
+			setParcelUnitsByName((parcelPrev) => {
+				const parcelNext = { ...parcelPrev };
+				delete parcelNext[item.name];
+				return parcelNext;
+			});
+			return;
+		}
+
+		const nextQty = current - 1;
+		setQuantities((prev) => ({ ...prev, [item.name]: nextQty }));
+		setParcelUnitsByName((parcelPrev) => ({
+			...parcelPrev,
+			[item.name]: resizeParcelUnits(parcelPrev[item.name], nextQty),
+		}));
 	};
 
 	const handleModalDecrement = (item: TDish) => {
@@ -435,7 +492,12 @@ function AddOrderContent() {
 				createdAt: Date.now(),
 				kind: orderKind,
 				tableNumbers: orderKind === "table" ? selectedTables : [],
-				items: cartItems,
+				items: cartItems.map((item) =>
+					normalizeOrderItem({
+						...item,
+						parcelUnits: getParcelUnitsForName(item.name, item.qty),
+					})
+				),
 				...(trimmedNotes ? { notes: trimmedNotes } : {}),
 				...customerFlags,
 				...tableServiceFlags,
@@ -535,7 +597,12 @@ function AddOrderContent() {
 											type="button"
 											disabled={isDisabled}
 											onClick={() => toggleTable(tableNumber)}
-											className={`py-2 rounded-lg text-sm font-bold transition-colors ${
+											aria-label={
+												isDisabled
+													? `Table ${tableNumber} occupied`
+													: `Table ${tableNumber}`
+											}
+											className={`relative py-2 rounded-lg text-sm font-bold transition-colors ${
 												isDisabled
 													? "bg-gray-200 text-gray-400 cursor-not-allowed"
 													: isSelected
@@ -544,6 +611,11 @@ function AddOrderContent() {
 											}`}
 										>
 											{tableNumber}
+											{isDisabled ? (
+												<span className="absolute -top-1 -right-1 flex h-[1.1rem] w-[1.1rem] items-center justify-center rounded-full bg-amber-500 text-white text-[10px] leading-none shadow-sm">
+													🪑
+												</span>
+											) : null}
 										</button>
 									);
 								}
@@ -613,17 +685,41 @@ function AddOrderContent() {
 						>
 							Pax
 						</label>
-						<input
-							id="order-pax"
-							type="text"
-							inputMode="numeric"
-							value={pax}
-							onChange={(e) =>
-								setPax(e.target.value.replace(/\D/g, "").slice(0, 3))
-							}
-							placeholder="Number of guests"
-							className="w-full max-w-[8rem] border border-gray-300 rounded-lg px-3 py-2 text-sm"
-						/>
+						<div className="flex items-center gap-3">
+							<input
+								id="order-pax"
+								type="text"
+								inputMode="numeric"
+								value={pax}
+								onChange={(e) =>
+									setPax(e.target.value.replace(/\D/g, "").slice(0, 3))
+								}
+								placeholder="Guests"
+								className="w-20 shrink-0 border border-gray-300 rounded-lg px-3 py-2 text-sm text-center touch-manipulation"
+							/>
+							<div className="min-w-0 flex-1 overflow-x-auto pb-1">
+								<div className="flex gap-2 w-max">
+									{PAX_QUICK_PICK_OPTIONS.map((option) => {
+										const isSelected = selectedQuickPickPax === option;
+										return (
+											<button
+												key={option}
+												type="button"
+												onClick={() => setPax(String(option))}
+												aria-pressed={isSelected}
+												className={`shrink-0 min-w-[2.5rem] min-h-[2.5rem] rounded-lg border px-3 py-2 text-sm font-semibold touch-manipulation transition-colors ${
+													isSelected
+														? "border-green-600 bg-green-100 text-green-800"
+														: "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+												}`}
+											>
+												{option}
+											</button>
+										);
+									})}
+								</div>
+							</div>
+						</div>
 						{!hasValidPax ? (
 							<p className="text-xs font-medium text-red-600 mt-1.5">
 								Enter pax (at least 1) before placing the order.
@@ -669,6 +765,9 @@ function AddOrderContent() {
 				<MenuPicker
 					quantities={quantities}
 					inStockOnly={inStockOnly}
+					showParcelToggle={showParcelToggle}
+					parcelUnitsByName={parcelUnitsByName}
+					onToggleParcel={toggleParcelUnit}
 					onAddItem={handleAddItem}
 					onIncrement={handleIncrement}
 					onDecrement={handleDecrement}
@@ -705,12 +804,9 @@ function AddOrderContent() {
 			</div>
 
 			<div className="fixed bottom-0 left-0 right-0 bg-white border-t px-6 py-4 shadow-lg z-20 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-				<div className="flex items-center justify-between mb-3">
-					<span className="text-sm text-gray-600">
-						{cartItems.length} item{cartItems.length === 1 ? "" : "s"}
-					</span>
-					<span className="text-lg font-bold">₹{cartTotal}</span>
-				</div>
+				<p className="text-sm text-gray-600 mb-3">
+					{cartItems.length} item{cartItems.length === 1 ? "" : "s"}
+				</p>
 				<Button
 					className="w-full bg-green-500 hover:bg-green-600 text-white font-bold disabled:opacity-50"
 					disabled={placing || !canPlaceOrder}
@@ -731,7 +827,9 @@ function AddOrderContent() {
 			{cartModalOpen ? (
 				<OrderCartModal
 					items={cartItems}
-					total={cartTotal}
+					showParcelToggle={showParcelToggle}
+					parcelUnitsByName={parcelUnitsByName}
+					onToggleParcel={toggleParcelUnit}
 					onClose={() => setCartModalOpen(false)}
 					onIncrement={handleModalIncrement}
 					onDecrement={handleModalDecrement}

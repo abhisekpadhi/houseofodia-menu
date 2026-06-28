@@ -1,6 +1,6 @@
 "use client";
 
-import { ItemGroup, OrderGroup, TCart, TMenuApiItem, TOrder, TOrdersStore, BillingContext, BILLING_CONTEXT_KEY, ItemCancelReason } from "@/src/models/common";
+import { ItemGroup, OrderGroup, TCart, TMenuApiItem, TOrder, TOrdersStore, BillingContext, BILLING_CONTEXT_KEY, ItemCancelReason, TABLE_COUNT } from "@/src/models/common";
 import {
 	formatOrderLabel,
 	formatOrderTime,
@@ -36,6 +36,17 @@ import {
 	groupHasBillableItems,
 	closeTableFromBilling,
 	ordersStoreChanged,
+	getGroupWaterBottleCount,
+	syncGroupWaterBottleCount,
+	getWaterBottlePrice,
+	WATER_DISH_NAME,
+	canMoveTableGroupToTables,
+	formatTableGroupLabel,
+	getOccupiedTableNumbers,
+	isTableAvailableForGroupMove,
+	moveTableGroupToTables,
+	normalizeTableNumbers,
+	tableNumbersEqual,
 	isUnitLastFulfilled,
 	isUnitNextToFulfill,
 	unfulfillLastUnitForDish,
@@ -44,6 +55,11 @@ import {
 	cancelItemUnit,
 	toggleItemUnitParcel,
 } from "@/src/utils/order_utils";
+import {
+	decrementInventoryForOrder,
+	getTodayDateKey,
+	replenishInventoryForOrder,
+} from "@/src/utils/inventory_utils";
 import { buildDishCategoryMap } from "@/src/utils/menu_utils";
 import { itemCancelReasonLabel } from "@/src/utils/item_cancel_reasons";
 import { EditOrderModal } from "@/components/feature/order/edit-order-modal";
@@ -67,6 +83,123 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 const ORDERS_KEY = "orders";
 
 type TabId = "tables" | "items";
+
+function orderMatchesTableFilter(
+	order: TOrder,
+	selectedTables: Set<number>
+): boolean {
+	if (selectedTables.size === 0) {
+		return true;
+	}
+	if (order.kind !== "table") {
+		return false;
+	}
+	return (order.tableNumbers ?? []).some((tableNumber) =>
+		selectedTables.has(tableNumber)
+	);
+}
+
+function groupMatchesTableFilter(
+	group: OrderGroup,
+	selectedTables: Set<number>
+): boolean {
+	if (selectedTables.size === 0) {
+		return true;
+	}
+	if (group.kind !== "table") {
+		return false;
+	}
+	return (group.tableNumbers ?? []).some((tableNumber) =>
+		selectedTables.has(tableNumber)
+	);
+}
+
+function filterItemGroupByTables(
+	group: ItemGroup,
+	orders: TOrder[],
+	selectedTables: Set<number>
+): ItemGroup | null {
+	if (selectedTables.size === 0) {
+		return group;
+	}
+
+	const orderById = new Map(orders.map((order) => [order.id, order]));
+	const units = group.units.filter((unit) => {
+		const order = orderById.get(unit.orderId);
+		return order != null && orderMatchesTableFilter(order, selectedTables);
+	});
+
+	if (units.length === 0) {
+		return null;
+	}
+
+	return {
+		...group,
+		units,
+		totalQty: units.length,
+		remainingQty: units.filter((unit) => isUnitPending(unit)).length,
+	};
+}
+
+function TableFilterBar({
+	selectedTables,
+	onToggleTable,
+	onClear,
+}: {
+	selectedTables: number[];
+	onToggleTable: (tableNumber: number) => void;
+	onClear: () => void;
+}) {
+	return (
+		<div className="flex items-center gap-2 mt-3">
+			<div className="min-w-0 flex-1 overflow-x-auto pb-1">
+				<div className="flex gap-2 w-max">
+					{Array.from({ length: TABLE_COUNT }, (_, index) => index + 1).map(
+						(tableNumber) => {
+							const isSelected = selectedTables.includes(tableNumber);
+							return (
+								<button
+									key={tableNumber}
+									type="button"
+									onClick={() => onToggleTable(tableNumber)}
+									aria-pressed={isSelected}
+									className={`shrink-0 min-w-[2.5rem] min-h-[2.5rem] rounded-lg border px-3 py-2 text-sm font-semibold touch-manipulation transition-colors ${
+										isSelected
+											? "border-green-600 bg-green-500 text-white"
+											: "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+									}`}
+								>
+									{tableNumber}
+								</button>
+							);
+						}
+					)}
+				</div>
+			</div>
+			{selectedTables.length > 0 ? (
+				<button
+					type="button"
+					onClick={onClear}
+					className="shrink-0 flex h-10 w-10 items-center justify-center rounded-full text-red-600 hover:bg-red-50 active:bg-red-100 touch-manipulation"
+					aria-label="Clear table filter"
+				>
+					<svg
+						xmlns="http://www.w3.org/2000/svg"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="2.5"
+						strokeLinecap="round"
+						className="h-5 w-5"
+						aria-hidden
+					>
+						<path d="M18 6L6 18M6 6l12 12" />
+					</svg>
+				</button>
+			) : null}
+		</div>
+	);
+}
 
 function CategoryIcon({ className }: { className?: string }) {
 	return (
@@ -369,43 +502,43 @@ function OrderRow({
 											) : (
 												<CheckIcon checked={false} className="w-4 h-4 shrink-0 text-gray-300" />
 											)}
-											{display === "pending" && editable ? (
-												<>
-													<button
-														type="button"
-														onClick={() =>
-															onRequestToggleParcel(order, itemIndex, unitIndex)
-														}
-														className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border touch-manipulation ${
-															isParcel
-																? "border-amber-400 bg-amber-200 text-amber-900 active:bg-amber-300"
-																: "border-amber-200 bg-amber-50 text-amber-800 active:bg-amber-100"
-														}`}
-														aria-label={`${isParcel ? "Unmark" : "Mark"} ${item.name} for parcel`}
-														aria-pressed={isParcel}
-													>
-														<span className="text-base leading-none" aria-hidden>
-															📦
-														</span>
-													</button>
-													<button
-														type="button"
-														onClick={() =>
-															onRequestCancelItem(order, itemIndex, unitIndex)
-														}
-														className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-700 touch-manipulation active:bg-red-100"
-														aria-label={`Cancel ${item.name}`}
-													>
-														<CrossIcon className="w-5 h-5" />
-													</button>
-												</>
+											{(display === "pending" || display === "fulfilled") ? (
+												<button
+													type="button"
+													onClick={() =>
+														onRequestToggleParcel(order, itemIndex, unitIndex)
+													}
+													className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border touch-manipulation ${
+														isParcel
+															? "border-amber-400 bg-amber-200 text-amber-900 opacity-100 active:bg-amber-300"
+															: "border-amber-200 bg-amber-50 text-amber-800 opacity-50 active:bg-amber-100"
+													}`}
+													aria-label={`${isParcel ? "Unmark" : "Mark"} ${item.name} for parcel`}
+													aria-pressed={isParcel}
+												>
+													<span className="text-base leading-none" aria-hidden>
+														📦
+													</span>
+												</button>
 											) : isParcel ? (
 												<span
-													className="inline-flex min-h-[28px] min-w-[28px] items-center justify-center rounded-full bg-amber-100 text-sm"
+													className="inline-flex min-h-[28px] min-w-[28px] items-center justify-center rounded-full bg-amber-100 text-sm opacity-100"
 													aria-label="Parcel"
 												>
 													📦
 												</span>
+											) : null}
+											{display === "pending" && editable ? (
+												<button
+													type="button"
+													onClick={() =>
+														onRequestCancelItem(order, itemIndex, unitIndex)
+													}
+													className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-700 touch-manipulation active:bg-red-100"
+													aria-label={`Cancel ${item.name}`}
+												>
+													<CrossIcon className="w-5 h-5" />
+												</button>
 											) : null}
 										</span>
 									);
@@ -521,6 +654,7 @@ function TableOrderCard({
 	onRequestCancelItem,
 	onRequestToggleParcel,
 	onEditNotes,
+	onChangeTable,
 }: {
 	group: OrderGroup;
 	now: number;
@@ -543,6 +677,7 @@ function TableOrderCard({
 		unitIndex: number
 	) => void;
 	onEditNotes: (group: OrderGroup) => void;
+	onChangeTable: (group: OrderGroup) => void;
 }) {
 	const addOrderHref =
 		group.kind === "table" && group.tableNumbers?.length
@@ -568,6 +703,7 @@ function TableOrderCard({
 	const groupNotes = getGroupNotes(group);
 	const groupPax = getGroupPax(group);
 	const notesPending = isActionPending(`notes:${group.key}`);
+	const changeTablePending = isActionPending(`move-table:${group.key}`);
 
 	return (
 		<div
@@ -631,6 +767,16 @@ function TableOrderCard({
 						</Link>
 					</div>
 				</div>
+				{group.kind === "table" ? (
+					<TouchActionButton
+						onClick={() => onChangeTable(group)}
+						loading={changeTablePending}
+						disabled={!hasOrdersInGroup || changeTablePending}
+						className="self-start rounded-full bg-white border border-gray-300 text-gray-700 active:bg-gray-100 shrink-0 min-w-[72px] px-4 disabled:opacity-40"
+					>
+						Change table
+					</TouchActionButton>
+				) : null}
 				<h3 className="text-lg font-semibold">{group.label}</h3>
 				{groupPax != null ? (
 					<p className="text-sm font-medium text-gray-700">{groupPax} pax</p>
@@ -701,6 +847,216 @@ function TableOrderCard({
 						onRequestToggleParcel={onRequestToggleParcel}
 					/>
 				))}
+			</div>
+		</div>
+	);
+}
+
+function ChangeTableSheetModal({
+	group,
+	selectedTables,
+	occupiedTables,
+	onToggleTable,
+	onContinue,
+	onClose,
+}: {
+	group: OrderGroup;
+	selectedTables: number[];
+	occupiedTables: Set<number>;
+	onToggleTable: (tableNumber: number) => void;
+	onContinue: () => void;
+	onClose: () => void;
+}) {
+	const currentTables = group.tableNumbers ?? [];
+	const canContinue =
+		selectedTables.length > 0 &&
+		!tableNumbersEqual(selectedTables, currentTables);
+
+	return (
+		<div
+			className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-0"
+			onClick={onClose}
+		>
+			<div
+				className="w-full max-w-md rounded-t-xl bg-white shadow-xl max-h-[85vh] flex flex-col pb-[env(safe-area-inset-bottom)]"
+				onClick={(event) => event.stopPropagation()}
+			>
+				<div className="px-5 py-4 border-b">
+					<div className="flex items-center justify-between gap-3">
+						<h2 className="text-lg font-bold">Change table</h2>
+						<button
+							type="button"
+							onClick={onClose}
+							className="text-sm font-semibold text-gray-500 hover:text-black touch-manipulation"
+						>
+							Close
+						</button>
+					</div>
+					<p className="text-sm text-gray-600 mt-2">
+						Select available table(s) for {group.label}. Tap to toggle seats.
+					</p>
+				</div>
+				<div className="overflow-y-auto flex-1 px-5 py-4">
+					<div className="grid grid-cols-5 gap-2">
+						{Array.from({ length: TABLE_COUNT }, (_, index) => index + 1).map(
+							(tableNumber) => {
+								const isSelected = selectedTables.includes(tableNumber);
+								const isDisabled = !isTableAvailableForGroupMove(
+									tableNumber,
+									group,
+									occupiedTables
+								);
+
+								return (
+									<button
+										key={tableNumber}
+										type="button"
+										disabled={isDisabled}
+										onClick={() => onToggleTable(tableNumber)}
+										aria-label={
+											isDisabled
+												? `Table ${tableNumber} occupied`
+												: `Table ${tableNumber}`
+										}
+										className={`relative py-2 rounded-lg text-sm font-bold transition-colors touch-manipulation ${
+											isDisabled
+												? "bg-gray-200 text-gray-400 cursor-not-allowed"
+												: isSelected
+													? "bg-green-500 text-white"
+													: "bg-gray-100 text-gray-800 hover:bg-gray-200"
+										}`}
+									>
+										{tableNumber}
+										{isDisabled ? (
+											<span className="absolute -top-1 -right-1 flex h-[1.1rem] w-[1.1rem] items-center justify-center rounded-full bg-amber-500 text-white text-[10px] leading-none shadow-sm">
+												🪑
+											</span>
+										) : null}
+									</button>
+								);
+							}
+						)}
+					</div>
+					{selectedTables.length > 0 ? (
+						<p className="text-sm font-medium text-gray-700 mt-4">
+							Selected: {formatTableGroupLabel(selectedTables)}
+							{tableNumbersEqual(selectedTables, currentTables) ? (
+								<span className="text-gray-500 font-normal">
+									{" "}
+									(same as current)
+								</span>
+							) : null}
+						</p>
+					) : (
+						<p className="text-sm text-red-600 mt-4">
+							Select at least one table.
+						</p>
+					)}
+				</div>
+				<div className="border-t px-5 py-4">
+					<TouchActionButton
+						onClick={onContinue}
+						disabled={!canContinue}
+						className="w-full bg-green-500 border border-green-600 text-white active:bg-green-600 disabled:opacity-40"
+					>
+						Continue
+					</TouchActionButton>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function WaterBottlesModal({
+	groupLabel,
+	value,
+	onChange,
+	onConfirm,
+	onCancel,
+	confirming,
+}: {
+	groupLabel: string;
+	value: string;
+	onChange: (value: string) => void;
+	onConfirm: () => void;
+	onCancel: () => void;
+	confirming?: boolean;
+}) {
+	const parsedCount = parseInt(value.trim(), 10);
+	const count = Number.isNaN(parsedCount) ? 0 : parsedCount;
+
+	const decrement = () => {
+		onChange(String(Math.max(0, count - 1)));
+	};
+
+	const increment = () => {
+		onChange(String(Math.min(999, count + 1)));
+	};
+
+	return (
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+			onClick={() => {
+				if (!confirming) {
+					onCancel();
+				}
+			}}
+		>
+			<div
+				className="w-full max-w-sm rounded-xl bg-white shadow-xl"
+				onClick={(event) => event.stopPropagation()}
+			>
+				<div className="px-5 py-4 border-b">
+					<h2 className="text-lg font-bold">Water bottles</h2>
+					<p className="text-sm text-gray-600 mt-2">
+						How many water bottles for {groupLabel}?
+					</p>
+					<label htmlFor="water-bottle-count" className="sr-only">
+						Water bottle count
+					</label>
+					<div className="mt-4 flex items-center justify-center gap-3">
+						<button
+							type="button"
+							onClick={decrement}
+							disabled={confirming || count <= 0}
+							className="w-10 h-10 flex items-center justify-center rounded-full bg-red-100 text-red-700 text-xl leading-none touch-manipulation disabled:opacity-40"
+							aria-label="Decrease water bottles"
+						>
+							-
+						</button>
+						<input
+							id="water-bottle-count"
+							type="text"
+							inputMode="numeric"
+							value={value}
+							onChange={(event) =>
+								onChange(event.target.value.replace(/\D/g, "").slice(0, 3))
+							}
+							className="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm text-center touch-manipulation"
+							autoFocus
+						/>
+						<button
+							type="button"
+							onClick={increment}
+							disabled={confirming || count >= 999}
+							className="w-10 h-10 flex items-center justify-center rounded-full bg-green-100 text-green-700 text-xl leading-none touch-manipulation disabled:opacity-40"
+							aria-label="Increase water bottles"
+						>
+							+
+						</button>
+					</div>
+					<p className="text-xs text-gray-500 mt-2">
+						Uses the &quot;{WATER_DISH_NAME}&quot; menu item. Adjust if needed
+						before billing.
+					</p>
+				</div>
+				<ConfirmModalActions
+					onCancel={onCancel}
+					onConfirm={onConfirm}
+					confirmLabel="Continue to bill"
+					confirming={confirming}
+					cancelDisabled={confirming}
+				/>
 			</div>
 		</div>
 	);
@@ -1073,6 +1429,7 @@ export default function OrderPage() {
 	const [itemGroups, setItemGroups] = useState<ItemGroup[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [activeTab, setActiveTab] = useState<TabId>("tables");
+	const [selectedTableFilters, setSelectedTableFilters] = useState<number[]>([]);
 	const [itemsAggregatesView, setItemsAggregatesView] = useState(false);
 	const [readyModalOpen, setReadyModalOpen] = useState(false);
 	const [editingOrder, setEditingOrder] = useState<TOrder | null>(null);
@@ -1082,6 +1439,18 @@ export default function OrderPage() {
 	const [pendingComplementary, setPendingComplementary] =
 		useState<OrderGroup | null>(null);
 	const [pendingKidMenu, setPendingKidMenu] = useState<OrderGroup | null>(null);
+	const [pendingBillGroup, setPendingBillGroup] = useState<OrderGroup | null>(
+		null
+	);
+	const [waterBottleDraft, setWaterBottleDraft] = useState("");
+	const [changeTableGroup, setChangeTableGroup] = useState<OrderGroup | null>(
+		null
+	);
+	const [changeTableDraft, setChangeTableDraft] = useState<number[]>([]);
+	const [pendingChangeTableConfirm, setPendingChangeTableConfirm] = useState<{
+		group: OrderGroup;
+		newTables: number[];
+	} | null>(null);
 	const [pendingCloseTable, setPendingCloseTable] = useState<OrderGroup | null>(
 		null
 	);
@@ -1115,6 +1484,48 @@ export default function OrderPage() {
 	const hasLoadedOnceRef = useRef(false);
 
 	const readyOrders = useMemo(() => getReadyOrders(orders), [orders]);
+
+	const occupiedTables = useMemo(
+		() => getOccupiedTableNumbers(orders),
+		[orders]
+	);
+
+	const selectedTableFilterSet = useMemo(
+		() => new Set(selectedTableFilters),
+		[selectedTableFilters]
+	);
+
+	const filteredGroups = useMemo(() => {
+		if (selectedTableFilterSet.size === 0) {
+			return groups;
+		}
+		return groups.filter((group) =>
+			groupMatchesTableFilter(group, selectedTableFilterSet)
+		);
+	}, [groups, selectedTableFilterSet]);
+
+	const filteredItemGroups = useMemo(() => {
+		if (selectedTableFilterSet.size === 0) {
+			return itemGroups;
+		}
+		return itemGroups
+			.map((group) =>
+				filterItemGroupByTables(group, orders, selectedTableFilterSet)
+			)
+			.filter((group): group is ItemGroup => group != null);
+	}, [itemGroups, orders, selectedTableFilterSet]);
+
+	const toggleTableFilter = useCallback((tableNumber: number) => {
+		setSelectedTableFilters((current) =>
+			current.includes(tableNumber)
+				? current.filter((value) => value !== tableNumber)
+				: [...current, tableNumber].sort((a, b) => a - b)
+		);
+	}, []);
+
+	const clearTableFilters = useCallback(() => {
+		setSelectedTableFilters([]);
+	}, []);
 
 	const isActionPending = useCallback(
 		(key: string) =>
@@ -1354,7 +1765,11 @@ export default function OrderPage() {
 		unitIndex: number
 	) => {
 		const item = order.items[itemIndex];
-		if (!item || !isOrderEditable(order)) {
+		if (!item) {
+			return;
+		}
+		const display = getOrderItemUnitDisplay(item, unitIndex);
+		if (display !== "pending" && display !== "fulfilled") {
 			return;
 		}
 		setPendingParcelItem({
@@ -1372,7 +1787,15 @@ export default function OrderPage() {
 		}
 		const { orderId, itemIndex, unitIndex } = pendingParcelItem;
 		const order = orders.find((entry) => entry.id === orderId);
-		if (!order || !isOrderEditable(order)) {
+		const item = order?.items[itemIndex];
+		const unitDisplay = item
+			? getOrderItemUnitDisplay(item, unitIndex)
+			: null;
+		if (
+			!order ||
+			!item ||
+			(unitDisplay !== "pending" && unitDisplay !== "fulfilled")
+		) {
 			setPendingParcelItem(null);
 			return;
 		}
@@ -1407,25 +1830,152 @@ export default function OrderPage() {
 		router.push(`/kot?orderId=${encodeURIComponent(order.id)}`);
 	};
 
-	const handleBill = async (group: OrderGroup) => {
-		await runPendingAction(`bill:${group.key}`, async () => {
-			if (!groupHasBillableItems(group)) {
-				if (group.orders.length > 0) {
-					setPendingCloseTable(group);
-				}
-				return;
+	const openChangeTableModal = (group: OrderGroup) => {
+		setChangeTableGroup(group);
+		setChangeTableDraft(normalizeTableNumbers(group.tableNumbers ?? []));
+	};
+
+	const toggleChangeTableDraft = (tableNumber: number) => {
+		if (!changeTableGroup) {
+			return;
+		}
+		if (!isTableAvailableForGroupMove(tableNumber, changeTableGroup, occupiedTables)) {
+			return;
+		}
+		setChangeTableDraft((current) =>
+			current.includes(tableNumber)
+				? current.filter((value) => value !== tableNumber)
+				: [...current, tableNumber].sort((a, b) => a - b)
+		);
+	};
+
+	const handleChangeTableContinue = () => {
+		if (!changeTableGroup) {
+			return;
+		}
+		const newTables = normalizeTableNumbers(changeTableDraft);
+		if (newTables.length === 0) {
+			alert("Select at least one table.");
+			return;
+		}
+		if (tableNumbersEqual(newTables, changeTableGroup.tableNumbers ?? [])) {
+			alert("Choose a different table or seat combination.");
+			return;
+		}
+		if (!canMoveTableGroupToTables(orders, changeTableGroup, newTables)) {
+			alert("One or more selected tables are already occupied.");
+			return;
+		}
+		setPendingChangeTableConfirm({
+			group: changeTableGroup,
+			newTables,
+		});
+		setChangeTableGroup(null);
+		setChangeTableDraft([]);
+	};
+
+	const handleConfirmChangeTable = async () => {
+		if (!pendingChangeTableConfirm) {
+			return;
+		}
+		const { group, newTables } = pendingChangeTableConfirm;
+		const key = `move-table:${group.key}`;
+		await runConfirmingAction(key, async () => {
+			await persistOrders(
+				moveTableGroupToTables(orders, group, newTables)
+			);
+			setPendingChangeTableConfirm(null);
+		});
+	};
+
+	const proceedToBill = async (group: OrderGroup) => {
+		if (!groupHasBillableItems(group)) {
+			if (group.orders.length > 0) {
+				setPendingCloseTable(group);
 			}
-			const cart = await orderGroupToBillCart(group);
-			const billingContext: BillingContext = {
-				source: "orders",
-				groupKey: group.key,
-				kind: group.kind,
-				tableNumbers: group.tableNumbers ?? [],
-				label: group.label,
-			};
-			await localforage.setItem<TCart>("cart", cart);
-			await localforage.setItem(BILLING_CONTEXT_KEY, billingContext);
-			router.push("/cart");
+			return;
+		}
+		const cart = await orderGroupToBillCart(group);
+		const billingContext: BillingContext = {
+			source: "orders",
+			groupKey: group.key,
+			kind: group.kind,
+			tableNumbers: group.tableNumbers ?? [],
+			label: group.label,
+		};
+		await localforage.setItem<TCart>("cart", cart);
+		await localforage.setItem(BILLING_CONTEXT_KEY, billingContext);
+		router.push("/cart");
+	};
+
+	const handleBill = (group: OrderGroup) => {
+		if (!groupHasBillableItems(group)) {
+			if (group.orders.length > 0) {
+				setPendingCloseTable(group);
+			}
+			return;
+		}
+
+		if (group.kind === "table") {
+			setPendingBillGroup(group);
+			setWaterBottleDraft(String(getGroupWaterBottleCount(group)));
+			return;
+		}
+
+		void runPendingAction(`bill:${group.key}`, () => proceedToBill(group));
+	};
+
+	const handleConfirmBillWithWater = async () => {
+		if (!pendingBillGroup) {
+			return;
+		}
+
+		const targetQty = parseInt(waterBottleDraft.trim(), 10);
+		if (Number.isNaN(targetQty) || targetQty < 0) {
+			alert("Enter a valid water bottle count.");
+			return;
+		}
+
+		const groupKey = pendingBillGroup.key;
+		await runPendingAction(`bill:${groupKey}`, async () => {
+			const waterPrice = await getWaterBottlePrice();
+			const currentQty = getGroupWaterBottleCount(pendingBillGroup);
+			let billingGroup = pendingBillGroup;
+
+			if (targetQty !== currentQty) {
+				const delta = targetQty - currentQty;
+				const updatedOrders = syncGroupWaterBottleCount(
+					orders,
+					pendingBillGroup,
+					targetQty,
+					waterPrice
+				);
+				await persistOrders(updatedOrders);
+
+				const dateKey = getTodayDateKey();
+				const waterItem = {
+					name: WATER_DISH_NAME,
+					price: waterPrice,
+					qty: Math.abs(delta),
+				};
+				if (delta > 0) {
+					await decrementInventoryForOrder(dateKey, [waterItem]);
+				} else if (delta < 0) {
+					await replenishInventoryForOrder(dateKey, [waterItem]);
+				}
+
+				const refreshedGroup = groupOrdersByTable(updatedOrders).find(
+					(group) => group.key === groupKey
+				);
+				if (!refreshedGroup) {
+					return;
+				}
+				billingGroup = refreshedGroup;
+			}
+
+			await proceedToBill(billingGroup);
+			setPendingBillGroup(null);
+			setWaterBottleDraft("");
 		});
 	};
 
@@ -1445,6 +1995,8 @@ export default function OrderPage() {
 	};
 
 	const hasOrders = groups.length > 0;
+	const hasFilteredOrders = filteredGroups.length > 0;
+	const hasFilteredItems = filteredItemGroups.length > 0;
 
 	return (
 		<div className="ops-app-screen">
@@ -1534,6 +2086,12 @@ export default function OrderPage() {
 					</button>
 				</div>
 
+				<TableFilterBar
+					selectedTables={selectedTableFilters}
+					onToggleTable={toggleTableFilter}
+					onClear={clearTableFilters}
+				/>
+
 				{activeTab === "items" ? (
 					<div className="flex gap-2 mt-3">
 						<button
@@ -1577,8 +2135,21 @@ export default function OrderPage() {
 									Tap the + button to place a new order
 								</p>
 							</div>
+						) : !hasFilteredOrders ? (
+							<div className="text-center py-16 text-gray-500">
+								<p className="text-lg font-medium mb-2">
+									{selectedTableFilters.length > 0
+										? "No orders for selected tables"
+										: "No active orders"}
+								</p>
+								<p className="text-sm">
+									{selectedTableFilters.length > 0
+										? "Try another table filter or clear the filter."
+										: "Tap the + button to place a new order"}
+								</p>
+							</div>
 						) : (
-							groups.map((group) => (
+							filteredGroups.map((group) => (
 								<TableOrderCard
 									key={group.key}
 									group={group}
@@ -1594,6 +2165,7 @@ export default function OrderPage() {
 									onRequestCancelItem={handleRequestCancelItem}
 									onRequestToggleParcel={handleRequestToggleParcel}
 									onEditNotes={openNotesModal}
+									onChangeTable={openChangeTableModal}
 								/>
 							))
 						)}
@@ -1606,12 +2178,14 @@ export default function OrderPage() {
 							</Link>
 						</div>
 					</>
-				) : itemGroups.length === 0 ? (
+				) : !hasFilteredItems ? (
 					<div className="text-center py-16 text-gray-500 text-sm">
-						No items in active orders
+						{selectedTableFilters.length > 0
+							? "No items for selected tables"
+							: "No items in active orders"}
 					</div>
 				) : (
-					itemGroups.map((group) => (
+					filteredItemGroups.map((group) => (
 						<ItemGroupCard
 							key={group.name}
 							group={group}
@@ -1682,6 +2256,59 @@ export default function OrderPage() {
 					confirming={confirmingAction === `kid:${pendingKidMenu.key}`}
 					onCancel={() => setPendingKidMenu(null)}
 					onConfirm={() => void handleKidMenu(pendingKidMenu)}
+				/>
+			)}
+
+			{changeTableGroup && (
+				<ChangeTableSheetModal
+					group={changeTableGroup}
+					selectedTables={changeTableDraft}
+					occupiedTables={occupiedTables}
+					onToggleTable={toggleChangeTableDraft}
+					onContinue={handleChangeTableContinue}
+					onClose={() => {
+						setChangeTableGroup(null);
+						setChangeTableDraft([]);
+					}}
+				/>
+			)}
+
+			{pendingChangeTableConfirm && (
+				<ConfirmOrderActionModal
+					title="Change table?"
+					message={`Move ${pendingChangeTableConfirm.group.label} to ${formatTableGroupLabel(pendingChangeTableConfirm.newTables)}? All orders in this group will be updated.`}
+					confirmLabel="Change table"
+					confirming={
+						confirmingAction ===
+						`move-table:${pendingChangeTableConfirm.group.key}`
+					}
+					onCancel={() => {
+						if (
+							confirmingAction ===
+							`move-table:${pendingChangeTableConfirm.group.key}`
+						) {
+							return;
+						}
+						setPendingChangeTableConfirm(null);
+					}}
+					onConfirm={() => void handleConfirmChangeTable()}
+				/>
+			)}
+
+			{pendingBillGroup && (
+				<WaterBottlesModal
+					groupLabel={pendingBillGroup.label}
+					value={waterBottleDraft}
+					onChange={setWaterBottleDraft}
+					confirming={confirmingAction === `bill:${pendingBillGroup.key}`}
+					onCancel={() => {
+						if (confirmingAction === `bill:${pendingBillGroup.key}`) {
+							return;
+						}
+						setPendingBillGroup(null);
+						setWaterBottleDraft("");
+					}}
+					onConfirm={() => void handleConfirmBillWithWater()}
 				/>
 			)}
 

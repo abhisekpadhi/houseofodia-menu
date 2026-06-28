@@ -11,6 +11,7 @@ import {
 import { stringToColor } from "@/src/utils/menu_utils";
 import axios from "axios";
 import React, { useEffect, useMemo } from "react";
+import { ParcelUnitButtons } from "@/components/feature/order/parcel-unit-buttons";
 
 type MenuItem = {
   category: string;
@@ -28,6 +29,10 @@ type MenuPickerProps = {
   headerAction?: React.ReactNode;
   /** When true, hide items with zero inventory. */
   inStockOnly?: boolean;
+  /** When true, show parcel toggle buttons for items in the cart. */
+  showParcelToggle?: boolean;
+  parcelUnitsByName?: Record<string, boolean[]>;
+  onToggleParcel?: (name: string, unitIndex: number) => void;
 };
 
 export function MenuPicker({
@@ -37,6 +42,9 @@ export function MenuPicker({
   onDecrement,
   headerAction,
   inStockOnly = false,
+  showParcelToggle = false,
+  parcelUnitsByName = {},
+  onToggleParcel,
 }: MenuPickerProps) {
   const [fetchingMenu, setFetchingMenu] = React.useState(true);
   const [menu, setMenu] = React.useState<TMenu | null>(null);
@@ -152,14 +160,37 @@ export function MenuPicker({
         </h2>
         {headerAction}
       </div>
-      <div className="mb-4">
+      <div className="mb-4 relative">
         <input
           type="text"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           placeholder="Search for items across all categories"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm touch-manipulation ${
+            searchTerm ? "pr-11" : ""
+          }`}
         />
+        {searchTerm ? (
+          <button
+            type="button"
+            onClick={() => setSearchTerm("")}
+            className="absolute right-2 top-1/2 -translate-y-1/2 flex h-9 w-9 items-center justify-center rounded-full text-red-600 hover:bg-red-50 active:bg-red-100 touch-manipulation"
+            aria-label="Clear search"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              className="h-5 w-5"
+              aria-hidden
+            >
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        ) : null}
       </div>
       <div className="flex gap-3 mb-6 overflow-x-auto pb-2">
         {categories.map((category, index) => {
@@ -199,10 +230,11 @@ export function MenuPicker({
           return (
             <div
               key={`${item.category}-${item.name}-${index}`}
-              className={`flex items-center justify-between border rounded-lg px-4 py-3 shadow-sm ${
+              className={`border rounded-lg px-4 py-3 shadow-sm ${
                 oos ? "border-red-200 bg-red-50/40" : "border-gray-200 bg-white"
               }`}
             >
+              <div className="flex items-center justify-between">
               <div className="mr-4 min-w-0">
                 <div className="flex items-center gap-1 flex-wrap">
                   {item.is_veg ? (
@@ -275,6 +307,17 @@ export function MenuPicker({
                   </button>
                 )}
               </div>
+              </div>
+              {showParcelToggle && cartQty > 0 && onToggleParcel ? (
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <ParcelUnitButtons
+                    itemName={item.name}
+                    qty={cartQty}
+                    parcelUnits={parcelUnitsByName[item.name] ?? []}
+                    onToggle={(unitIndex) => onToggleParcel(item.name, unitIndex)}
+                  />
+                </div>
+              ) : null}
             </div>
           );
         })}
