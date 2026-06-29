@@ -8,7 +8,7 @@ import {
 	isInfiniteInventoryDish,
 	isOutOfStock,
 } from "@/src/utils/inventory_utils";
-import { stringToColor } from "@/src/utils/menu_utils";
+import { stringToColor, buildMenuFromApiItems, getMenuDisplayName, menuItemMatchesSearch, shouldShowMenuBillName } from "@/src/utils/menu_utils";
 import axios from "axios";
 import React, { useEffect, useMemo } from "react";
 import { ParcelUnitButtons } from "@/components/feature/order/parcel-unit-buttons";
@@ -16,6 +16,7 @@ import { ParcelUnitButtons } from "@/components/feature/order/parcel-unit-button
 type MenuItem = {
   category: string;
   name: string;
+  internal_name?: string;
   description: string;
   price: string;
   is_veg: boolean;
@@ -33,6 +34,7 @@ type MenuPickerProps = {
   showParcelToggle?: boolean;
   parcelUnitsByName?: Record<string, boolean[]>;
   onToggleParcel?: (name: string, unitIndex: number) => void;
+  onSearchFocus?: () => void;
 };
 
 export function MenuPicker({
@@ -45,14 +47,18 @@ export function MenuPicker({
   showParcelToggle = false,
   parcelUnitsByName = {},
   onToggleParcel,
+  onSearchFocus,
 }: MenuPickerProps) {
   const [fetchingMenu, setFetchingMenu] = React.useState(true);
   const [menu, setMenu] = React.useState<TMenu | null>(null);
   const [inventory, setInventory] = React.useState<Record<string, number>>({});
   const [searchTerm, setSearchTerm] = React.useState("");
+  const [searchFocused, setSearchFocused] = React.useState(false);
   const [selectedCategory, setSelectedCategory] = React.useState<string | null>(
     null
   );
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
+  const resultsRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fetchMenu = async () => {
@@ -67,22 +73,7 @@ export function MenuPicker({
           }),
           getInventoryForDate(getTodayDateKey()),
         ]);
-        const result: TMenu = {};
-        response.data.forEach((item) => {
-          if (!result[item.category]) {
-            result[item.category] = [];
-          }
-          if (item.status.toLowerCase() === "on") {
-            result[item.category].push({
-              status: item.status,
-              name: item.name,
-              description: item.description,
-              price: item.price,
-              is_veg: item.is_veg,
-            });
-          }
-        });
-        setMenu(result);
+        setMenu(buildMenuFromApiItems(response.data));
         setInventory(dayInventory);
       } catch (error) {
         console.error("Error fetching menu:", error);
@@ -108,6 +99,7 @@ export function MenuPicker({
         items.push({
           category,
           name: item.name,
+          ...(item.internal_name ? { internal_name: item.internal_name } : {}),
           description: item.description,
           price: item.price,
           is_veg: item.is_veg,
@@ -125,14 +117,7 @@ export function MenuPicker({
     }
 
     if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter((item) => {
-        const nameMatch = item.name.toLowerCase().includes(term);
-        const descriptionMatch = item.description
-          ? item.description.toLowerCase().includes(term)
-          : false;
-        return nameMatch || descriptionMatch;
-      });
+      filtered = filtered.filter((item) => menuItemMatchesSearch(item, searchTerm));
     }
 
     if (inStockOnly) {
@@ -143,6 +128,23 @@ export function MenuPicker({
 
     return filtered;
   }, [allItems, selectedCategory, searchTerm, inStockOnly, inventory]);
+
+  const isSearching = searchTerm.trim().length > 0;
+
+  React.useEffect(() => {
+    if (!isSearching || !searchFocused) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isSearching, searchFocused, visibleItems.length]);
+
+  const dismissSearch = () => {
+    searchInputRef.current?.blur();
+    setSearchFocused(false);
+  };
 
   if (fetchingMenu) {
     return (
@@ -160,38 +162,77 @@ export function MenuPicker({
         </h2>
         {headerAction}
       </div>
-      <div className="mb-4 relative">
-        <input
-          type="text"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="Search for items across all categories"
-          className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm touch-manipulation ${
-            searchTerm ? "pr-11" : ""
-          }`}
-        />
-        {searchTerm ? (
-          <button
-            type="button"
-            onClick={() => setSearchTerm("")}
-            className="absolute right-2 top-1/2 -translate-y-1/2 flex h-9 w-9 items-center justify-center rounded-full text-red-600 hover:bg-red-50 active:bg-red-100 touch-manipulation"
-            aria-label="Clear search"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              className="h-5 w-5"
-              aria-hidden
+      <div className="sticky top-0 z-10 -mx-1 px-1 pt-1 pb-2 bg-white">
+        <div className="relative">
+          <input
+            ref={searchInputRef}
+            type="search"
+            enterKeyHint="done"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onFocus={() => {
+              setSearchFocused(true);
+              onSearchFocus?.();
+            }}
+            onBlur={() => {
+              window.setTimeout(() => setSearchFocused(false), 120);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                dismissSearch();
+              }
+            }}
+            placeholder="Search for items across all categories"
+            className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm touch-manipulation ${
+              searchTerm || searchFocused ? "pr-11" : ""
+            } ${searchFocused ? "ring-2 ring-blue-400 border-blue-400" : ""}`}
+          />
+          {searchTerm ? (
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                setSearchTerm("");
+                searchInputRef.current?.focus();
+              }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 flex h-9 w-9 items-center justify-center rounded-full text-red-600 hover:bg-red-50 active:bg-red-100 touch-manipulation"
+              aria-label="Clear search"
             >
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
-          </button>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                className="h-5 w-5"
+                aria-hidden
+              >
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          ) : null}
+        </div>
+        {searchFocused ? (
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <p className="text-xs text-gray-500">
+              {isSearching
+                ? `${visibleItems.length} result${visibleItems.length === 1 ? "" : "s"}`
+                : "Type to search the menu"}
+            </p>
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={dismissSearch}
+              className="min-h-[32px] rounded-lg bg-gray-900 px-3 text-xs font-semibold text-white touch-manipulation"
+            >
+              Done
+            </button>
+          </div>
         ) : null}
       </div>
+      {!isSearching ? (
       <div className="flex gap-3 mb-6 overflow-x-auto pb-2">
         {categories.map((category, index) => {
           const isSelected = selectedCategory === category;
@@ -219,7 +260,8 @@ export function MenuPicker({
           );
         })}
       </div>
-      <div className="space-y-3">
+      ) : null}
+      <div ref={resultsRef} className="space-y-3 scroll-mt-24">
         {visibleItems.map((item, index) => {
           const cartQty = quantities[item.name] ?? 0;
           const infiniteStock = isInfiniteInventoryDish(item.name);
@@ -242,7 +284,10 @@ export function MenuPicker({
                   ) : (
                     <img src="/non_veg.svg" alt="non veg" className="w-4 h-4" />
                   )}
-                  <p className="font-semibold text-sm">{item.name}</p>
+                  <p className="font-semibold text-sm">{getMenuDisplayName(item)}</p>
+                  {shouldShowMenuBillName(item) ? (
+                    <p className="text-[10px] text-gray-500">{item.name}</p>
+                  ) : null}
                   {oos ? (
                     <span className="text-[10px] font-bold uppercase text-red-600">
                       OOS

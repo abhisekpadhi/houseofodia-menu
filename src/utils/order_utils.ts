@@ -1032,6 +1032,15 @@ export function isOrderLate(order: TOrder, now = Date.now()): boolean {
 	return now - order.createdAt > LATE_ORDER_THRESHOLD_MS;
 }
 
+export function getOrderLateByMs(order: TOrder, now = Date.now()): number {
+	if (!isOrderLate(order, now)) {
+		return 0;
+	}
+
+	const lateSince = order.createdAt + LATE_ORDER_THRESHOLD_MS;
+	return now - lateSince;
+}
+
 export function isGroupLate(group: OrderGroup, now = Date.now()): boolean {
 	if (group.kind !== 'table') {
 		return false;

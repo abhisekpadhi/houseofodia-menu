@@ -35,9 +35,10 @@ import {
 	formatCustomerContact,
 } from "@/src/utils/order_utils";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const PAX_QUICK_PICK_OPTIONS = Array.from({ length: 30 }, (_, index) => index + 1);
+const ORDER_NOTE_SHORTCUTS = ["Less spicy", "No spice", "Extra gravy"] as const;
 
 function CartIcon({ className }: { className?: string }) {
 	return (
@@ -170,6 +171,17 @@ function OrderCartModal({
 	);
 }
 
+function appendOrderNoteShortcut(current: string, shortcut: string): string {
+	const trimmed = current.trim();
+	if (!trimmed) {
+		return shortcut;
+	}
+	if (trimmed.includes(shortcut)) {
+		return trimmed;
+	}
+	return `${trimmed}, ${shortcut}`;
+}
+
 function AddOrderContent() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
@@ -198,6 +210,10 @@ function AddOrderContent() {
 	const [parcelUnitsByName, setParcelUnitsByName] = useState<
 		Record<string, boolean[]>
 	>({});
+	const [setupExpanded, setSetupExpanded] = useState(true);
+	const setupWasCompleteRef = useRef(false);
+	const menuScrollRef = useRef<HTMLDivElement>(null);
+	const [keyboardInset, setKeyboardInset] = useState(0);
 
 	const isFromTableCard = preselectedTables.length > 0;
 	const isFromExistingGroup = preselectedGroupKey !== null;
@@ -372,6 +388,86 @@ function AddOrderContent() {
 
 	const showParcelToggle = orderKind === "table";
 
+	const isSetupComplete =
+		!needsTableSelection &&
+		hasValidPax &&
+		(!needsCustomerDetails || hasCustomerDetails);
+
+	useEffect(() => {
+		if (isSetupComplete && !setupWasCompleteRef.current) {
+			setupWasCompleteRef.current = true;
+			setSetupExpanded(false);
+		}
+		if (!isSetupComplete) {
+			setupWasCompleteRef.current = false;
+		}
+	}, [isSetupComplete]);
+
+	useEffect(() => {
+		const viewport = window.visualViewport;
+		if (!viewport) {
+			return;
+		}
+
+		const updateKeyboardInset = () => {
+			const inset = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+			setKeyboardInset(inset > 80 ? inset : 0);
+		};
+
+		updateKeyboardInset();
+		viewport.addEventListener("resize", updateKeyboardInset);
+		viewport.addEventListener("scroll", updateKeyboardInset);
+		return () => {
+			viewport.removeEventListener("resize", updateKeyboardInset);
+			viewport.removeEventListener("scroll", updateKeyboardInset);
+		};
+	}, []);
+
+	const scrollMenuIntoView = useCallback(() => {
+		menuScrollRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+	}, []);
+
+	const setupSummaryLabel = useMemo(() => {
+		const parts: string[] = [];
+		if (orderKind === "table") {
+			parts.push(formatTableGroupLabel(selectedTables));
+		} else {
+			parts.push(orderKind.charAt(0).toUpperCase() + orderKind.slice(1));
+			if (existingCustomerContact) {
+				parts.push(existingCustomerContact);
+			} else {
+				const contact = formatCustomerContact({
+					id: "",
+					createdAt: 0,
+					kind: orderKind,
+					tableNumbers: [],
+					items: [],
+					customerName: customerName.trim() || undefined,
+					customerPhone: customerPhone.trim() || undefined,
+				});
+				if (contact) {
+					parts.push(contact);
+				}
+			}
+		}
+		if (hasValidPax) {
+			parts.push(`${paxNumber} pax`);
+		}
+		if (orderKind === "table" && kidMenuEnabled) {
+			parts.push("👶 Kid menu");
+		}
+		return parts.join(" · ");
+	}, [
+		orderKind,
+		selectedTables,
+		hasValidPax,
+		paxNumber,
+		kidMenuEnabled,
+		customerName,
+		customerPhone,
+		existingCustomerContact,
+	]);
+
 	const toggleTable = (tableNumber: number) => {
 		if (isTableDisabled(tableNumber)) {
 			return;
@@ -518,243 +614,302 @@ function AddOrderContent() {
 	};
 
 	return (
-		<div className="ops-app-screen bg-white">
-			<div className="ops-sticky-header bg-white border-b px-6 pb-4">
-				<div className="flex items-center justify-between mb-4">
+		<div className="ops-app-screen bg-white flex flex-col min-h-[100dvh] pb-0">
+			<div className="ops-sticky-header bg-white border-b px-6 pb-3 shrink-0">
+				<div className="flex items-center justify-between">
 					<button
 						type="button"
 						onClick={() => router.push("/order")}
-						className="text-sm font-semibold text-gray-600 hover:text-black"
+						className="text-sm font-semibold text-gray-600 hover:text-black touch-manipulation"
 					>
 						← Back
 					</button>
 					<h1 className="text-xl font-bold">New Order</h1>
 					<OrderOpsSyncIndicator />
 				</div>
-
-				{!isFromTableCard && !isFromExistingGroup && (
-					<div className="flex gap-2 mb-4">
-						{(["table", "takeaway", "delivery"] as OrderKind[]).map((kind) => (
-							<button
-								key={kind}
-								type="button"
-								onClick={() => {
-									setOrderKind(kind);
-									if (kind !== "table") {
-										setSelectedTables([]);
-									}
-									setPax("");
-								}}
-								className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold capitalize transition-colors ${
-									orderKind === kind
-										? "bg-black text-white"
-										: "bg-gray-100 text-gray-700 hover:bg-gray-200"
-								}`}
-							>
-								{kind}
-							</button>
-						))}
-					</div>
-				)}
-
-				{isFromTableCard && orderKind === "table" && (
-					<div className="mb-2">
-						<p className="text-xs font-medium text-gray-500 mb-1">Adding order for</p>
-						<p className="text-lg font-bold">
-							{formatTableGroupLabel(preselectedTables)}
-						</p>
-					</div>
-				)}
-
-				{isFromExistingGroup && existingCustomerContact ? (
-					<div className="mb-2">
-						<p className="text-xs font-medium text-gray-500 mb-1">Adding order for</p>
-						<p className="text-lg font-bold capitalize">{orderKind}</p>
-						<p className="text-sm font-medium text-gray-700 mt-1">
-							{existingCustomerContact}
-						</p>
-					</div>
-				) : null}
-
-				{!isFromTableCard && orderKind === "table" && (
-					<div>
-						<p className="text-xs font-medium text-gray-600 mb-2">
-							Select table(s) — tap to toggle
-						</p>
-						{needsTableSelection ? (
-							<p className="text-xs font-medium text-red-600 mb-2">
-								Select at least one table to add items and place the order.
-							</p>
-						) : null}
-						<div className="grid grid-cols-5 gap-2">
-							{Array.from({ length: TABLE_COUNT }, (_, i) => i + 1).map(
-								(tableNumber) => {
-									const isSelected = selectedTables.includes(tableNumber);
-									const isDisabled = isTableDisabled(tableNumber);
-									return (
-										<button
-											key={tableNumber}
-											type="button"
-											disabled={isDisabled}
-											onClick={() => toggleTable(tableNumber)}
-											aria-label={
-												isDisabled
-													? `Table ${tableNumber} occupied`
-													: `Table ${tableNumber}`
-											}
-											className={`relative py-2 rounded-lg text-sm font-bold transition-colors ${
-												isDisabled
-													? "bg-gray-200 text-gray-400 cursor-not-allowed"
-													: isSelected
-														? "bg-green-500 text-white"
-														: "bg-gray-100 text-gray-800 hover:bg-gray-200"
-											}`}
-										>
-											{tableNumber}
-											{isDisabled ? (
-												<span className="absolute -top-1 -right-1 flex h-[1.1rem] w-[1.1rem] items-center justify-center rounded-full bg-amber-500 text-white text-[10px] leading-none shadow-sm">
-													🪑
-												</span>
-											) : null}
-										</button>
-									);
-								}
-							)}
-						</div>
-					</div>
-				)}
-
-				{needsCustomerDetails ? (
-					<div className="mt-4 space-y-3">
-						<p className="text-xs font-medium text-gray-600">Customer</p>
-						<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-							<div>
-								<label
-									htmlFor="customer-name"
-									className="block text-xs text-gray-500 mb-1"
-								>
-									Name
-								</label>
-								<input
-									id="customer-name"
-									type="text"
-									value={customerName}
-									onChange={(e) => setCustomerName(e.target.value)}
-									placeholder="Customer name"
-									autoComplete="name"
-									className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-								/>
-							</div>
-							<div>
-								<label
-									htmlFor="customer-phone"
-									className="block text-xs text-gray-500 mb-1"
-								>
-									Phone
-								</label>
-								<input
-									id="customer-phone"
-									type="tel"
-									inputMode="numeric"
-									value={customerPhone}
-									onChange={(e) =>
-										setCustomerPhone(
-											e.target.value.replace(/\D/g, "").slice(0, CUSTOMER_PHONE_DIGITS)
-										)
-									}
-									placeholder="10-digit phone"
-									autoComplete="tel"
-									maxLength={CUSTOMER_PHONE_DIGITS}
-									className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-								/>
-							</div>
-						</div>
-						{!hasCustomerDetails ? (
-							<p className="text-xs font-medium text-red-600">
-								Enter name and a 10-digit phone number before placing the order.
-							</p>
-						) : null}
-					</div>
-				) : null}
-
-				{showPaxField ? (
-					<div className="mt-4">
-						<label
-							htmlFor="order-pax"
-							className="block text-xs font-medium text-gray-600 mb-1"
-						>
-							Pax
-						</label>
-						<div className="flex items-center gap-3">
-							<input
-								id="order-pax"
-								type="text"
-								inputMode="numeric"
-								value={pax}
-								onChange={(e) =>
-									setPax(e.target.value.replace(/\D/g, "").slice(0, 3))
-								}
-								placeholder="Guests"
-								className="w-20 shrink-0 border border-gray-300 rounded-lg px-3 py-2 text-sm text-center touch-manipulation"
-							/>
-							<div className="min-w-0 flex-1 overflow-x-auto pb-1">
-								<div className="flex gap-2 w-max">
-									{PAX_QUICK_PICK_OPTIONS.map((option) => {
-										const isSelected = selectedQuickPickPax === option;
-										return (
-											<button
-												key={option}
-												type="button"
-												onClick={() => setPax(String(option))}
-												aria-pressed={isSelected}
-												className={`shrink-0 min-w-[2.5rem] min-h-[2.5rem] rounded-lg border px-3 py-2 text-sm font-semibold touch-manipulation transition-colors ${
-													isSelected
-														? "border-green-600 bg-green-100 text-green-800"
-														: "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-												}`}
-											>
-												{option}
-											</button>
-										);
-									})}
-								</div>
-							</div>
-						</div>
-						{!hasValidPax ? (
-							<p className="text-xs font-medium text-red-600 mt-1.5">
-								Enter pax (at least 1) before placing the order.
-							</p>
-						) : null}
-					</div>
-				) : null}
 			</div>
 
-			{orderKind === "table" && selectedTables.length > 0 ? (
-				<div className="px-6 pt-2">
-					<p className="text-xs font-medium text-gray-600 mb-2">Table options</p>
-					<button
-						type="button"
-						onClick={() => setKidMenuEnabled((prev) => !prev)}
-						aria-pressed={kidMenuEnabled}
-						className={`inline-flex min-h-[36px] items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold touch-manipulation transition-colors ${
-							kidMenuEnabled
-								? "bg-green-100 border border-green-600 text-green-800"
-								: "bg-gray-100 border border-gray-300 text-gray-700 hover:bg-gray-200"
-						}`}
-					>
-						<span>👶 Kid menu</span>
-					</button>
-					<p className="mt-1.5 text-xs text-gray-500">
-						When enabled, the kid menu button appears on this table&apos;s order
-						card.
-					</p>
-				</div>
-			) : null}
+			<div className="px-6 py-3 border-b bg-white shrink-0">
+				{isSetupComplete && !setupExpanded ? (
+					<div className="flex items-start justify-between gap-3">
+						<div className="min-w-0">
+							<p className="text-xs font-medium text-gray-500">Order for</p>
+							<p className="text-sm font-semibold text-gray-900 leading-snug mt-0.5">
+								{setupSummaryLabel}
+							</p>
+						</div>
+						<button
+							type="button"
+							onClick={() => setSetupExpanded(true)}
+							className="shrink-0 min-h-[36px] px-3 rounded-lg border border-gray-300 bg-white text-xs font-semibold text-gray-700 touch-manipulation hover:bg-gray-50"
+						>
+							Edit
+						</button>
+					</div>
+				) : (
+					<div className="space-y-4">
+						{!isFromTableCard && !isFromExistingGroup && (
+							<div className="flex gap-2">
+								{(["table", "takeaway", "delivery"] as OrderKind[]).map((kind) => (
+									<button
+										key={kind}
+										type="button"
+										onClick={() => {
+											setOrderKind(kind);
+											if (kind !== "table") {
+												setSelectedTables([]);
+											}
+											setPax("");
+										}}
+										className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold capitalize transition-colors touch-manipulation ${
+											orderKind === kind
+												? "bg-black text-white"
+												: "bg-gray-100 text-gray-700 hover:bg-gray-200"
+										}`}
+									>
+										{kind}
+									</button>
+								))}
+							</div>
+						)}
 
-			<div className="px-6 pt-4">
+						{isFromTableCard && orderKind === "table" && (
+							<div>
+								<p className="text-xs font-medium text-gray-500 mb-1">
+									Adding order for
+								</p>
+								<p className="text-lg font-bold">
+									{formatTableGroupLabel(preselectedTables)}
+								</p>
+							</div>
+						)}
+
+						{isFromExistingGroup && existingCustomerContact ? (
+							<div>
+								<p className="text-xs font-medium text-gray-500 mb-1">
+									Adding order for
+								</p>
+								<p className="text-lg font-bold capitalize">{orderKind}</p>
+								<p className="text-sm font-medium text-gray-700 mt-1">
+									{existingCustomerContact}
+								</p>
+							</div>
+						) : null}
+
+						{!isFromTableCard && orderKind === "table" && (
+							<div>
+								<p className="text-xs font-medium text-gray-600 mb-2">
+									Select table(s) — tap to toggle
+								</p>
+								{needsTableSelection ? (
+									<p className="text-xs font-medium text-red-600 mb-2">
+										Select at least one table to add items and place the order.
+									</p>
+								) : null}
+								<div className="grid grid-cols-5 gap-2">
+									{Array.from({ length: TABLE_COUNT }, (_, i) => i + 1).map(
+										(tableNumber) => {
+											const isSelected = selectedTables.includes(tableNumber);
+											const isDisabled = isTableDisabled(tableNumber);
+											return (
+												<button
+													key={tableNumber}
+													type="button"
+													disabled={isDisabled}
+													onClick={() => toggleTable(tableNumber)}
+													aria-label={
+														isDisabled
+															? `Table ${tableNumber} occupied`
+															: `Table ${tableNumber}`
+													}
+													className={`relative py-2 rounded-lg text-sm font-bold transition-colors touch-manipulation ${
+														isDisabled
+															? "bg-gray-200 text-gray-400 cursor-not-allowed"
+															: isSelected
+																? "bg-green-500 text-white"
+																: "bg-gray-100 text-gray-800 hover:bg-gray-200"
+													}`}
+												>
+													{tableNumber}
+													{isDisabled ? (
+														<span className="absolute -top-1 -right-1 flex h-[1.1rem] w-[1.1rem] items-center justify-center rounded-full bg-amber-500 text-white text-[10px] leading-none shadow-sm">
+															🪑
+														</span>
+													) : null}
+												</button>
+											);
+										}
+									)}
+								</div>
+							</div>
+						)}
+
+						{needsCustomerDetails ? (
+							<div className="space-y-3">
+								<p className="text-xs font-medium text-gray-600">Customer</p>
+								<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+									<div>
+										<label
+											htmlFor="customer-name"
+											className="block text-xs text-gray-500 mb-1"
+										>
+											Name
+										</label>
+										<input
+											id="customer-name"
+											type="text"
+											value={customerName}
+											onChange={(e) => setCustomerName(e.target.value)}
+											placeholder="Customer name"
+											autoComplete="name"
+											className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+										/>
+									</div>
+									<div>
+										<label
+											htmlFor="customer-phone"
+											className="block text-xs text-gray-500 mb-1"
+										>
+											Phone
+										</label>
+										<input
+											id="customer-phone"
+											type="tel"
+											inputMode="numeric"
+											value={customerPhone}
+											onChange={(e) =>
+												setCustomerPhone(
+													e.target.value
+														.replace(/\D/g, "")
+														.slice(0, CUSTOMER_PHONE_DIGITS)
+												)
+											}
+											placeholder="10-digit phone"
+											autoComplete="tel"
+											maxLength={CUSTOMER_PHONE_DIGITS}
+											className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+										/>
+									</div>
+								</div>
+								{!hasCustomerDetails ? (
+									<p className="text-xs font-medium text-red-600">
+										Enter name and a 10-digit phone number before placing the
+										order.
+									</p>
+								) : null}
+							</div>
+						) : null}
+
+						{orderKind === "table" && selectedTables.length > 0 ? (
+							<div>
+								<p className="text-xs font-medium text-gray-600 mb-2">
+									Table options
+								</p>
+								<button
+									type="button"
+									onClick={() => setKidMenuEnabled((prev) => !prev)}
+									aria-pressed={kidMenuEnabled}
+									className={`inline-flex min-h-[36px] items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold touch-manipulation transition-colors ${
+										kidMenuEnabled
+											? "bg-green-100 border border-green-600 text-green-800"
+											: "bg-gray-100 border border-gray-300 text-gray-700 hover:bg-gray-200"
+									}`}
+								>
+									<span>👶 Kid menu</span>
+								</button>
+							</div>
+						) : null}
+
+						{showPaxField ? (
+							<div>
+								<label
+									htmlFor="order-pax"
+									className="block text-xs font-medium text-gray-600 mb-1"
+								>
+									Pax
+								</label>
+								<div className="flex items-center gap-3">
+									<input
+										id="order-pax"
+										type="text"
+										inputMode="numeric"
+										value={pax}
+										onChange={(e) =>
+											setPax(e.target.value.replace(/\D/g, "").slice(0, 3))
+										}
+										placeholder="Guests"
+										className="w-20 shrink-0 border border-gray-300 rounded-lg px-3 py-2 text-sm text-center touch-manipulation"
+									/>
+									<div className="min-w-0 flex-1 overflow-x-auto pb-1">
+										<div className="flex gap-2 w-max">
+											{PAX_QUICK_PICK_OPTIONS.map((option) => {
+												const isSelected = selectedQuickPickPax === option;
+												return (
+													<button
+														key={option}
+														type="button"
+														onClick={() => setPax(String(option))}
+														aria-pressed={isSelected}
+														className={`shrink-0 min-w-[2.5rem] min-h-[2.5rem] rounded-lg border px-3 py-2 text-sm font-semibold touch-manipulation transition-colors ${
+															isSelected
+																? "border-green-600 bg-green-100 text-green-800"
+																: "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+														}`}
+													>
+														{option}
+													</button>
+												);
+											})}
+										</div>
+									</div>
+								</div>
+								{!hasValidPax ? (
+									<p className="text-xs font-medium text-red-600 mt-1.5">
+										Enter pax (at least 1) before placing the order.
+									</p>
+								) : null}
+							</div>
+						) : null}
+
+						{isSetupComplete ? (
+							<button
+								type="button"
+								onClick={() => setSetupExpanded(false)}
+								className="w-full min-h-[40px] rounded-lg bg-green-500 text-white text-sm font-semibold touch-manipulation"
+							>
+								Done
+							</button>
+						) : null}
+					</div>
+				)}
+			</div>
+
+			<div
+				ref={menuScrollRef}
+				className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 pt-4"
+				style={{
+					paddingBottom: `calc(6rem + env(safe-area-inset-bottom) + ${keyboardInset}px)`,
+				}}
+			>
 				<label className="block text-xs font-medium text-gray-600 mb-1">
 					Order notes (optional)
 				</label>
+				<div className="flex flex-wrap gap-2 mb-2">
+					{ORDER_NOTE_SHORTCUTS.map((shortcut) => (
+						<button
+							key={shortcut}
+							type="button"
+							onClick={() =>
+								setOrderNotes((current) =>
+									appendOrderNoteShortcut(current, shortcut)
+								)
+							}
+							className="min-h-[32px] rounded-full border border-gray-300 bg-gray-50 px-3 text-xs font-semibold text-gray-700 touch-manipulation hover:bg-gray-100"
+						>
+							{shortcut}
+						</button>
+					))}
+				</div>
 				<textarea
 					value={orderNotes}
 					onChange={(e) => setOrderNotes(e.target.value)}
@@ -771,6 +926,7 @@ function AddOrderContent() {
 					onAddItem={handleAddItem}
 					onIncrement={handleIncrement}
 					onDecrement={handleDecrement}
+					onSearchFocus={scrollMenuIntoView}
 					headerAction={
 						<div className="flex items-center gap-2">
 							<button
@@ -788,7 +944,7 @@ function AddOrderContent() {
 							<button
 								type="button"
 								onClick={() => setCartModalOpen(true)}
-								className="relative w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+								className="relative w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors touch-manipulation"
 								aria-label="View order cart"
 							>
 								<CartIcon className="w-5 h-5" />

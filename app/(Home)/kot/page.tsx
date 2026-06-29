@@ -1,7 +1,9 @@
 "use client";
 
-import { TOrder } from "@/src/models/common";
+import { TMenuApiItem, TOrder } from "@/src/models/common";
+import { buildDishInternalNameMap, getKotDisplayName } from "@/src/utils/menu_utils";
 import { formatCustomerContact, formatOrderLabel, formatOrderTime, getOrdersStore } from "@/src/utils/order_utils";
+import axios from "axios";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { FaPrint } from "react-icons/fa";
@@ -15,6 +17,9 @@ function KotContent() {
 	const searchParams = useSearchParams();
 	const orderId = searchParams.get("orderId");
 	const [order, setOrder] = useState<TOrder | null>(null);
+	const [internalNameByBillName, setInternalNameByBillName] = useState<
+		Record<string, string>
+	>({});
 	const [loading, setLoading] = useState(true);
 
 	useEffect(() => {
@@ -23,10 +28,19 @@ function KotContent() {
 			return;
 		}
 
-		getOrdersStore()
-			.then((store) => {
+		Promise.all([
+			getOrdersStore(),
+			axios.get<TMenuApiItem[]>("/api/menu", {
+				headers: {
+					"Cache-Control": "no-cache",
+					Pragma: "no-cache",
+				},
+			}),
+		])
+			.then(([store, menuResponse]) => {
 				const found = store.orders.find((entry) => entry.id === orderId) ?? null;
 				setOrder(found);
+				setInternalNameByBillName(buildDishInternalNameMap(menuResponse.data));
 			})
 			.finally(() => {
 				setLoading(false);
@@ -107,7 +121,8 @@ function KotContent() {
 					{order.items.map((item, index) => (
 						<div key={`${item.name}-${index}`}>
 							<span>
-								{item.qty}x {item.name}
+								{item.qty}x{" "}
+								{getKotDisplayName(item.name, internalNameByBillName)}
 							</span>
 						</div>
 					))}

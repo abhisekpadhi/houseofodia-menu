@@ -35,15 +35,44 @@ export async function GET() {
 		);
 		const [header, ...rows] = data;
 
-		const jsonData = rows.map((row: any[]) => ({
-			status: row.length > 0 ? row[0] : 'OFF',
-			category: row.length > 1 ? `${row[1]}`.trim() : '',
-			name: row.length > 2 ? row[2] : '',
-			description: row.length > 3 ? row[3] : '',
-			is_veg: row.length > 4 ? row[4].toLowerCase() === 'veg' : false,
-			price: row.length > 5 ? `${row[5]}` : '0',
-			sop: row.length > 6 ? `${row[6] ?? ''}`.trim() : '',
-		}));
+		const normalizeHeaderKey = (value: string) =>
+			value.trim().toLowerCase().replace(/\s+/g, '_');
+
+		const columnIndex = (key: string, fallback: number) => {
+			const index = header.findIndex(
+				(cell: string) => normalizeHeaderKey(String(cell ?? '')) === key
+			);
+			return index >= 0 ? index : fallback;
+		};
+
+		const columns = {
+			status: columnIndex('status', 0),
+			category: columnIndex('category', 1),
+			name: columnIndex('name', 2),
+			description: columnIndex('description', 3),
+			is_veg: columnIndex('is_veg', 4),
+			price: columnIndex('price', 5),
+			internal_name: columnIndex('internal_name', 6),
+			sop: columnIndex('sop', 7),
+		};
+
+		const cell = (row: string[], key: keyof typeof columns) =>
+			row.length > columns[key] ? row[columns[key]] : undefined;
+
+		const jsonData = rows.map((row: string[]) => {
+			const internalName = `${cell(row, 'internal_name') ?? ''}`.trim();
+			const sop = `${cell(row, 'sop') ?? ''}`.trim();
+			return {
+				status: `${cell(row, 'status') ?? 'OFF'}`,
+				category: `${cell(row, 'category') ?? ''}`.trim(),
+				name: `${cell(row, 'name') ?? ''}`,
+				...(internalName ? { internal_name: internalName } : {}),
+				description: `${cell(row, 'description') ?? ''}`,
+				is_veg: `${cell(row, 'is_veg') ?? ''}`.toLowerCase() === 'veg',
+				price: `${cell(row, 'price') ?? '0'}`,
+				...(sop ? { sop } : {}),
+			};
+		});
 
 		return NextResponse.json(jsonData);
 	} catch (error) {

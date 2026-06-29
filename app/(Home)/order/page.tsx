@@ -9,6 +9,7 @@ import {
 	getGroupPax,
 	fulfillNextUnitForDish,
 	getGroupLateByMs,
+	getOrderLateByMs,
 	getOrderItemUnitDisplay,
 	getReadyOrders,
 	getItemUnitStates,
@@ -18,6 +19,7 @@ import {
 	formatLateDuration,
 	isGroupFullyMarkedDone,
 	isGroupLate,
+	isOrderLate,
 	isOrderEditable,
 	isOrderMarkedDone,
 	isOrderReady,
@@ -78,11 +80,12 @@ import axios from "axios";
 import localforage from "localforage";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const ORDERS_KEY = "orders";
 
 type TabId = "tables" | "items";
+type TableOrdersView = "groups" | "orders";
 
 function orderMatchesTableFilter(
 	order: TOrder,
@@ -198,47 +201,6 @@ function TableFilterBar({
 				</button>
 			) : null}
 		</div>
-	);
-}
-
-function CategoryIcon({ className }: { className?: string }) {
-	return (
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="2"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			className={className}
-			aria-hidden
-		>
-			<rect x="3" y="3" width="7" height="7" rx="1" />
-			<rect x="14" y="3" width="7" height="7" rx="1" />
-			<rect x="3" y="14" width="7" height="7" rx="1" />
-			<rect x="14" y="14" width="7" height="7" rx="1" />
-		</svg>
-	);
-}
-
-function InventoryIcon({ className }: { className?: string }) {
-	return (
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="2"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			className={className}
-			aria-hidden
-		>
-			<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
-			<path d="m3.3 7 8.7 5 8.7-5" />
-			<path d="M12 22V12" />
-		</svg>
 	);
 }
 
@@ -549,6 +511,71 @@ function OrderRow({
 					);
 				})}
 			</ul>
+		</div>
+	);
+}
+
+function IndividualOrderCard({
+	order,
+	now,
+	onEdit,
+	onKotPrint,
+	onRequestMarkDone,
+	onRequestCancelItem,
+	onRequestToggleParcel,
+}: {
+	order: TOrder;
+	now: number;
+	onEdit: (order: TOrder) => void;
+	onKotPrint: (order: TOrder) => void;
+	onRequestMarkDone: (order: TOrder) => void;
+	onRequestCancelItem: (
+		order: TOrder,
+		itemIndex: number,
+		unitIndex: number
+	) => void;
+	onRequestToggleParcel: (
+		order: TOrder,
+		itemIndex: number,
+		unitIndex: number
+	) => void;
+}) {
+	const isLate = order.kind === "table" && isOrderLate(order, now);
+	const lateByMs = isLate ? getOrderLateByMs(order, now) : 0;
+
+	return (
+		<div
+			className={`rounded-xl shadow-md overflow-hidden ${
+				isLate
+					? "border-2 border-red-500 bg-red-50"
+					: "border bg-white text-card-foreground"
+			}`}
+		>
+			{isLate ? (
+				<div className="flex justify-center border-b border-red-200 bg-red-50 px-3 py-2">
+					<span
+						className="inline-flex items-center rounded-full bg-red-600 px-3 py-0.5 text-xs font-bold text-white shadow-sm whitespace-nowrap"
+						aria-label={`Late by ${formatLateDuration(lateByMs)}`}
+					>
+						Late {formatLateDuration(lateByMs)}
+					</span>
+				</div>
+			) : null}
+			<div className="px-4 pt-3 pb-1 border-b border-gray-100">
+				<p className="text-sm font-semibold text-gray-900">
+					{formatOrderLabel(order)}
+				</p>
+			</div>
+			<div className="p-3">
+				<OrderRow
+					order={order}
+					onEdit={onEdit}
+					onKotPrint={onKotPrint}
+					onRequestMarkDone={onRequestMarkDone}
+					onRequestCancelItem={onRequestCancelItem}
+					onRequestToggleParcel={onRequestToggleParcel}
+				/>
+			</div>
 		</div>
 	);
 }
@@ -1423,12 +1450,12 @@ function ReadyOrdersModal({
 export default function OrderPage() {
 	const router = useRouter();
 	const pathname = usePathname();
-	const [inventoryNavPending, startInventoryNav] = useTransition();
 	const [orders, setOrders] = useState<TOrder[]>([]);
 	const [groups, setGroups] = useState<OrderGroup[]>([]);
 	const [itemGroups, setItemGroups] = useState<ItemGroup[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [activeTab, setActiveTab] = useState<TabId>("tables");
+	const [tableOrdersView, setTableOrdersView] = useState<TableOrdersView>("groups");
 	const [selectedTableFilters, setSelectedTableFilters] = useState<number[]>([]);
 	const [itemsAggregatesView, setItemsAggregatesView] = useState(false);
 	const [readyModalOpen, setReadyModalOpen] = useState(false);
@@ -1515,6 +1542,14 @@ export default function OrderPage() {
 			.filter((group): group is ItemGroup => group != null);
 	}, [itemGroups, orders, selectedTableFilterSet]);
 
+	const chronologicalOrders = useMemo(
+		() =>
+			filteredGroups
+				.flatMap((group) => group.orders)
+				.sort((a, b) => a.createdAt - b.createdAt),
+		[filteredGroups]
+	);
+
 	const toggleTableFilter = useCallback((tableNumber: number) => {
 		setSelectedTableFilters((current) =>
 			current.includes(tableNumber)
@@ -1560,10 +1595,6 @@ export default function OrderPage() {
 		},
 		[]
 	);
-
-	useEffect(() => {
-		router.prefetch("/order/inventory");
-	}, [router]);
 
 	const applyOrderState = useCallback(
 		(nextOrders: TOrder[], categoryMap?: Record<string, string>) => {
@@ -1996,6 +2027,7 @@ export default function OrderPage() {
 
 	const hasOrders = groups.length > 0;
 	const hasFilteredOrders = filteredGroups.length > 0;
+	const hasFilteredChronologicalOrders = chronologicalOrders.length > 0;
 	const hasFilteredItems = filteredItemGroups.length > 0;
 
 	return (
@@ -2010,35 +2042,6 @@ export default function OrderPage() {
 							</div>
 							<div className="flex items-center gap-2 shrink-0">
 								<OrderOpsSyncIndicator />
-								<button
-									type="button"
-									onClick={() => router.push("/freeflow")}
-									className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300 touch-manipulation"
-									aria-label="Freeflow bill"
-								>
-									<CategoryIcon className="w-5 h-5" />
-								</button>
-								<button
-									type="button"
-									onClick={() => {
-										startInventoryNav(() => {
-											router.push("/order/inventory");
-										});
-									}}
-									className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300 touch-manipulation"
-									aria-label={
-										inventoryNavPending
-											? "Opening inventory"
-											: "Dish inventory"
-									}
-									aria-busy={inventoryNavPending}
-								>
-									{inventoryNavPending ? (
-										<LoadingSpinner className="h-5 w-5 text-gray-700" />
-									) : (
-										<InventoryIcon className="w-5 h-5" />
-									)}
-								</button>
 								{readyOrders.length > 0 && (
 									<button
 										type="button"
@@ -2053,7 +2056,9 @@ export default function OrderPage() {
 						</div>
 						<p className="text-sm text-gray-500 mt-1">
 							{activeTab === "tables"
-								? "Grouped by table · active first, all-done at bottom"
+								? tableOrdersView === "groups"
+									? "Grouped by table · active first, all-done at bottom"
+									: "All orders · oldest first"
 								: itemsAggregatesView
 									? "Grouped by kitchen section · totals per dish"
 									: "Grouped by kitchen section · FCFS fulfillment"}
@@ -2091,6 +2096,33 @@ export default function OrderPage() {
 					onToggleTable={toggleTableFilter}
 					onClear={clearTableFilters}
 				/>
+
+				{activeTab === "tables" ? (
+					<div className="flex gap-2 mt-3">
+						<button
+							type="button"
+							onClick={() => setTableOrdersView("groups")}
+							className={`flex-1 min-h-[40px] py-2 rounded-lg text-xs font-semibold touch-manipulation transition-colors ${
+								tableOrdersView === "groups"
+									? "bg-gray-800 text-white"
+									: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
+							}`}
+						>
+							By table
+						</button>
+						<button
+							type="button"
+							onClick={() => setTableOrdersView("orders")}
+							className={`flex-1 min-h-[40px] py-2 rounded-lg text-xs font-semibold touch-manipulation transition-colors ${
+								tableOrdersView === "orders"
+									? "bg-gray-800 text-white"
+									: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
+							}`}
+						>
+							All orders
+						</button>
+					</div>
+				) : null}
 
 				{activeTab === "items" ? (
 					<div className="flex gap-2 mt-3">
@@ -2135,6 +2167,34 @@ export default function OrderPage() {
 									Tap the + button to place a new order
 								</p>
 							</div>
+						) : tableOrdersView === "orders" ? (
+							!hasFilteredChronologicalOrders ? (
+								<div className="text-center py-16 text-gray-500">
+									<p className="text-lg font-medium mb-2">
+										{selectedTableFilters.length > 0
+											? "No orders for selected tables"
+											: "No active orders"}
+									</p>
+									<p className="text-sm">
+										{selectedTableFilters.length > 0
+											? "Try another table filter or clear the filter."
+											: "Tap the + button to place a new order"}
+									</p>
+								</div>
+							) : (
+								chronologicalOrders.map((order) => (
+									<IndividualOrderCard
+										key={order.id}
+										order={order}
+										now={now}
+										onEdit={setEditingOrder}
+										onKotPrint={handleKotPrint}
+										onRequestMarkDone={setPendingMarkDone}
+										onRequestCancelItem={handleRequestCancelItem}
+										onRequestToggleParcel={handleRequestToggleParcel}
+									/>
+								))
+							)
 						) : !hasFilteredOrders ? (
 							<div className="text-center py-16 text-gray-500">
 								<p className="text-lg font-medium mb-2">

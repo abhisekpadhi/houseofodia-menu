@@ -2,6 +2,8 @@ export type TMenuApiItem = {
 	status: string;
 	category: string;
 	name: string;
+	/** Staff-facing label from menu sheet; billing still uses `name`. */
+	internal_name?: string;
 	description: string;
 	price: string;
 	is_veg: boolean;

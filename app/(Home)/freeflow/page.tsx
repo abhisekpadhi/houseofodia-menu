@@ -11,7 +11,7 @@ import {
   fetchAndCacheMenuItems,
   getCachedMenuItems,
 } from "@/src/utils/menu_cache";
-import { buildMenuFromApiItems, stringToColor } from "@/src/utils/menu_utils";
+import { buildMenuFromApiItems, stringToColor, getMenuDisplayName, menuItemMatchesSearch, shouldShowMenuBillName } from "@/src/utils/menu_utils";
 import localforage from "localforage";
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -138,6 +138,7 @@ const FreeflowPage: React.FC = () => {
     const itemsWithCategory: {
       category: string;
       name: string;
+      internal_name?: string;
       description: string;
       price: string;
       is_veg: boolean;
@@ -148,6 +149,7 @@ const FreeflowPage: React.FC = () => {
         itemsWithCategory.push({
           category,
           name: item.name,
+          ...(item.internal_name ? { internal_name: item.internal_name } : {}),
           description: item.description,
           price: item.price,
           is_veg: item.is_veg,
@@ -168,14 +170,7 @@ const FreeflowPage: React.FC = () => {
     }
 
     if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter((item) => {
-        const nameMatch = item.name.toLowerCase().includes(term);
-        const descriptionMatch = item.description
-          ? item.description.toLowerCase().includes(term)
-          : false;
-        return nameMatch || descriptionMatch;
-      });
+      filtered = filtered.filter((item) => menuItemMatchesSearch(item, searchTerm));
     }
 
     return filtered;
@@ -336,7 +331,10 @@ const FreeflowPage: React.FC = () => {
                 className="flex items-center justify-between border border-gray-200 rounded-lg px-4 py-3 bg-white shadow-sm"
               >
                 <div className="mr-4">
-                  <p className="font-semibold text-sm">{item.name}</p>
+                  <p className="font-semibold text-sm">{getMenuDisplayName(item)}</p>
+                  {shouldShowMenuBillName(item) ? (
+                    <p className="text-[10px] text-gray-500">{item.name}</p>
+                  ) : null}
                   {item.description ? (
                     <p className="text-xs text-gray-600 mt-1">
                       {item.description}

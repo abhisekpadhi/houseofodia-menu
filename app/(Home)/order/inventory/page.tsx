@@ -1,12 +1,13 @@
 "use client";
 
 import { OrderOpsSyncIndicator } from "@/components/feature/order/order-ops-sync-indicator";
+import { OpsMenuButton } from "@/components/feature/layout/ops-drawer";
 import {
 	ConfirmModalActions,
 	LoadingSpinner,
 	TouchActionButton,
 } from "@/components/ui/touch-controls";
-import { TMenu, TMenuApiItem } from "@/src/models/common";
+import { TMenuApiItem } from "@/src/models/common";
 import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
 import {
 	getInventoryForDate,
@@ -24,6 +25,12 @@ import {
 	type InventoryShortcutId,
 	shortcutConfirmMessage,
 } from "@/src/utils/inventory_shortcuts";
+import {
+	buildMenuFromApiItems,
+	getMenuDisplayName,
+	menuItemMatchesSearch,
+	shouldShowMenuBillName,
+} from "@/src/utils/menu_utils";
 import axios from "axios";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -31,6 +38,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 type MenuRow = {
 	category: string;
 	name: string;
+	internal_name?: string;
 };
 
 function InventoryIcon({ className }: { className?: string }) {
@@ -123,29 +131,18 @@ export default function InventoryPage() {
 			]);
 
 			const rows: MenuRow[] = [];
-			const menu: TMenu = {};
-			menuResponse.data.forEach((item) => {
-				if (item.status.toLowerCase() !== "on") {
-					return;
-				}
-				if (!menu[item.category]) {
-					menu[item.category] = [];
-				}
-				menu[item.category].push({
-					status: item.status,
-					name: item.name,
-					description: item.description,
-					price: item.price,
-					is_veg: item.is_veg,
-				});
-			});
+			const menu = buildMenuFromApiItems(menuResponse.data);
 
 			Object.entries(menu).forEach(([category, items]) => {
 				items.forEach((item) => {
 					if (isInfiniteInventoryDish(item.name)) {
 						return;
 					}
-					rows.push({ category, name: item.name });
+					rows.push({
+						category,
+						name: item.name,
+						...(item.internal_name ? { internal_name: item.internal_name } : {}),
+					});
 				});
 			});
 
@@ -196,7 +193,7 @@ export default function InventoryPage() {
 		}
 		return menuRows.filter(
 			(row) =>
-				row.name.toLowerCase().includes(term) ||
+				menuItemMatchesSearch(row, term) ||
 				row.category.toLowerCase().includes(term)
 		);
 	}, [menuRows, searchTerm]);
@@ -307,16 +304,19 @@ export default function InventoryPage() {
 	return (
 		<div className="ops-app-screen">
 			<div className="ops-sticky-header bg-white border-b px-6 pb-4">
-				<div className="flex items-center justify-between mb-4">
-					<button
-						type="button"
-						onClick={() => router.push("/order")}
-						className="text-sm font-semibold text-gray-600 hover:text-black"
-					>
-						← Back
-					</button>
-					<h1 className="text-xl font-bold flex items-center gap-2">
-						<InventoryIcon className="w-5 h-5" />
+				<div className="flex items-center justify-between mb-4 gap-2">
+					<div className="flex items-center gap-2 min-w-0">
+						<OpsMenuButton />
+						<button
+							type="button"
+							onClick={() => router.push("/order")}
+							className="text-sm font-semibold text-gray-600 hover:text-black touch-manipulation"
+						>
+							← Back
+						</button>
+					</div>
+					<h1 className="text-xl font-bold flex items-center gap-2 truncate">
+						<InventoryIcon className="w-5 h-5 shrink-0" />
 						Inventory
 					</h1>
 					<OrderOpsSyncIndicator />
@@ -402,13 +402,20 @@ export default function InventoryPage() {
 													>
 														OOS
 													</button>
-													<p
-														className={`text-sm font-medium min-w-0 truncate ${
-															oos ? "text-gray-400" : ""
-														}`}
-													>
-														{row.name}
-													</p>
+													<div className="min-w-0">
+														<p
+															className={`text-sm font-medium truncate ${
+																oos ? "text-gray-400" : ""
+															}`}
+														>
+															{getMenuDisplayName(row)}
+														</p>
+														{shouldShowMenuBillName(row) ? (
+															<p className="text-[10px] text-gray-500 truncate">
+																{row.name}
+															</p>
+														) : null}
+													</div>
 												</div>
 												<div className="flex items-center gap-2 shrink-0">
 													<input

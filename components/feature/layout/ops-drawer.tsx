@@ -67,6 +67,8 @@ function CloseIcon({ className }: { className?: string }) {
 }
 
 const DRAWER_LINKS = [
+	{ href: '/order/inventory', label: 'Dish inventory' },
+	{ href: '/freeflow', label: 'Old bill' },
 	{ href: '/order/day-open', label: 'Day open' },
 	{ href: '/order/day-close', label: 'Day close' },
 	{ href: '/order/utensils', label: 'Utensils inventory' },

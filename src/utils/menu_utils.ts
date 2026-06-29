@@ -1,5 +1,33 @@
 import { TMenu, TMenuApiItem } from '@/src/models/common';
 
+export type MenuLabelItem = {
+	name: string;
+	internal_name?: string;
+	description?: string;
+};
+
+export function getMenuDisplayName(item: MenuLabelItem): string {
+	const internalName = item.internal_name?.trim();
+	return internalName || item.name;
+}
+
+export function shouldShowMenuBillName(item: MenuLabelItem): boolean {
+	const internalName = item.internal_name?.trim();
+	return Boolean(internalName && internalName !== item.name);
+}
+
+export function menuItemMatchesSearch(item: MenuLabelItem, term: string): boolean {
+	const normalizedTerm = term.trim().toLowerCase();
+	if (!normalizedTerm) {
+		return true;
+	}
+	return (
+		item.name.toLowerCase().includes(normalizedTerm) ||
+		(item.internal_name?.toLowerCase().includes(normalizedTerm) ?? false) ||
+		(item.description?.toLowerCase().includes(normalizedTerm) ?? false)
+	);
+}
+
 export function stringToColor(str: string): string {
 	let hash = 0;
 	for (let i = 0; i < str.length; i++) {
@@ -24,9 +52,11 @@ export function buildMenuFromApiItems(items: TMenuApiItem[]): TMenu {
 			result[item.category].push({
 				status: item.status,
 				name: item.name,
+				...(item.internal_name ? { internal_name: item.internal_name } : {}),
 				description: item.description,
 				price: item.price,
 				is_veg: item.is_veg,
+				...(item.sop ? { sop: item.sop } : {}),
 			});
 		}
 	});
@@ -50,6 +80,30 @@ export function buildDishCategoryMap(
 		map[item.name] = item.category;
 	});
 	return map;
+}
+
+export function buildDishInternalNameMap(
+	items: TMenuApiItem[]
+): Record<string, string> {
+	const map: Record<string, string> = {};
+	items.forEach((item) => {
+		const internalName = item.internal_name?.trim();
+		if (internalName) {
+			map[item.name] = internalName;
+		}
+	});
+	return map;
+}
+
+/** Kitchen-facing label for KOT; falls back to bill `name`. */
+export function getKotDisplayName(
+	billName: string,
+	internalNameByBillName?: Record<string, string>
+): string {
+	return getMenuDisplayName({
+		name: billName,
+		internal_name: internalNameByBillName?.[billName],
+	});
 }
 
 export function mapCategoryToKitchenGroup(
