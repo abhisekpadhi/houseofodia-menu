@@ -69,6 +69,7 @@ function CloseIcon({ className }: { className?: string }) {
 const DRAWER_LINKS = [
 	{ href: '/order/inventory', label: 'Dish inventory' },
 	{ href: '/freeflow', label: 'Old bill' },
+	{ href: '/order/history', label: "Today's order history" },
 	{ href: '/order/day-open', label: 'Day open' },
 	{ href: '/order/day-close', label: 'Day close' },
 	{ href: '/order/utensils', label: 'Utensils inventory' },
@@ -177,7 +178,7 @@ export function OpsMenuButton({
 		<button
 			type="button"
 			onClick={context.openDrawer}
-			className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300 touch-manipulation shrink-0 ${className}`}
+			className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white text-gray-700 hover:bg-gray-50 border border-gray-200/80 shadow-md touch-manipulation shrink-0 ${className}`}
 			aria-label="Open menu"
 		>
 			<MenuIcon className="w-5 h-5" />

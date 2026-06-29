@@ -72,7 +72,6 @@ import {
 	ConfirmModalActions,
 	LoadingSpinner,
 	TouchActionButton,
-	TouchCheckbox,
 	TouchIconButton,
 } from "@/components/ui/touch-controls";
 import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
@@ -80,7 +79,7 @@ import axios from "axios";
 import localforage from "localforage";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 const ORDERS_KEY = "orders";
 
@@ -154,9 +153,9 @@ function TableFilterBar({
 	onClear: () => void;
 }) {
 	return (
-		<div className="flex items-center gap-2 mt-3">
-			<div className="min-w-0 flex-1 overflow-x-auto pb-1">
-				<div className="flex gap-2 w-max">
+		<div className="flex items-center gap-1.5">
+			<div className="min-w-0 flex-1 overflow-x-auto">
+				<div className="flex gap-1 w-max">
 					{Array.from({ length: TABLE_COUNT }, (_, index) => index + 1).map(
 						(tableNumber) => {
 							const isSelected = selectedTables.includes(tableNumber);
@@ -166,7 +165,7 @@ function TableFilterBar({
 									type="button"
 									onClick={() => onToggleTable(tableNumber)}
 									aria-pressed={isSelected}
-									className={`shrink-0 min-w-[2.5rem] min-h-[2.5rem] rounded-lg border px-3 py-2 text-sm font-semibold touch-manipulation transition-colors ${
+									className={`shrink-0 h-7 min-w-[1.75rem] rounded-md border px-1.5 text-xs font-semibold touch-manipulation transition-colors ${
 										isSelected
 											? "border-green-600 bg-green-500 text-white"
 											: "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
@@ -183,7 +182,7 @@ function TableFilterBar({
 				<button
 					type="button"
 					onClick={onClear}
-					className="shrink-0 flex h-10 w-10 items-center justify-center rounded-full text-red-600 hover:bg-red-50 active:bg-red-100 touch-manipulation"
+					className="shrink-0 flex h-7 w-7 items-center justify-center rounded-full text-red-600 hover:bg-red-50 active:bg-red-100 touch-manipulation"
 					aria-label="Clear table filter"
 				>
 					<svg
@@ -193,13 +192,182 @@ function TableFilterBar({
 						stroke="currentColor"
 						strokeWidth="2.5"
 						strokeLinecap="round"
-						className="h-5 w-5"
+						className="h-4 w-4"
 						aria-hidden
 					>
 						<path d="M18 6L6 18M6 6l12 12" />
 					</svg>
 				</button>
 			) : null}
+		</div>
+	);
+}
+
+function FilterIcon({ className }: { className?: string }) {
+	return (
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			className={className}
+			aria-hidden
+		>
+			<path d="M4 6h16" />
+			<path d="M6 12h12" />
+			<path d="M10 18h4" />
+		</svg>
+	);
+}
+
+function OrderViewFiltersSheet({
+	activeTab,
+	onActiveTabChange,
+	tableOrdersView,
+	onTableOrdersViewChange,
+	itemsAggregatesView,
+	onItemsAggregatesViewChange,
+	selectedTables,
+	onToggleTable,
+	onClearTables,
+	onClose,
+}: {
+	activeTab: TabId;
+	onActiveTabChange: (tab: TabId) => void;
+	tableOrdersView: TableOrdersView;
+	onTableOrdersViewChange: (view: TableOrdersView) => void;
+	itemsAggregatesView: boolean;
+	onItemsAggregatesViewChange: (aggregates: boolean) => void;
+	selectedTables: number[];
+	onToggleTable: (tableNumber: number) => void;
+	onClearTables: () => void;
+	onClose: () => void;
+}) {
+	return (
+		<div
+			className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-0"
+			onClick={onClose}
+		>
+			<div
+				className="w-full max-w-md rounded-t-xl bg-white shadow-xl max-h-[85vh] flex flex-col pb-[env(safe-area-inset-bottom)]"
+				onClick={(event) => event.stopPropagation()}
+			>
+				<div className="px-5 py-4 border-b">
+					<div className="flex items-center justify-between gap-3">
+						<h2 className="text-lg font-bold">View filters</h2>
+						<button
+							type="button"
+							onClick={onClose}
+							className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-green-500 text-white hover:bg-green-600 active:bg-green-700 touch-manipulation shrink-0"
+							aria-label="Apply filters"
+						>
+							<CheckIcon checked className="w-5 h-5" />
+						</button>
+					</div>
+				</div>
+				<div className="overflow-y-auto flex-1 px-5 py-4 space-y-5">
+					<div>
+						<p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
+							View
+						</p>
+						<div className="flex gap-2">
+							<button
+								type="button"
+								onClick={() => onActiveTabChange("tables")}
+								className={`flex-1 min-h-[40px] px-2 py-1.5 rounded-lg text-sm font-semibold touch-manipulation transition-colors ${
+									activeTab === "tables"
+										? "bg-black text-white"
+										: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
+								}`}
+							>
+								Table orders
+							</button>
+							<button
+								type="button"
+								onClick={() => onActiveTabChange("items")}
+								className={`flex-1 min-h-[40px] px-2 py-1.5 rounded-lg text-sm font-semibold touch-manipulation transition-colors ${
+									activeTab === "items"
+										? "bg-black text-white"
+										: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
+								}`}
+							>
+								By item
+							</button>
+						</div>
+					</div>
+					<div>
+						<p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
+							{activeTab === "tables" ? "Table orders layout" : "By item layout"}
+						</p>
+						<div className="flex gap-2">
+							{activeTab === "tables" ? (
+								<>
+									<button
+										type="button"
+										onClick={() => onTableOrdersViewChange("groups")}
+										className={`flex-1 min-h-[40px] px-2 py-1.5 rounded-lg text-sm font-semibold touch-manipulation transition-colors ${
+											tableOrdersView === "groups"
+												? "bg-gray-800 text-white"
+												: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
+										}`}
+									>
+										By table
+									</button>
+									<button
+										type="button"
+										onClick={() => onTableOrdersViewChange("orders")}
+										className={`flex-1 min-h-[40px] px-2 py-1.5 rounded-lg text-sm font-semibold touch-manipulation transition-colors ${
+											tableOrdersView === "orders"
+												? "bg-gray-800 text-white"
+												: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
+										}`}
+									>
+										All orders
+									</button>
+								</>
+							) : (
+								<>
+									<button
+										type="button"
+										onClick={() => onItemsAggregatesViewChange(false)}
+										className={`flex-1 min-h-[40px] px-2 py-1.5 rounded-lg text-sm font-semibold touch-manipulation transition-colors ${
+											!itemsAggregatesView
+												? "bg-gray-800 text-white"
+												: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
+										}`}
+									>
+										Each item
+									</button>
+									<button
+										type="button"
+										onClick={() => onItemsAggregatesViewChange(true)}
+										className={`flex-1 min-h-[40px] px-2 py-1.5 rounded-lg text-sm font-semibold touch-manipulation transition-colors ${
+											itemsAggregatesView
+												? "bg-gray-800 text-white"
+												: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
+										}`}
+									>
+										Aggregates
+									</button>
+								</>
+							)}
+						</div>
+					</div>
+					<div>
+						<p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
+							Filter by table
+						</p>
+						<TableFilterBar
+							selectedTables={selectedTables}
+							onToggleTable={onToggleTable}
+							onClear={onClearTables}
+						/>
+					</div>
+				</div>
+			</div>
 		</div>
 	);
 }
@@ -219,27 +387,6 @@ function PlusIcon({ className }: { className?: string }) {
 		>
 			<path d="M5 12h14" />
 			<path d="M12 5v14" />
-		</svg>
-	);
-}
-
-function NoteIcon({ className }: { className?: string }) {
-	return (
-		<svg
-			xmlns="http://www.w3.org/2000/svg"
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			strokeWidth="2"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			className={className}
-			aria-hidden
-		>
-			<path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z" />
-			<path d="M15 3v4a2 2 0 0 0 2 2h4" />
-			<path d="M8 13h6" />
-			<path d="M8 17h4" />
 		</svg>
 	);
 }
@@ -297,6 +444,219 @@ function QtyBadge({ qty }: { qty: number }) {
 		<span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-black text-white text-[10px] font-bold leading-none shrink-0">
 			{qty}
 		</span>
+	);
+}
+
+function MoreVerticalIcon({ className }: { className?: string }) {
+	return (
+		<svg
+			xmlns="http://www.w3.org/2000/svg"
+			viewBox="0 0 24 24"
+			fill="currentColor"
+			className={className}
+			aria-hidden
+		>
+			<circle cx="12" cy="5" r="1.75" />
+			<circle cx="12" cy="12" r="1.75" />
+			<circle cx="12" cy="19" r="1.75" />
+		</svg>
+	);
+}
+
+function TableStatusDot({
+	label,
+	children,
+	done = true,
+}: {
+	label: string;
+	children: ReactNode;
+	done?: boolean;
+}) {
+	return (
+		<span
+			className={`inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full border px-1 text-[10px] font-bold leading-none shadow-md ${
+				done
+					? "bg-green-100 border-green-600 text-green-800"
+					: "bg-amber-50 border-amber-400 text-amber-900"
+			}`}
+			title={label}
+			aria-label={label}
+		>
+			{children}
+		</span>
+	);
+}
+
+function TableNamePopover({
+	label,
+	onClose,
+}: {
+	label: string;
+	onClose: () => void;
+}) {
+	return (
+		<div
+			className="fixed inset-0 z-[55] flex items-center justify-center bg-black/40 px-6"
+			onClick={onClose}
+		>
+			<div
+				className="w-full max-w-sm rounded-xl bg-white px-5 py-4 shadow-xl text-center"
+				onClick={(event) => event.stopPropagation()}
+			>
+				<p className="text-lg font-bold text-gray-900 break-words">{label}</p>
+				<button
+					type="button"
+					onClick={onClose}
+					className="mt-4 min-h-[40px] w-full rounded-lg bg-gray-100 text-sm font-semibold text-gray-800 touch-manipulation active:bg-gray-200"
+				>
+					Close
+				</button>
+			</div>
+		</div>
+	);
+}
+
+function TableGroupMoreSheet({
+	group,
+	hasOrdersInGroup,
+	groupPax,
+	groupNotes,
+	showTableService,
+	drinkServed,
+	compServed,
+	kidEnabled,
+	kidServed,
+	billingPending,
+	changeTablePending,
+	drinkPending,
+	compPending,
+	kidPending,
+	notesPending,
+	onBill,
+	onChangeTable,
+	onEditNotes,
+	onRequestWelcomeDrink,
+	onRequestComplementary,
+	onRequestKidMenu,
+	onClose,
+}: {
+	group: OrderGroup;
+	hasOrdersInGroup: boolean;
+	groupPax: number | null;
+	groupNotes: string | null;
+	showTableService: boolean;
+	drinkServed: boolean;
+	compServed: boolean;
+	kidEnabled: boolean;
+	kidServed: boolean;
+	billingPending: boolean;
+	changeTablePending: boolean;
+	drinkPending: boolean;
+	compPending: boolean;
+	kidPending: boolean;
+	notesPending: boolean;
+	onBill: (group: OrderGroup) => void;
+	onChangeTable: (group: OrderGroup) => void;
+	onEditNotes: (group: OrderGroup) => void;
+	onRequestWelcomeDrink: (group: OrderGroup) => void;
+	onRequestComplementary: (group: OrderGroup) => void;
+	onRequestKidMenu: (group: OrderGroup) => void;
+	onClose: () => void;
+}) {
+	return (
+		<div
+			className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-0"
+			onClick={onClose}
+		>
+			<div
+				className="w-full max-w-md rounded-t-xl bg-white shadow-xl max-h-[85vh] flex flex-col pb-[env(safe-area-inset-bottom)]"
+				onClick={(event) => event.stopPropagation()}
+			>
+				<div className="px-5 py-4 border-b">
+					<div className="flex items-center justify-between gap-3">
+						<h2 className="text-lg font-bold truncate">{group.label}</h2>
+						<button
+							type="button"
+							onClick={onClose}
+							className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-green-500 text-white hover:bg-green-600 active:bg-green-700 touch-manipulation shrink-0"
+							aria-label="Close"
+						>
+							<CheckIcon checked className="w-5 h-5" />
+						</button>
+					</div>
+				</div>
+				<div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
+					<TouchActionButton
+						onClick={() => {
+							onClose();
+							onBill(group);
+						}}
+						loading={billingPending}
+						disabled={!hasOrdersInGroup || billingPending}
+						className="w-full rounded-xl bg-green-500 border border-green-600 text-white active:bg-green-600 disabled:opacity-40 min-h-[44px]"
+					>
+						₹ Bill
+					</TouchActionButton>
+					{group.kind === "table" ? (
+						<TouchActionButton
+							onClick={() => {
+								onClose();
+								onChangeTable(group);
+							}}
+							loading={changeTablePending}
+							disabled={!hasOrdersInGroup || changeTablePending}
+							className="w-full rounded-xl bg-white border border-gray-300 text-gray-700 active:bg-gray-100 disabled:opacity-40 min-h-[44px]"
+						>
+							Change table
+						</TouchActionButton>
+					) : null}
+					<button
+						type="button"
+						onClick={() => {
+							onClose();
+							onEditNotes(group);
+						}}
+						disabled={notesPending}
+						className={`w-full min-h-[44px] rounded-xl border text-sm font-semibold touch-manipulation disabled:opacity-50 ${
+							groupNotes
+								? "border-green-600 bg-green-50 text-green-800"
+								: "border-gray-300 bg-white text-gray-700 active:bg-gray-100"
+						}`}
+					>
+						{notesPending ? "Saving notes…" : groupNotes ? "Edit notes" : "Add notes"}
+					</button>
+					{groupPax != null ? (
+						<div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-800">
+							{groupPax} pax
+						</div>
+					) : null}
+					{showTableService ? (
+						<div className="flex flex-wrap gap-2 pt-1">
+							<TableServicePill
+								label="🥤 Drink"
+								checked={drinkServed}
+								loading={drinkPending}
+								onClick={() => onRequestWelcomeDrink(group)}
+							/>
+							<TableServicePill
+								label="🫓 Complementary"
+								checked={compServed}
+								loading={compPending}
+								onClick={() => onRequestComplementary(group)}
+							/>
+							{kidEnabled ? (
+								<TableServicePill
+									label="👶 Kid"
+									checked={kidServed}
+									loading={kidPending}
+									onClick={() => onRequestKidMenu(group)}
+								/>
+							) : null}
+						</div>
+					) : null}
+				</div>
+			</div>
+		</div>
 	);
 }
 
@@ -370,48 +730,76 @@ function OrderRow({
 		<div
 			className={`relative border rounded-lg px-3 py-2 bg-gray-50 ${
 				markedDone ? "border-green-200 bg-green-50/40" : "border-gray-100"
-			} ${editable ? "pr-12" : ""}`}
+			}`}
 		>
-			{editable && (
-				<TouchIconButton
-					onClick={() => onEdit(order)}
-					ariaLabel={`Edit order from ${formatOrderTime(order.createdAt)}`}
-					className="absolute top-1 right-1 bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
-				>
-					<PencilIcon className="w-4 h-4" />
-				</TouchIconButton>
-			)}
-			<TouchCheckbox
-				checked={markedDone}
-				disabled={!canMarkDone}
-				label={
-					markedDone
-						? "Done"
-						: kitchenReady
-							? "Mark done"
-							: "Mark done (items pending)"
-				}
-				hint={
-					!markedDone && !kitchenReady
-						? "Mark each item ready or cancelled on the By item tab, or cancel from here"
-						: undefined
-				}
-				onPress={() => {
-					if (canMarkDone) {
-						onRequestMarkDone(order);
-					}
-				}}
-			/>
-			<div className="mb-2 flex items-center gap-2 flex-wrap">
-				<TouchActionButton
+			<div className="mb-2 flex items-center gap-2">
+				<button
+					type="button"
 					onClick={() => onKotPrint(order)}
-					className="rounded-full bg-yellow-100 border border-yellow-400 text-yellow-900 active:bg-yellow-200 min-w-[56px] shrink-0"
+					className="inline-flex h-9 min-w-[2.25rem] shrink-0 items-center justify-center rounded-full border border-yellow-400 bg-yellow-100 px-3 text-xs font-semibold text-yellow-900 touch-manipulation active:bg-yellow-200"
 				>
 					KOT
-				</TouchActionButton>
-				<span className="text-xs font-semibold text-gray-700">
+				</button>
+				<button
+					type="button"
+					role="checkbox"
+					aria-checked={markedDone}
+					disabled={!canMarkDone && !markedDone}
+					title={
+						!markedDone && !kitchenReady
+							? "Mark each item ready or cancelled on the By item tab, or cancel from here"
+							: undefined
+					}
+					onClick={() => {
+						if (canMarkDone) {
+							onRequestMarkDone(order);
+						}
+					}}
+					className={`inline-flex min-h-[36px] items-center gap-1.5 rounded-full border px-2.5 text-xs font-semibold touch-manipulation shrink-0 transition-colors ${
+						!canMarkDone && !markedDone
+							? "cursor-not-allowed opacity-50 border-gray-200 bg-white text-gray-400"
+							: markedDone
+								? "border-green-600 bg-green-100 text-green-800"
+								: "border-gray-300 bg-white text-gray-700 active:bg-gray-100"
+					}`}
+				>
+					<span
+						className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+							markedDone
+								? "border-green-600 bg-green-600 text-white"
+								: "border-gray-300 bg-white"
+						}`}
+					>
+						{markedDone ? (
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="3"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								className="h-2.5 w-2.5"
+								aria-hidden
+							>
+								<path d="M20 6 9 17l-5-5" />
+							</svg>
+						) : null}
+					</span>
+					Done
+				</button>
+				<span className="text-xs font-semibold text-gray-600 truncate min-w-0 flex-1">
 					{formatOrderTime(order.createdAt)}
 				</span>
+				{editable ? (
+					<TouchIconButton
+						onClick={() => onEdit(order)}
+						ariaLabel={`Edit order from ${formatOrderTime(order.createdAt)}`}
+						className="bg-white text-gray-600 hover:bg-gray-100 border border-gray-200 shrink-0 -mr-1"
+					>
+						<PencilIcon className="w-4 h-4" />
+					</TouchIconButton>
+				) : null}
 			</div>
 			{order.notes?.trim() ? (
 				<p className="text-xs text-gray-500 mb-1.5 italic">
@@ -731,19 +1119,61 @@ function TableOrderCard({
 	const groupPax = getGroupPax(group);
 	const notesPending = isActionPending(`notes:${group.key}`);
 	const changeTablePending = isActionPending(`move-table:${group.key}`);
+	const [moreOpen, setMoreOpen] = useState(false);
+	const [namePopoverOpen, setNamePopoverOpen] = useState(false);
+
+	const statusDots: ReactNode[] = [];
+	if (drinkServed) {
+		statusDots.push(
+			<TableStatusDot key="drink" label="Welcome drink served">
+				🥤
+			</TableStatusDot>
+		);
+	}
+	if (compServed) {
+		statusDots.push(
+			<TableStatusDot key="comp" label="Complementary served">
+				🫓
+			</TableStatusDot>
+		);
+	}
+	if (groupPax != null) {
+		statusDots.push(
+			<TableStatusDot key="pax" label={`${groupPax} pax`} done={false}>
+				{groupPax}
+			</TableStatusDot>
+		);
+	}
+	if (kidEnabled) {
+		statusDots.push(
+			<TableStatusDot
+				key="kid"
+				label={kidServed ? "Kid menu served" : "Kid menu"}
+				done={kidServed}
+			>
+				👶
+			</TableStatusDot>
+		);
+	}
 
 	return (
-		<div
-			className={`rounded-xl shadow-md overflow-hidden ${
-				isLate
-					? "border-2 border-red-500 bg-red-50"
-					: allDone
-						? "border-2 border-green-500 bg-green-50"
-						: "border bg-white text-card-foreground"
-			}`}
-		>
+		<div className="relative">
+			{statusDots.length > 0 ? (
+				<div className="absolute -top-2 -right-2 z-0 flex flex-wrap justify-end gap-1 max-w-[60%] pointer-events-none">
+					{statusDots}
+				</div>
+			) : null}
+			<div
+				className={`rounded-xl shadow-md overflow-hidden ${
+					isLate
+						? "border-2 border-red-500 bg-red-50"
+						: allDone
+							? "border-2 border-green-500 bg-green-50"
+							: "border bg-white text-card-foreground"
+				}`}
+			>
 			{isLate ? (
-				<div className="flex justify-center border-b border-red-200 bg-red-50 px-3 py-2">
+				<div className="flex justify-center border-b border-red-200 bg-red-50 px-3 py-1.5">
 					<span
 						className="inline-flex items-center rounded-full bg-red-600 px-3 py-0.5 text-xs font-bold text-white shadow-sm whitespace-nowrap"
 						aria-label={`Late by ${formatLateDuration(lateByMs)}`}
@@ -752,62 +1182,34 @@ function TableOrderCard({
 					</span>
 				</div>
 			) : null}
-			<div className="flex flex-col space-y-1.5 p-6 pb-3">
-				<div className="flex items-center justify-between gap-2">
-					<div className="flex items-center gap-2 min-w-0">
-						<TouchActionButton
-							onClick={() => onBill(group)}
-							loading={billingPending}
-							disabled={!hasOrdersInGroup || billingPending}
-							className="rounded-full bg-green-500 border border-green-600 text-white active:bg-green-600 shrink-0 min-w-[72px] disabled:opacity-40"
-						>
-							₹ Bill
-						</TouchActionButton>
-					</div>
-					<div className="flex items-center gap-2 shrink-0">
+			<div className="flex flex-col space-y-1 p-4 pb-2">
+				<div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+					<button
+						type="button"
+						onClick={() => setNamePopoverOpen(true)}
+						className="min-w-0 text-left touch-manipulation pt-1"
+						aria-label={`Show full name for ${group.label}`}
+					>
+						<h3 className="text-base font-semibold truncate">{group.label}</h3>
+					</button>
+					<div className="flex items-center gap-1 shrink-0 flex-nowrap">
 						<button
 							type="button"
-							onClick={() => onEditNotes(group)}
-							disabled={notesPending}
-							className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full touch-manipulation transition-colors disabled:opacity-50 ${
-								groupNotes
-									? "bg-green-500 text-white hover:bg-green-600 active:bg-green-700"
-									: "bg-gray-100 text-gray-700 hover:bg-gray-200 active:bg-gray-300"
-							}`}
-							aria-label={groupNotes ? "Edit table notes" : "Add table notes"}
+							onClick={() => setMoreOpen(true)}
+							className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300 touch-manipulation"
+							aria-label={`More actions for ${group.label}`}
 						>
-							{notesPending ? (
-								<LoadingSpinner
-									className={`h-4 w-4 shrink-0 ${groupNotes ? "text-white" : "text-gray-600"}`}
-								/>
-							) : (
-								<NoteIcon className="w-4 h-4 shrink-0" />
-							)}
+							<MoreVerticalIcon className="w-5 h-5" />
 						</button>
 						<Link
 							href={addOrderHref}
-							className="inline-flex min-h-[44px] items-center gap-1 rounded-full bg-green-100 text-green-700 hover:bg-green-200 touch-manipulation px-3 shrink-0"
+							className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center rounded-full bg-green-100 text-green-700 hover:bg-green-200 border border-green-300 touch-manipulation"
 							aria-label={`Add order to ${group.label}`}
 						>
-							<PlusIcon className="w-4 h-4 shrink-0" />
-							<span className="text-xs font-semibold">add order</span>
+							<PlusIcon className="w-5 h-5 shrink-0" />
 						</Link>
 					</div>
 				</div>
-				{group.kind === "table" ? (
-					<TouchActionButton
-						onClick={() => onChangeTable(group)}
-						loading={changeTablePending}
-						disabled={!hasOrdersInGroup || changeTablePending}
-						className="self-start rounded-full bg-white border border-gray-300 text-gray-700 active:bg-gray-100 shrink-0 min-w-[72px] px-4 disabled:opacity-40"
-					>
-						Change table
-					</TouchActionButton>
-				) : null}
-				<h3 className="text-lg font-semibold">{group.label}</h3>
-				{groupPax != null ? (
-					<p className="text-sm font-medium text-gray-700">{groupPax} pax</p>
-				) : null}
 				{hasGroupCustomer ? (
 					<div className="flex items-center gap-2 flex-wrap text-sm font-medium text-gray-700">
 						{groupCustomer.name ? <span>{groupCustomer.name}</span> : null}
@@ -819,10 +1221,10 @@ function TableOrderCard({
 								<span>{groupCustomer.phone}</span>
 								<a
 									href={`tel:${groupCustomer.phone}`}
-									className="inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-full bg-green-100 text-green-700 hover:bg-green-200 active:bg-green-300 touch-manipulation"
+									className="inline-flex min-h-[32px] min-w-[32px] items-center justify-center rounded-full bg-green-100 text-green-700 hover:bg-green-200 active:bg-green-300 touch-manipulation"
 									aria-label={`Call ${groupCustomer.phone}`}
 								>
-									<PhoneIcon className="w-4 h-4 shrink-0" />
+									<PhoneIcon className="w-3.5 h-3.5 shrink-0" />
 								</a>
 							</span>
 						) : null}
@@ -834,35 +1236,11 @@ function TableOrderCard({
 						{groupNotes}
 					</p>
 				) : null}
-				{showTableService ? (
-					<div className="flex items-center gap-2 flex-wrap pt-1">
-						<TableServicePill
-							label="🥤 Drink"
-							checked={drinkServed}
-							loading={drinkPending}
-							onClick={() => onRequestWelcomeDrink(group)}
-						/>
-						<TableServicePill
-							label="🫓 Complementary"
-							checked={compServed}
-							loading={compPending}
-							onClick={() => onRequestComplementary(group)}
-						/>
-						{kidEnabled ? (
-							<TableServicePill
-								label="👶 Kid"
-								checked={kidServed}
-								loading={kidPending}
-								onClick={() => onRequestKidMenu(group)}
-							/>
-						) : null}
-					</div>
-				) : null}
 				<p className="text-xs text-gray-500">
 					{group.orders.length} order{group.orders.length === 1 ? "" : "s"}
 				</p>
 			</div>
-			<div className="p-6 pt-0 space-y-2">
+			<div className="px-4 pb-4 pt-0 space-y-2">
 				{group.orders.map((order) => (
 					<OrderRow
 						key={order.id}
@@ -875,6 +1253,39 @@ function TableOrderCard({
 					/>
 				))}
 			</div>
+			</div>
+			{namePopoverOpen ? (
+				<TableNamePopover
+					label={group.label}
+					onClose={() => setNamePopoverOpen(false)}
+				/>
+			) : null}
+			{moreOpen ? (
+				<TableGroupMoreSheet
+					group={group}
+					hasOrdersInGroup={hasOrdersInGroup}
+					groupPax={groupPax}
+					groupNotes={groupNotes}
+					showTableService={showTableService}
+					drinkServed={drinkServed}
+					compServed={compServed}
+					kidEnabled={kidEnabled}
+					kidServed={kidServed}
+					billingPending={billingPending}
+					changeTablePending={changeTablePending}
+					drinkPending={drinkPending}
+					compPending={compPending}
+					kidPending={kidPending}
+					notesPending={notesPending}
+					onBill={onBill}
+					onChangeTable={onChangeTable}
+					onEditNotes={onEditNotes}
+					onRequestWelcomeDrink={onRequestWelcomeDrink}
+					onRequestComplementary={onRequestComplementary}
+					onRequestKidMenu={onRequestKidMenu}
+					onClose={() => setMoreOpen(false)}
+				/>
+			) : null}
 		</div>
 	);
 }
@@ -1458,6 +1869,7 @@ export default function OrderPage() {
 	const [tableOrdersView, setTableOrdersView] = useState<TableOrdersView>("groups");
 	const [selectedTableFilters, setSelectedTableFilters] = useState<number[]>([]);
 	const [itemsAggregatesView, setItemsAggregatesView] = useState(false);
+	const [viewFiltersOpen, setViewFiltersOpen] = useState(false);
 	const [readyModalOpen, setReadyModalOpen] = useState(false);
 	const [editingOrder, setEditingOrder] = useState<TOrder | null>(null);
 	const [pendingMarkDone, setPendingMarkDone] = useState<TOrder | null>(null);
@@ -2030,129 +2442,80 @@ export default function OrderPage() {
 	const hasFilteredChronologicalOrders = chronologicalOrders.length > 0;
 	const hasFilteredItems = filteredItemGroups.length > 0;
 
+	const hasActiveViewFilters = useMemo(() => {
+		if (selectedTableFilters.length > 0) {
+			return true;
+		}
+		if (activeTab !== "tables") {
+			return true;
+		}
+		if (tableOrdersView !== "groups") {
+			return true;
+		}
+		return itemsAggregatesView;
+	}, [
+		selectedTableFilters,
+		activeTab,
+		tableOrdersView,
+		itemsAggregatesView,
+	]);
+
+	const viewFilterSummary = useMemo(() => {
+		const parts: string[] = [];
+		if (activeTab === "tables") {
+			parts.push(tableOrdersView === "groups" ? "By table" : "All orders");
+		} else {
+			parts.push(itemsAggregatesView ? "Aggregates" : "Each item");
+		}
+		if (selectedTableFilters.length > 0) {
+			parts.push(
+				selectedTableFilters.length === 1
+					? `Table ${selectedTableFilters[0]}`
+					: `${selectedTableFilters.length} tables`
+			);
+		}
+		return parts.join(" · ");
+	}, [
+		activeTab,
+		tableOrdersView,
+		itemsAggregatesView,
+		selectedTableFilters,
+	]);
+
 	return (
 		<div className="ops-app-screen">
-			<div className="ops-sticky-header bg-white border-b px-6 pb-4">
-				<div className="flex items-start justify-between gap-3">
-					<div className="min-w-0 flex-1">
-						<div className="flex items-center justify-between gap-2">
-							<div className="flex items-center gap-2 min-w-0">
-								<OpsMenuButton />
-								<h1 className="text-xl font-bold truncate">Orders</h1>
-							</div>
-							<div className="flex items-center gap-2 shrink-0">
-								<OrderOpsSyncIndicator />
-								{readyOrders.length > 0 && (
-									<button
-										type="button"
-										onClick={() => setReadyModalOpen(true)}
-										className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-green-500 text-white text-sm font-bold hover:bg-green-600 touch-manipulation px-3"
-										aria-label={`${readyOrders.length} ready orders`}
-									>
-										{readyOrders.length}
-									</button>
-								)}
-							</div>
+			<div className="sticky top-0 z-20 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2 bg-transparent pointer-events-none">
+				<div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 pointer-events-auto">
+					<OpsMenuButton />
+					<div className="flex justify-center min-w-0 px-1">
+						<div className="rounded-full bg-white border border-gray-200/80 shadow-md px-4 py-2 min-h-[44px] max-w-full flex flex-col justify-center">
+							<h1 className="text-sm font-bold text-gray-900 truncate text-center">
+								Orders
+							</h1>
+							{hasActiveViewFilters ? (
+								<p className="text-[10px] text-gray-500 truncate text-center leading-tight mt-0.5">
+									{viewFilterSummary}
+								</p>
+							) : null}
 						</div>
-						<p className="text-sm text-gray-500 mt-1">
-							{activeTab === "tables"
-								? tableOrdersView === "groups"
-									? "Grouped by table · active first, all-done at bottom"
-									: "All orders · oldest first"
-								: itemsAggregatesView
-									? "Grouped by kitchen section · totals per dish"
-									: "Grouped by kitchen section · FCFS fulfillment"}
-						</p>
+					</div>
+					<div className="flex items-center gap-2 shrink-0 justify-end">
+						<OrderOpsSyncIndicator />
+						{readyOrders.length > 0 && (
+							<button
+								type="button"
+								onClick={() => setReadyModalOpen(true)}
+								className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-green-500 text-white text-xs font-bold hover:bg-green-600 touch-manipulation px-2.5 shadow-md border border-green-600"
+								aria-label={`${readyOrders.length} ready orders`}
+							>
+								{readyOrders.length}
+							</button>
+						)}
 					</div>
 				</div>
-
-				<div className="flex gap-2 mt-4">
-					<button
-						type="button"
-						onClick={() => setActiveTab("tables")}
-						className={`flex-1 min-h-[44px] py-2 rounded-lg text-sm font-semibold touch-manipulation transition-colors ${
-							activeTab === "tables"
-								? "bg-black text-white"
-								: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
-						}`}
-					>
-						Table orders
-					</button>
-					<button
-						type="button"
-						onClick={() => setActiveTab("items")}
-						className={`flex-1 min-h-[44px] py-2 rounded-lg text-sm font-semibold touch-manipulation transition-colors ${
-							activeTab === "items"
-								? "bg-black text-white"
-								: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
-						}`}
-					>
-						By item
-					</button>
-				</div>
-
-				<TableFilterBar
-					selectedTables={selectedTableFilters}
-					onToggleTable={toggleTableFilter}
-					onClear={clearTableFilters}
-				/>
-
-				{activeTab === "tables" ? (
-					<div className="flex gap-2 mt-3">
-						<button
-							type="button"
-							onClick={() => setTableOrdersView("groups")}
-							className={`flex-1 min-h-[40px] py-2 rounded-lg text-xs font-semibold touch-manipulation transition-colors ${
-								tableOrdersView === "groups"
-									? "bg-gray-800 text-white"
-									: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
-							}`}
-						>
-							By table
-						</button>
-						<button
-							type="button"
-							onClick={() => setTableOrdersView("orders")}
-							className={`flex-1 min-h-[40px] py-2 rounded-lg text-xs font-semibold touch-manipulation transition-colors ${
-								tableOrdersView === "orders"
-									? "bg-gray-800 text-white"
-									: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
-							}`}
-						>
-							All orders
-						</button>
-					</div>
-				) : null}
-
-				{activeTab === "items" ? (
-					<div className="flex gap-2 mt-3">
-						<button
-							type="button"
-							onClick={() => setItemsAggregatesView(false)}
-							className={`flex-1 min-h-[40px] py-2 rounded-lg text-xs font-semibold touch-manipulation transition-colors ${
-								!itemsAggregatesView
-									? "bg-gray-800 text-white"
-									: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
-							}`}
-						>
-							Each item
-						</button>
-						<button
-							type="button"
-							onClick={() => setItemsAggregatesView(true)}
-							className={`flex-1 min-h-[40px] py-2 rounded-lg text-xs font-semibold touch-manipulation transition-colors ${
-								itemsAggregatesView
-									? "bg-gray-800 text-white"
-									: "bg-gray-100 text-gray-700 active:bg-gray-200 border border-gray-300"
-							}`}
-						>
-							Aggregates
-						</button>
-					</div>
-				) : null}
 			</div>
 
-			<div className="p-6 space-y-4">
+			<div className="px-6 pb-6 pt-1 space-y-4">
 				{loading && !hasOrders ? (
 					<div className="flex flex-col items-center justify-center py-12 gap-3 text-gray-400 text-sm">
 						<LoadingSpinner className="h-6 w-6 text-gray-500" />
@@ -2229,14 +2592,6 @@ export default function OrderPage() {
 								/>
 							))
 						)}
-						<div className="flex justify-center pt-2 pb-2">
-							<Link
-								href="/order/history"
-								className="inline-flex min-h-[44px] items-center justify-center px-5 rounded-lg text-xs font-semibold touch-manipulation transition-colors bg-white border border-gray-300 text-gray-700 active:bg-gray-100"
-							>
-								Today&apos;s order history
-							</Link>
-						</div>
 					</>
 				) : !hasFilteredItems ? (
 					<div className="text-center py-16 text-gray-500 text-sm">
@@ -2258,6 +2613,20 @@ export default function OrderPage() {
 				)}
 			</div>
 
+			<div className="fixed left-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] z-20">
+				<button
+					type="button"
+					onClick={() => setViewFiltersOpen(true)}
+					className="relative inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-gray-900 text-white shadow-lg hover:bg-gray-800 touch-manipulation"
+					aria-label="View filters"
+				>
+					<FilterIcon className="w-5 h-5 shrink-0" />
+					{hasActiveViewFilters ? (
+						<span className="absolute top-0 right-0 h-3 w-3 rounded-full bg-green-500 border-2 border-white" />
+					) : null}
+				</button>
+			</div>
+
 			<button
 				type="button"
 				onClick={() => router.push("/order/new")}
@@ -2267,6 +2636,21 @@ export default function OrderPage() {
 				<PlusIcon className="w-5 h-5 shrink-0" />
 				Order
 			</button>
+
+			{viewFiltersOpen ? (
+				<OrderViewFiltersSheet
+					activeTab={activeTab}
+					onActiveTabChange={setActiveTab}
+					tableOrdersView={tableOrdersView}
+					onTableOrdersViewChange={setTableOrdersView}
+					itemsAggregatesView={itemsAggregatesView}
+					onItemsAggregatesViewChange={setItemsAggregatesView}
+					selectedTables={selectedTableFilters}
+					onToggleTable={toggleTableFilter}
+					onClearTables={clearTableFilters}
+					onClose={() => setViewFiltersOpen(false)}
+				/>
+			) : null}
 
 			{readyModalOpen && readyOrders.length > 0 && (
 				<ReadyOrdersModal
