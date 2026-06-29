@@ -46,7 +46,11 @@ function SyncSpinner({ className }: { className?: string }) {
 	);
 }
 
-export function OrderOpsSyncIndicator() {
+export function OrderOpsSyncIndicator({
+	className = '',
+}: {
+	className?: string;
+}) {
 	const sync = useOrderOpsSync();
 	const [modal, setModal] = useState<ModalMode>(null);
 	const [connecting, setConnecting] = useState(false);
@@ -145,7 +149,7 @@ export function OrderOpsSyncIndicator() {
 			<button
 				type="button"
 				onClick={handleDotClick}
-				className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300 touch-manipulation shrink-0"
+				className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white text-gray-700 hover:bg-gray-50 border border-gray-200/80 shadow-md touch-manipulation shrink-0 ${className}`}
 				aria-label={ariaLabel}
 				aria-busy={sync.syncing}
 			>

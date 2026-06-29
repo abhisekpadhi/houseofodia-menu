@@ -1,6 +1,7 @@
 'use client';
 
 import { OrderOpsSyncIndicator } from '@/components/feature/order/order-ops-sync-indicator';
+import { OpsMenuButton } from '@/components/feature/layout/ops-drawer';
 import {
 	LoadingSpinner,
 	TouchActionButton,
@@ -225,13 +226,16 @@ export default function OrderHistoryPage() {
 		<div className="ops-app-screen">
 			<div className="ops-sticky-header bg-white border-b px-6 pb-4">
 				<div className="flex items-center justify-between gap-3 mb-4">
-					<Link
-						href="/order"
-						className="text-sm font-semibold text-gray-600 hover:text-black touch-manipulation"
-					>
-						← Back
-					</Link>
-					<h1 className="text-xl font-bold">Today&apos;s order history</h1>
+					<div className="flex items-center gap-2 min-w-0">
+						<OpsMenuButton />
+						<Link
+							href="/order"
+							className="text-sm font-semibold text-gray-600 hover:text-black touch-manipulation"
+						>
+							← Back
+						</Link>
+					</div>
+					<h1 className="text-xl font-bold truncate">Today&apos;s order history</h1>
 					<OrderOpsSyncIndicator />
 				</div>
 				<p className="text-sm text-gray-500">{dateLabel}</p>
