@@ -614,8 +614,13 @@ function AddOrderContent() {
 	};
 
 	return (
-		<div className="ops-app-screen bg-white flex flex-col min-h-[100dvh] pb-0">
-			<div className="ops-sticky-header bg-white border-b px-6 pb-3 shrink-0">
+		<div
+			className="ops-app-screen bg-white"
+			style={{
+				paddingBottom: `calc(6rem + env(safe-area-inset-bottom) + ${keyboardInset}px)`,
+			}}
+		>
+			<div className="ops-sticky-header bg-white border-b px-6 pb-3">
 				<div className="flex items-center justify-between">
 					<button
 						type="button"
@@ -629,7 +634,7 @@ function AddOrderContent() {
 				</div>
 			</div>
 
-			<div className="px-6 py-3 border-b bg-white shrink-0">
+			<div className="px-6 py-3 border-b bg-white">
 				{isSetupComplete && !setupExpanded ? (
 					<div className="flex items-start justify-between gap-3">
 						<div className="min-w-0">
@@ -884,13 +889,7 @@ function AddOrderContent() {
 				)}
 			</div>
 
-			<div
-				ref={menuScrollRef}
-				className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 pt-4"
-				style={{
-					paddingBottom: `calc(6rem + env(safe-area-inset-bottom) + ${keyboardInset}px)`,
-				}}
-			>
+			<div ref={menuScrollRef} className="px-6 pt-4">
 				<label className="block text-xs font-medium text-gray-600 mb-1">
 					Order notes (optional)
 				</label>

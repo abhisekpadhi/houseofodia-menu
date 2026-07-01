@@ -162,12 +162,14 @@ export function MenuPicker({
         </h2>
         {headerAction}
       </div>
-      <div className="sticky top-0 z-10 -mx-1 px-1 pt-1 pb-2 bg-white">
+      <div className="sticky top-0 z-10 -mx-1 px-1 pt-1 pb-2 bg-white touch-pan-y">
         <div className="relative">
           <input
             ref={searchInputRef}
-            type="search"
+            type="text"
+            inputMode="search"
             enterKeyHint="done"
+            autoComplete="off"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             onFocus={() => {
