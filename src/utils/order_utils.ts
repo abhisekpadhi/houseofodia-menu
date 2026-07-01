@@ -24,6 +24,8 @@ import {
 import { getCachedMenuItems, fetchAndCacheMenuItems } from '@/src/utils/menu_cache';
 import { notifyOrderOpsChange, isSyncNotifySuppressed } from '@/src/utils/order_ops_sync';
 import { upsertOrdersInHistory } from '@/src/utils/order_history';
+import { isOrdersBackendEnabled } from '@/src/utils/tangify_client';
+import { fetchLiveOrders, placeOrderOnBackend } from '@/src/utils/tangify_billing_api';
 import localforage from 'localforage';
 
 const ORDERS_KEY = 'orders';
@@ -142,6 +144,7 @@ function dishUnitFromItem(
 		orderId: order.id,
 		itemIndex,
 		unitIndex,
+		lineItemId: item.lineItemId,
 		dishName: item.name,
 		orderLabel: formatOrderLabel(order),
 		createdAt: order.createdAt,
@@ -165,6 +168,16 @@ export async function getOrdersStore(): Promise<TOrdersStore> {
 		return { orders: [] };
 	}
 
+	if (isOrdersBackendEnabled()) {
+		try {
+			const orders = await fetchLiveOrders();
+			return { orders };
+		} catch (error) {
+			console.error('Failed to fetch orders from tangify API:', error);
+			return { orders: [] };
+		}
+	}
+
 	try {
 		const store = await localforage.getItem<TOrdersStore>(ORDERS_KEY);
 		return store ?? { orders: [] };
@@ -176,6 +189,10 @@ export async function getOrdersStore(): Promise<TOrdersStore> {
 
 export async function saveOrdersStore(store: TOrdersStore): Promise<void> {
 	if (typeof window === 'undefined') {
+		return;
+	}
+
+	if (isOrdersBackendEnabled()) {
 		return;
 	}
 
@@ -192,6 +209,10 @@ export async function saveOrdersStore(store: TOrdersStore): Promise<void> {
 }
 
 export async function addOrder(order: TOrder): Promise<void> {
+	if (isOrdersBackendEnabled()) {
+		await placeOrderOnBackend(order);
+		return;
+	}
 	const store = await getOrdersStore();
 	store.orders.push(order);
 	await saveOrdersStore(store);
@@ -257,6 +278,14 @@ export async function updateOrderItems(
 	orderId: string,
 	items: TOrderItem[]
 ): Promise<TOrder[]> {
+	if (isOrdersBackendEnabled()) {
+		const { patchOrder, fetchLiveOrders } = await import(
+			'@/src/utils/tangify_billing_api'
+		);
+		await patchOrder({ orderId, items });
+		return fetchLiveOrders();
+	}
+
 	const store = await getOrdersStore();
 	const index = store.orders.findIndex((order) => order.id === orderId);
 	if (index === -1) {
@@ -630,6 +659,12 @@ export function removeOrdersForBillingGroup(
 export async function closeTableFromBilling(
 	context: BillingContext
 ): Promise<TOrder[]> {
+	if (isOrdersBackendEnabled() && context.sessionId && context.billId) {
+		const { closeSession } = await import('@/src/utils/tangify_billing_api');
+		await closeSession(context.sessionId, context.billId);
+		const orders = await fetchLiveOrders();
+		return orders;
+	}
 	const store = await getOrdersStore();
 	const removing = store.orders.filter((order) =>
 		orderBelongsToBillingGroup(order, context)
@@ -1540,6 +1575,8 @@ export function toggleItemUnitParcel(
 
 export async function updateOrders(orders: TOrder[], now = Date.now()): Promise<TOrder[]> {
 	const maintained = maintainOrders(orders, now);
-	await saveOrdersStore({ orders: maintained });
+	if (!isOrdersBackendEnabled()) {
+		await saveOrdersStore({ orders: maintained });
+	}
 	return maintained;
 }

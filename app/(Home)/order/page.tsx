@@ -75,6 +75,19 @@ import {
 	TouchIconButton,
 } from "@/components/ui/touch-controls";
 import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
+import { isOrdersBackendEnabled } from "@/src/utils/tangify_client";
+import {
+	fetchLiveOrders,
+	patchLineItemUnit,
+	patchOrder,
+	patchSession,
+	startBill,
+} from "@/src/utils/tangify_billing_api";
+import {
+	findLastFulfilledUnitForDish,
+	findNextPendingUnitForDish,
+	getSessionIdFromOrders,
+} from "@/src/utils/tangify_order_mapper";
 import axios from "axios";
 import localforage from "localforage";
 import Link from "next/link";
@@ -2026,18 +2039,26 @@ export default function OrderPage() {
 			setLoading(true);
 		}
 
+		const ordersPromise = isOrdersBackendEnabled()
+			? fetchLiveOrders()
+			: localforage
+					.getItem<TOrdersStore>(ORDERS_KEY)
+					.then((store) => store?.orders ?? []);
+
 		Promise.all([
-			localforage.getItem<TOrdersStore>(ORDERS_KEY),
+			ordersPromise,
 			axios.get<TMenuApiItem[]>("/api/menu", {
 				headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
 			}),
 		])
-			.then(async ([store, menuResponse]) => {
-				const rawOrders = store?.orders ?? [];
+			.then(async ([rawOrders, menuResponse]) => {
 				const categoryMap = buildDishCategoryMap(menuResponse.data);
 				const maintained = maintainOrders(rawOrders, Date.now());
 				applyOrderState(maintained, categoryMap);
-				if (ordersStoreChanged(rawOrders, maintained)) {
+				if (
+					!isOrdersBackendEnabled() &&
+					ordersStoreChanged(rawOrders, maintained)
+				) {
 					await updateOrders(maintained);
 				}
 			})
@@ -2070,6 +2091,9 @@ export default function OrderPage() {
 	}, [pathname, loadOrders]);
 
 	useEffect(() => {
+		if (isOrdersBackendEnabled()) {
+			return;
+		}
 		const onOrderOpsUpdated = () => {
 			loadOrders({ background: true });
 		};
@@ -2085,7 +2109,7 @@ export default function OrderPage() {
 	}, []);
 
 	useEffect(() => {
-		if (loading || orders.length === 0) {
+		if (loading || orders.length === 0 || isOrdersBackendEnabled()) {
 			return;
 		}
 
@@ -2107,14 +2131,36 @@ export default function OrderPage() {
 	}, [readyOrders.length]);
 
 	const persistOrders = async (nextOrders: TOrder[]) => {
+		if (isOrdersBackendEnabled()) {
+			applyOrderState(maintainOrders(nextOrders, Date.now()));
+			return;
+		}
 		const maintained = await updateOrders(nextOrders, Date.now());
 		applyOrderState(maintained);
+	};
+
+	const reloadOrders = async () => {
+		await loadOrders({ background: true });
 	};
 
 	const handleToggleDishUnit = async (
 		dishName: string,
 		wasFulfilled: boolean
 	) => {
+		if (isOrdersBackendEnabled()) {
+			const target = wasFulfilled
+				? findLastFulfilledUnitForDish(orders, dishName)
+				: findNextPendingUnitForDish(orders, dishName);
+			if (!target) {
+				return;
+			}
+			await patchLineItemUnit({
+				...target,
+				action: wasFulfilled ? "unfulfill" : "fulfill",
+			});
+			await reloadOrders();
+			return;
+		}
 		const nextOrders = wasFulfilled
 			? unfulfillLastUnitForDish(orders, dishName)
 			: fulfillNextUnitForDish(orders, dishName);
@@ -2157,15 +2203,30 @@ export default function OrderPage() {
 		}
 		const key = `cancel:${pendingCancelItem.orderId}:${pendingCancelItem.itemIndex}:${pendingCancelItem.unitIndex}`;
 		await runConfirmingAction(key, async () => {
-			await persistOrders(
-				cancelItemUnit(
-					orders,
-					pendingCancelItem.orderId,
-					pendingCancelItem.itemIndex,
-					pendingCancelItem.unitIndex,
-					reason
-				)
-			);
+			if (isOrdersBackendEnabled()) {
+				const order = orders.find((o) => o.id === pendingCancelItem.orderId);
+				const item = order?.items[pendingCancelItem.itemIndex];
+				if (order && item?.lineItemId) {
+					await patchLineItemUnit({
+						orderId: order.id,
+						lineItemId: item.lineItemId,
+						unitIndex: pendingCancelItem.unitIndex,
+						action: "cancel",
+						cancelReason: reason,
+					});
+					await reloadOrders();
+				}
+			} else {
+				await persistOrders(
+					cancelItemUnit(
+						orders,
+						pendingCancelItem.orderId,
+						pendingCancelItem.itemIndex,
+						pendingCancelItem.unitIndex,
+						reason
+					)
+				);
+			}
 			setPendingCancelItem(null);
 		});
 	};
@@ -2176,28 +2237,61 @@ export default function OrderPage() {
 				setPendingMarkDone(null);
 				return;
 			}
-			await persistOrders(markOrderDone(orders, order.id));
+			if (isOrdersBackendEnabled()) {
+				await patchOrder({ orderId: order.id, markDone: true });
+				await reloadOrders();
+			} else {
+				await persistOrders(markOrderDone(orders, order.id));
+			}
 			setPendingMarkDone(null);
 		});
 	};
 
+	const patchGroupSession = async (
+		group: OrderGroup,
+		serviceFlags: {
+			welcome_drink_served?: boolean;
+			complementary_served?: boolean;
+			kid_menu_served?: boolean;
+		}
+	) => {
+		const sessionId = getSessionIdFromOrders(group.orders);
+		if (!sessionId) {
+			return;
+		}
+		await patchSession({ sessionId, serviceFlags });
+		await reloadOrders();
+	};
+
 	const handleWelcomeDrink = async (group: OrderGroup) => {
 		await runConfirmingAction(`drink:${group.key}`, async () => {
-			await persistOrders(markTableWelcomeDrinkServed(orders, group));
+			if (isOrdersBackendEnabled()) {
+				await patchGroupSession(group, { welcome_drink_served: true });
+			} else {
+				await persistOrders(markTableWelcomeDrinkServed(orders, group));
+			}
 			setPendingWelcomeDrink(null);
 		});
 	};
 
 	const handleComplementary = async (group: OrderGroup) => {
 		await runConfirmingAction(`comp:${group.key}`, async () => {
-			await persistOrders(markTableComplementaryServed(orders, group));
+			if (isOrdersBackendEnabled()) {
+				await patchGroupSession(group, { complementary_served: true });
+			} else {
+				await persistOrders(markTableComplementaryServed(orders, group));
+			}
 			setPendingComplementary(null);
 		});
 	};
 
 	const handleKidMenu = async (group: OrderGroup) => {
 		await runConfirmingAction(`kid:${group.key}`, async () => {
-			await persistOrders(markTableKidMenuServed(orders, group));
+			if (isOrdersBackendEnabled()) {
+				await patchGroupSession(group, { kid_menu_served: true });
+			} else {
+				await persistOrders(markTableKidMenuServed(orders, group));
+			}
 			setPendingKidMenu(null);
 		});
 	};
@@ -2244,9 +2338,19 @@ export default function OrderPage() {
 		}
 		const key = `parcel:${orderId}:${itemIndex}:${unitIndex}`;
 		await runConfirmingAction(key, async () => {
-			await persistOrders(
-				toggleItemUnitParcel(orders, orderId, itemIndex, unitIndex)
-			);
+			if (isOrdersBackendEnabled() && item.lineItemId) {
+				await patchLineItemUnit({
+					orderId,
+					lineItemId: item.lineItemId,
+					unitIndex,
+					action: "toggle_parcel",
+				});
+				await reloadOrders();
+			} else {
+				await persistOrders(
+					toggleItemUnitParcel(orders, orderId, itemIndex, unitIndex)
+				);
+			}
 			setPendingParcelItem(null);
 		});
 	};
@@ -2261,9 +2365,20 @@ export default function OrderPage() {
 			return;
 		}
 		await runPendingAction(`notes:${editingNotesGroup.key}`, async () => {
-			await persistOrders(
-				updateGroupNotes(orders, editingNotesGroup, notesDraft)
-			);
+			if (isOrdersBackendEnabled()) {
+				const sessionId = getSessionIdFromOrders(editingNotesGroup.orders);
+				if (sessionId) {
+					await patchSession({
+						sessionId,
+						groupNotes: notesDraft.trim(),
+					});
+					await reloadOrders();
+				}
+			} else {
+				await persistOrders(
+					updateGroupNotes(orders, editingNotesGroup, notesDraft)
+				);
+			}
 			setEditingNotesGroup(null);
 			setNotesDraft("");
 		});
@@ -2324,9 +2439,20 @@ export default function OrderPage() {
 		const { group, newTables } = pendingChangeTableConfirm;
 		const key = `move-table:${group.key}`;
 		await runConfirmingAction(key, async () => {
-			await persistOrders(
-				moveTableGroupToTables(orders, group, newTables)
-			);
+			if (isOrdersBackendEnabled()) {
+				const sessionId = getSessionIdFromOrders(group.orders);
+				if (sessionId) {
+					await patchSession({
+						sessionId,
+						tableIds: newTables.map(String),
+					});
+					await reloadOrders();
+				}
+			} else {
+				await persistOrders(
+					moveTableGroupToTables(orders, group, newTables)
+				);
+			}
 			setPendingChangeTableConfirm(null);
 		});
 	};
@@ -2339,13 +2465,19 @@ export default function OrderPage() {
 			return;
 		}
 		const cart = await orderGroupToBillCart(group);
+		const sessionId = getSessionIdFromOrders(group.orders);
 		const billingContext: BillingContext = {
 			source: "orders",
 			groupKey: group.key,
 			kind: group.kind,
 			tableNumbers: group.tableNumbers ?? [],
 			label: group.label,
+			...(sessionId ? { sessionId } : {}),
 		};
+		if (isOrdersBackendEnabled() && sessionId) {
+			const bill = await startBill(sessionId);
+			billingContext.billId = bill.id;
+		}
 		await localforage.setItem<TCart>("cart", cart);
 		await localforage.setItem(BILLING_CONTEXT_KEY, billingContext);
 		router.push("/cart");
@@ -2424,15 +2556,25 @@ export default function OrderPage() {
 
 	const handleCloseTable = async (group: OrderGroup) => {
 		await runConfirmingAction(`close:${group.key}`, async () => {
+			const sessionId = getSessionIdFromOrders(group.orders);
 			const billingContext: BillingContext = {
 				source: "orders",
 				groupKey: group.key,
 				kind: group.kind,
 				tableNumbers: group.tableNumbers ?? [],
 				label: group.label,
+				...(sessionId ? { sessionId } : {}),
 			};
+			if (isOrdersBackendEnabled() && sessionId) {
+				const bill = await startBill(sessionId);
+				billingContext.billId = bill.id;
+			}
 			const remaining = await closeTableFromBilling(billingContext);
-			applyOrderState(remaining);
+			if (isOrdersBackendEnabled()) {
+				await reloadOrders();
+			} else {
+				applyOrderState(remaining);
+			}
 			setPendingCloseTable(null);
 		});
 	};

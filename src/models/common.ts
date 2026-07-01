@@ -35,6 +35,8 @@ export type OrderItemUnitState =
 	| { status: 'cancelled'; reason: ItemCancelReason; cancelledAt?: number };
 
 export type TOrderItem = TDish & {
+	/** Backend line item id (line_*); set when loaded from tangify API */
+	lineItemId?: string;
 	/** @deprecated Derived from unitStates during normalization */
 	fulfilledQty?: number;
 	unitStates?: OrderItemUnitState[];
@@ -95,6 +97,10 @@ export type TOrder = {
 	groupNotes?: string;
 	/** Set when table was billed and order removed from the active list */
 	billedAt?: number;
+	/** tangify session id (sess_*) when using backend */
+	sessionId?: string;
+	/** tangify bill id when session is in billing */
+	billId?: string;
 };
 
 export type TOrdersStore = {
@@ -107,6 +113,8 @@ export type BillingContext = {
 	kind: OrderKind;
 	tableNumbers: number[];
 	label: string;
+	sessionId?: string;
+	billId?: string;
 };
 
 export const BILLING_CONTEXT_KEY = 'billingContext';
@@ -124,6 +132,7 @@ export type DishUnit = {
 	orderId: string;
 	itemIndex: number;
 	unitIndex: number;
+	lineItemId?: string;
 	dishName: string;
 	orderLabel: string;
 	createdAt: number;
