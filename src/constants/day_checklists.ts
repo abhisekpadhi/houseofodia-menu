@@ -69,6 +69,8 @@ const DAY_OPEN_CHECKLIST: DayChecklistSection[] = [
 			{ id: 'd-bill-printer', label: 'Bill printer tested' },
 			{ id: 'd-staff-phone', label: 'Staff phone battery check' },
 			{ id: 'd-helmet-stand', label: 'Helmet stand outside dining' },
+			{ id: 'd-card-machine', label: 'Card machine charged' },
+			{ id: 'd-glass-doors', label: 'Glass doors cleaned' },
 		],
 	},
 	{
@@ -127,27 +129,91 @@ const DAY_OPEN_CHECKLIST: DayChecklistSection[] = [
 
 const DAY_CLOSE_CHECKLIST: DayChecklistSection[] = [
 	{
-		area: 'kitchen',
-		title: 'Kitchen',
-		items: [
-			{ id: 'k-orders', label: 'All orders cleared or handed over' },
-			{ id: 'k-equipment', label: 'Equipment cleaned and switched off' },
-			{ id: 'k-prep-store', label: 'Prep wrapped, labelled and stored' },
-			{ id: 'k-fridge-close', label: 'Refrigerator checked and closed properly' },
-			{ id: 'k-gas-off', label: 'Gas turned off where applicable' },
-			{ id: 'k-waste', label: 'Waste disposed and bins cleaned' },
-		],
-	},
-	{
 		area: 'dining',
 		title: 'Dining',
 		items: [
-			{ id: 'd-tables-clear', label: 'All tables cleared and wiped' },
-			{ id: 'd-floor-close', label: 'Floor swept and mopped' },
-			{ id: 'd-cash', label: 'Cash reconciled and secured' },
-			{ id: 'd-lights', label: 'Lights, AC and fans set for close' },
-			{ id: 'd-doors', label: 'Doors, shutters and locks checked' },
-			{ id: 'd-lost-found', label: 'Lost & found area checked' },
+			{ id: 'd-close-signboard', label: 'Signboard switch off' },
+			{ id: 'd-close-music-speaker', label: 'Music speaker switch off' },
+			{ id: 'd-close-wifi', label: 'WiFi switch on' },
+			{ id: 'd-close-aroma-machine', label: 'Aroma machine switch off' },
+			{ id: 'd-close-upi-speaker', label: 'UPI speaker off' },
+			{
+				id: 'd-close-tissue-paper',
+				label: 'Tissue paper ready for next day',
+			},
+			{
+				id: 'd-close-mirror-lights',
+				label: 'Wash basin mirrors switch off',
+			},
+			{ id: 'd-close-helmet-stand', label: 'Helmet stand inside dining' },
+			{
+				id: 'd-close-cash-whatsapp',
+				label: 'Cash balance shared in WhatsApp',
+			},
+			{ id: 'd-close-door-locked', label: 'Dining door locked' },
+			{
+				id: 'd-close-marketing-materials',
+				label: 'Marketing materials kept inside',
+			},
+		],
+	},
+	{
+		area: 'kitchen',
+		title: 'Kitchen',
+		items: [
+			{
+				id: 'k-close-exhaust-window',
+				label: 'Exhaust window slightly open for fresh air',
+			},
+			{ id: 'k-close-freezer-on', label: 'Freezer switched on' },
+			{ id: 'k-close-refrigerator-on', label: 'Refrigerator switch on' },
+			{ id: 'k-close-light-on', label: '1 light on' },
+			{
+				id: 'k-close-cutting-boards',
+				label: 'Cutting boards submerged in water',
+			},
+			{
+				id: 'k-close-no-dirty-utensils',
+				label: 'No dirty utensils in washing',
+			},
+			{
+				id: 'k-close-leftover-food',
+				label: 'Leftover food packed and kept in freezer / fridge',
+			},
+			{
+				id: 'k-close-no-raw-floor',
+				label: 'No raw material left on floor / table',
+			},
+			{
+				id: 'k-close-no-food-floor',
+				label: 'No food items left on floor / tables',
+			},
+			{
+				id: 'k-close-stations-cleaned',
+				label: 'Cooking & plating stations cleaned',
+			},
+			{
+				id: 'k-close-chairs-inside',
+				label: 'Any waiting chairs kept inside',
+			},
+			{ id: 'k-close-masala-covered', label: 'Masala boxes covered' },
+			{ id: 'k-close-used-oils', label: 'Used oils disposed' },
+			{ id: 'k-close-no-pending-order', label: 'No pending order' },
+			{ id: 'k-close-gas-off', label: 'Gas off' },
+			{ id: 'k-close-waste-disposed', label: 'Waste disposed' },
+			{ id: 'k-close-dustbins', label: 'Dustbins cleared' },
+			{ id: 'k-close-microwave-mixie', label: 'Microwave, mixie cleaned' },
+			{ id: 'k-close-freezer-top', label: 'Freezer top cleaned' },
+			{ id: 'k-close-doors-locked', label: 'Kitchen doors locked' },
+			{
+				id: 'k-close-overnight-utensils',
+				label: 'Any overnight dirty utensils submerged in water',
+			},
+			{
+				id: 'k-close-cleaning-trolley',
+				label: 'Cleaning trolley empty & cleared',
+			},
+			{ id: 'k-close-glass-doors', label: 'Glass doors cleaned' },
 		],
 	},
 ];

@@ -33,7 +33,7 @@ type DayChecklistPageProps = {
 };
 
 export function DayChecklistPage({ kind, title }: DayChecklistPageProps) {
-	const dateKey = getTodayDateKey();
+	const [dateKey, setDateKey] = useState(() => getTodayDateKey());
 	const sections = useMemo(() => getDayChecklistSections(kind), [kind]);
 	const allItemIds = useMemo(() => getAllDayChecklistItemIds(kind), [kind]);
 
@@ -41,6 +41,27 @@ export function DayChecklistPage({ kind, title }: DayChecklistPageProps) {
 	const [savedChecked, setSavedChecked] = useState<DayChecklistState>({});
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
+
+	useEffect(() => {
+		const syncDateKey = () => {
+			const today = getTodayDateKey();
+			setDateKey((current) => (current === today ? current : today));
+		};
+
+		syncDateKey();
+		const interval = window.setInterval(syncDateKey, 60_000);
+		const onVisibilityChange = () => {
+			if (document.visibilityState === 'visible') {
+				syncDateKey();
+			}
+		};
+		document.addEventListener('visibilitychange', onVisibilityChange);
+
+		return () => {
+			window.clearInterval(interval);
+			document.removeEventListener('visibilitychange', onVisibilityChange);
+		};
+	}, []);
 
 	const load = useCallback(async () => {
 		setLoading(true);
@@ -75,9 +96,15 @@ export function DayChecklistPage({ kind, title }: DayChecklistPageProps) {
 	};
 
 	const handleSave = async () => {
+		const today = getTodayDateKey();
+		if (dateKey !== today) {
+			setDateKey(today);
+			return;
+		}
+
 		setSaving(true);
 		try {
-			await saveDayChecklistForDate(dateKey, kind, checked);
+			await saveDayChecklistForDate(today, kind, checked);
 			setSavedChecked(checked);
 		} catch (error) {
 			console.error('Failed to save checklist:', error);

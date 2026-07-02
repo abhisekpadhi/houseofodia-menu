@@ -19,7 +19,7 @@ import { TOrdersStore } from '@/src/models/common';
 import { getInventorySnapshotForDate, getTodayDateKey } from '@/src/utils/inventory_utils';
 import { getTodayOrderHistory } from '@/src/utils/order_history';
 import { getOrdersStore, maintainOrders } from '@/src/utils/order_utils';
-import { getDayChecklistSnapshotForDate } from '@/src/utils/day_checklist_utils';
+import { getDayChecklistSnapshotForDate, pruneDayChecklistsForToday } from '@/src/utils/day_checklist_utils';
 import { getSupplyInventorySnapshotForDate } from '@/src/utils/supply_inventory_utils';
 import { getWaitlistSnapshotForDate } from '@/src/utils/waitlist_utils';
 import localforage from 'localforage';
@@ -126,6 +126,9 @@ export async function getOrderOpsMeta(): Promise<OrderOpsMeta> {
 	}
 
 	const meta = normalizeMetaForToday(stored, today);
+	if (stored.businessDate !== today) {
+		await pruneDayChecklistsForToday(today);
+	}
 	const storedVersions = migrateMetaVersions(stored);
 	const versionsChanged = ORDER_OPS_DOMAINS.some(
 		(domain) => meta.versions[domain] !== storedVersions[domain]
