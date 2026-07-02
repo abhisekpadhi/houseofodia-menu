@@ -10,7 +10,6 @@ import {
 import {
 	getDayChecklistForDate,
 	getTodayDateKey,
-	isDayChecklistComplete,
 	saveDayChecklistForDate,
 	type DayChecklistState,
 } from '@/src/utils/day_checklist_utils';
@@ -67,7 +66,6 @@ export function DayChecklistPage({ kind, title }: DayChecklistPageProps) {
 	}, [load]);
 
 	const completedCount = allItemIds.filter((id) => checked[id]).length;
-	const isComplete = isDayChecklistComplete(allItemIds, checked);
 	const hasUnsavedChanges = allItemIds.some(
 		(id) => checked[id] !== savedChecked[id]
 	);
@@ -77,10 +75,6 @@ export function DayChecklistPage({ kind, title }: DayChecklistPageProps) {
 	};
 
 	const handleSave = async () => {
-		if (!isComplete) {
-			alert('Complete every checklist item before saving.');
-			return;
-		}
 		setSaving(true);
 		try {
 			await saveDayChecklistForDate(dateKey, kind, checked);
@@ -116,10 +110,8 @@ export function DayChecklistPage({ kind, title }: DayChecklistPageProps) {
 					>
 						{saving ? (
 							<LoadingSpinner className="h-4 w-4 text-white" />
-						) : isComplete ? (
-							`Save ${title.toLowerCase()}`
 						) : (
-							'Complete all items to save'
+							`Save ${title.toLowerCase()}`
 						)}
 					</button>
 				</div>
