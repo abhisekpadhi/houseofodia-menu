@@ -63,6 +63,11 @@ import {
 	replenishInventoryForOrder,
 } from "@/src/utils/inventory_utils";
 import { buildDishCategoryMap } from "@/src/utils/menu_utils";
+import {
+	getAllDayChecklistItemIds,
+	type DayChecklistKind,
+} from "@/src/constants/day_checklists";
+import { getDayChecklistForDate } from "@/src/utils/day_checklist_utils";
 import { itemCancelReasonLabel } from "@/src/utils/item_cancel_reasons";
 import { EditOrderModal } from "@/components/feature/order/edit-order-modal";
 import { CancelItemModal } from "@/components/feature/order/cancel-item-modal";
@@ -1858,6 +1863,64 @@ function ReadyOrdersModal({
 	);
 }
 
+type ChecklistProgress = { done: number; total: number };
+
+function ChecklistProgressCard({
+	title,
+	href,
+	progress,
+}: {
+	title: string;
+	href: string;
+	progress: ChecklistProgress;
+}) {
+	const total = progress.total;
+	const done = Math.min(progress.done, total);
+	const remaining = Math.max(total - done, 0);
+	const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+	const allDone = total > 0 && remaining === 0;
+
+	return (
+		<Link
+			href={href}
+			className="block rounded-xl bg-white border border-gray-200/80 shadow-md p-3 touch-manipulation active:bg-gray-50"
+		>
+			<div className="flex items-center justify-between gap-2">
+				<span className="text-xs font-bold text-gray-800 truncate">
+					{title}
+				</span>
+				<span
+					className={`text-xs font-bold shrink-0 ${
+						allDone ? "text-green-600" : "text-gray-500"
+					}`}
+				>
+					{done}/{total}
+				</span>
+			</div>
+			<div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-red-400">
+				<div
+					className="h-full rounded-full bg-green-500 transition-all"
+					style={{ width: `${pct}%` }}
+				/>
+			</div>
+			<div className="mt-1.5 flex items-center justify-between">
+				<span className="text-[10px] font-medium text-gray-500">
+					{pct}% done
+				</span>
+				{remaining > 0 ? (
+					<span className="text-[10px] font-semibold text-red-500">
+						{remaining} left
+					</span>
+				) : (
+					<span className="text-[10px] font-semibold text-green-600">
+						Complete
+					</span>
+				)}
+			</div>
+		</Link>
+	);
+}
+
 export default function OrderPage() {
 	const router = useRouter();
 	const pathname = usePathname();
@@ -1915,6 +1978,13 @@ export default function OrderPage() {
 	);
 	const [confirmingAction, setConfirmingAction] = useState<string | null>(null);
 	const [now, setNow] = useState(() => Date.now());
+	const [checklistProgress, setChecklistProgress] = useState<{
+		open: ChecklistProgress;
+		close: ChecklistProgress;
+	}>(() => ({
+		open: { done: 0, total: getAllDayChecklistItemIds("open").length },
+		close: { done: 0, total: getAllDayChecklistItemIds("close").length },
+	}));
 	const [dishCategoryMap, setDishCategoryMap] = useState<Record<string, string>>(
 		{}
 	);
@@ -2021,6 +2091,28 @@ export default function OrderPage() {
 		[]
 	);
 
+	const loadChecklistProgress = useCallback(async () => {
+		const today = getTodayDateKey();
+		const computeProgress = async (
+			kind: DayChecklistKind
+		): Promise<ChecklistProgress> => {
+			const itemIds = getAllDayChecklistItemIds(kind);
+			const state = await getDayChecklistForDate(today, kind);
+			const done = itemIds.filter((id) => state[id] === true).length;
+			return { done, total: itemIds.length };
+		};
+
+		try {
+			const [open, close] = await Promise.all([
+				computeProgress("open"),
+				computeProgress("close"),
+			]);
+			setChecklistProgress({ open, close });
+		} catch (error) {
+			console.error("Failed to load checklist progress:", error);
+		}
+	}, []);
+
 	const loadOrders = useCallback((options?: { background?: boolean }) => {
 		if (!options?.background && !hasLoadedOnceRef.current) {
 			setLoading(true);
@@ -2061,21 +2153,24 @@ export default function OrderPage() {
 		}
 
 		loadOrders();
+		void loadChecklistProgress();
 
 		const onFocus = () => {
 			loadOrders({ background: true });
+			void loadChecklistProgress();
 		};
 		window.addEventListener("focus", onFocus);
 		return () => window.removeEventListener("focus", onFocus);
-	}, [pathname, loadOrders]);
+	}, [pathname, loadOrders, loadChecklistProgress]);
 
 	useEffect(() => {
 		const onOrderOpsUpdated = () => {
 			loadOrders({ background: true });
+			void loadChecklistProgress();
 		};
 		window.addEventListener(ORDER_OPS_EVENT, onOrderOpsUpdated);
 		return () => window.removeEventListener(ORDER_OPS_EVENT, onOrderOpsUpdated);
-	}, [loadOrders]);
+	}, [loadOrders, loadChecklistProgress]);
 
 	useEffect(() => {
 		const interval = setInterval(() => {
@@ -2611,6 +2706,21 @@ export default function OrderPage() {
 						/>
 					))
 				)}
+
+				{!(loading && !hasOrders) ? (
+					<div className="grid grid-cols-2 gap-3 pt-2">
+						<ChecklistProgressCard
+							title="Day open"
+							href="/order/day-open"
+							progress={checklistProgress.open}
+						/>
+						<ChecklistProgressCard
+							title="Day close"
+							href="/order/day-close"
+							progress={checklistProgress.close}
+						/>
+					</div>
+				) : null}
 			</div>
 
 			<div className="fixed left-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] z-20">

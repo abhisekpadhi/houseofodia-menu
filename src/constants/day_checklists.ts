@@ -33,6 +33,10 @@ const DAY_OPEN_CHECKLIST: DayChecklistSection[] = [
 			},
 			{ id: 'd-wash-basin-drawer', label: 'Drawer below washbasin is okay' },
 			{ id: 'd-handwash-dispenser', label: 'Handwash dispenser cleaned' },
+			{
+				id: 'd-washbasin-tissue-dispenser',
+				label: 'Washbasin tissue dispenser checked',
+			},
 			{ id: 'd-wash-basin-mirrors', label: '2 washbasin mirrors cleaned' },
 			{ id: 'd-large-mirror', label: '1 large mirror at end of room cleaned' },
 			{ id: 'd-chair-body', label: 'Chair body is cleaned' },
@@ -86,6 +90,7 @@ const DAY_OPEN_CHECKLIST: DayChecklistSection[] = [
 			{ id: 'k-mutton-stock', label: 'Mutton stock ok' },
 			{ id: 'k-prawn-stock', label: 'Prawn stock ok' },
 			{ id: 'k-paneer-stock', label: 'Paneer stock ok' },
+			{ id: 'k-mushroom-stock', label: 'Mushroom stock ok' },
 			{ id: 'k-milk-curd-stock', label: 'Milk / Curd stock ok' },
 			{ id: 'k-rabri-stock', label: 'Rabri stock ok' },
 			{ id: 'k-coconut-grated', label: 'Coconut grated' },
