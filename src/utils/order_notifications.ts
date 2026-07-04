@@ -89,10 +89,9 @@ export function diffOrderSignatures(
 			continue;
 		}
 
-		const dishNames = new Set([
-			...Object.keys(before.totals),
-			...Object.keys(after.totals),
-		]);
+		const dishNames = Array.from(
+			new Set([...Object.keys(before.totals), ...Object.keys(after.totals)])
+		);
 
 		const updatedItems: string[] = [];
 		const cancelledItems: string[] = [];
