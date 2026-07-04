@@ -86,7 +86,7 @@ const Payment = () => {
 
 	return (
 		<div className="min-h-screen bg-gray-50 flex flex-col">
-			<div className="sticky top-0 z-10 bg-white border-b px-6 py-4">
+			<div className="ops-sticky-header bg-white border-b px-6 pb-4">
 				<div className="flex items-center justify-between">
 					<button
 						type="button"

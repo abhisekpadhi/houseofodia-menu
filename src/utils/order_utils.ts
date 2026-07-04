@@ -1511,6 +1511,45 @@ export function cancelItemUnit(
 	});
 }
 
+export function setItemUnitFulfilled(
+	orders: TOrder[],
+	orderId: string,
+	itemIndex: number,
+	unitIndex: number,
+	fulfilled: boolean
+): TOrder[] {
+	return updateOrderById(orders, orderId, (order) => {
+		if (isOrderMarkedDone(order)) {
+			return order;
+		}
+
+		const items = order.items.map((item, idx) => {
+			if (idx !== itemIndex) {
+				return normalizeOrderItem(item);
+			}
+
+			const states = [...getItemUnitStates(item)];
+			const current = states[unitIndex];
+
+			if (fulfilled) {
+				if (current !== 'pending') {
+					return normalizeOrderItem(item);
+				}
+				states[unitIndex] = 'fulfilled';
+			} else {
+				if (current !== 'fulfilled') {
+					return normalizeOrderItem(item);
+				}
+				states[unitIndex] = 'pending';
+			}
+
+			return normalizeOrderItem({ ...item, unitStates: states });
+		});
+
+		return { ...order, items };
+	});
+}
+
 export function toggleItemUnitParcel(
 	orders: TOrder[],
 	orderId: string,

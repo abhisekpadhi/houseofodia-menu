@@ -56,6 +56,7 @@ import {
 	updateOrders,
 	cancelItemUnit,
 	toggleItemUnitParcel,
+	setItemUnitFulfilled,
 } from "@/src/utils/order_utils";
 import {
 	decrementInventoryForOrder,
@@ -72,6 +73,13 @@ import { itemCancelReasonLabel } from "@/src/utils/item_cancel_reasons";
 import { EditOrderModal } from "@/components/feature/order/edit-order-modal";
 import { CancelItemModal } from "@/components/feature/order/cancel-item-modal";
 import { OrderOpsSyncIndicator } from "@/components/feature/order/order-ops-sync-indicator";
+import { OrderNotificationsBell } from "@/components/feature/order/order-notifications";
+import {
+	addOrderNotifications,
+	buildOrderSignatures,
+	diffOrderSignatures,
+	type OrderSignatureMap,
+} from "@/src/utils/order_notifications";
 import { OpsMenuButton } from "@/components/feature/layout/ops-drawer";
 import {
 	ConfirmModalActions,
@@ -710,6 +718,7 @@ function OrderRow({
 	onRequestMarkDone,
 	onRequestCancelItem,
 	onRequestToggleParcel,
+	onRequestToggleFulfill,
 }: {
 	order: TOrder;
 	onEdit: (order: TOrder) => void;
@@ -721,6 +730,11 @@ function OrderRow({
 		unitIndex: number
 	) => void;
 	onRequestToggleParcel: (
+		order: TOrder,
+		itemIndex: number,
+		unitIndex: number
+	) => void;
+	onRequestToggleFulfill: (
 		order: TOrder,
 		itemIndex: number,
 		unitIndex: number
@@ -850,12 +864,38 @@ function OrderRow({
 														: undefined
 											}
 										>
-											{display === "fulfilled" ? (
-												<CheckIcon checked className="w-4 h-4 shrink-0 text-green-600" />
-											) : display === "cancelled" ? (
+											{display === "cancelled" ? (
 												<CrossIcon className="w-4 h-4 shrink-0 text-red-500" />
+											) : markedDone ? (
+												<CheckIcon
+													checked={display === "fulfilled"}
+													className={`w-4 h-4 shrink-0 ${
+														display === "fulfilled"
+															? "text-green-600"
+															: "text-gray-300"
+													}`}
+												/>
 											) : (
-												<CheckIcon checked={false} className="w-4 h-4 shrink-0 text-gray-300" />
+												<button
+													type="button"
+													onClick={() =>
+														onRequestToggleFulfill(order, itemIndex, unitIndex)
+													}
+													className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border touch-manipulation ${
+														display === "fulfilled"
+															? "border-green-300 bg-green-50 text-green-600 active:bg-green-100"
+															: "border-gray-200 bg-white text-gray-400 active:bg-gray-100"
+													}`}
+													aria-label={`${
+														display === "fulfilled" ? "Unmark" : "Mark"
+													} ${item.name} done`}
+													aria-pressed={display === "fulfilled"}
+												>
+													<CheckIcon
+														checked={display === "fulfilled"}
+														className="w-5 h-5"
+													/>
+												</button>
 											)}
 											{(display === "pending" || display === "fulfilled") ? (
 												<button
@@ -916,6 +956,7 @@ function IndividualOrderCard({
 	onRequestMarkDone,
 	onRequestCancelItem,
 	onRequestToggleParcel,
+	onRequestToggleFulfill,
 }: {
 	order: TOrder;
 	now: number;
@@ -928,6 +969,11 @@ function IndividualOrderCard({
 		unitIndex: number
 	) => void;
 	onRequestToggleParcel: (
+		order: TOrder,
+		itemIndex: number,
+		unitIndex: number
+	) => void;
+	onRequestToggleFulfill: (
 		order: TOrder,
 		itemIndex: number,
 		unitIndex: number
@@ -967,6 +1013,7 @@ function IndividualOrderCard({
 					onRequestMarkDone={onRequestMarkDone}
 					onRequestCancelItem={onRequestCancelItem}
 					onRequestToggleParcel={onRequestToggleParcel}
+					onRequestToggleFulfill={onRequestToggleFulfill}
 				/>
 			</div>
 		</div>
@@ -1073,6 +1120,7 @@ function TableOrderCard({
 	onRequestKidMenu,
 	onRequestCancelItem,
 	onRequestToggleParcel,
+	onRequestToggleFulfill,
 	onEditNotes,
 	onChangeTable,
 }: {
@@ -1092,6 +1140,11 @@ function TableOrderCard({
 		unitIndex: number
 	) => void;
 	onRequestToggleParcel: (
+		order: TOrder,
+		itemIndex: number,
+		unitIndex: number
+	) => void;
+	onRequestToggleFulfill: (
 		order: TOrder,
 		itemIndex: number,
 		unitIndex: number
@@ -1255,6 +1308,7 @@ function TableOrderCard({
 						onRequestMarkDone={onRequestMarkDone}
 						onRequestCancelItem={onRequestCancelItem}
 						onRequestToggleParcel={onRequestToggleParcel}
+						onRequestToggleFulfill={onRequestToggleFulfill}
 					/>
 				))}
 			</div>
@@ -1552,6 +1606,70 @@ function ConfirmOrderActionModal({
 	);
 }
 
+function DayOpenWarningModal({
+	onProceed,
+	onGoToChecklist,
+	onClose,
+}: {
+	onProceed: () => void;
+	onGoToChecklist: () => void;
+	onClose: () => void;
+}) {
+	return (
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+			onClick={onClose}
+		>
+			<div
+				className="w-full max-w-sm rounded-xl bg-white shadow-xl overflow-hidden"
+				onClick={(event) => event.stopPropagation()}
+			>
+				<div className="bg-red-50 border-b border-red-200 px-5 py-4">
+					<div className="flex items-start gap-3">
+						<span
+							className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600 text-lg font-bold"
+							aria-hidden
+						>
+							!
+						</span>
+						<div className="min-w-0">
+							<h2 className="text-lg font-bold text-red-700">
+								Day open not done
+							</h2>
+							<p className="text-sm text-red-600/90 mt-1">
+								Please complete the day open checklist before taking orders.
+							</p>
+						</div>
+					</div>
+				</div>
+				<div className="p-4 space-y-2">
+					<button
+						type="button"
+						onClick={onGoToChecklist}
+						className="w-full min-h-[48px] inline-flex items-center justify-center rounded-lg bg-red-600 text-white text-sm font-bold touch-manipulation active:bg-red-700"
+					>
+						Open day open checklist
+					</button>
+					<button
+						type="button"
+						onClick={onProceed}
+						className="w-full min-h-[48px] inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-700 text-sm font-semibold touch-manipulation active:bg-gray-100"
+					>
+						Take order anyway
+					</button>
+					<button
+						type="button"
+						onClick={onClose}
+						className="w-full min-h-[40px] inline-flex items-center justify-center text-gray-500 text-sm font-medium touch-manipulation"
+					>
+						Dismiss
+					</button>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 function ConfirmItemModal({
 	dishName,
 	unit,
@@ -1631,7 +1749,13 @@ function ItemGroupCard({
 	const dishAggregates = useMemo(() => {
 		const map = new Map<
 			string,
-			{ totalQty: number; pendingQty: number; fulfilledQty: number; cancelledQty: number }
+			{
+				totalQty: number;
+				pendingQty: number;
+				fulfilledQty: number;
+				cancelledQty: number;
+				tables: string[];
+			}
 		>();
 		for (const unit of group.units) {
 			const entry = map.get(unit.dishName) ?? {
@@ -1639,6 +1763,7 @@ function ItemGroupCard({
 				pendingQty: 0,
 				fulfilledQty: 0,
 				cancelledQty: 0,
+				tables: [],
 			};
 			entry.totalQty += 1;
 			if (unit.cancelled) {
@@ -1647,6 +1772,9 @@ function ItemGroupCard({
 				entry.fulfilledQty += 1;
 			} else {
 				entry.pendingQty += 1;
+			}
+			if (!unit.cancelled && !entry.tables.includes(unit.orderLabel)) {
+				entry.tables.push(unit.orderLabel);
 			}
 			map.set(unit.dishName, entry);
 		}
@@ -1668,15 +1796,36 @@ function ItemGroupCard({
 			{aggregatesView ? (
 				<ul className="px-4 pb-6 space-y-1">
 					{dishAggregates.map(
-						({ dishName, totalQty, pendingQty, fulfilledQty, cancelledQty }) => (
+						({
+							dishName,
+							totalQty,
+							pendingQty,
+							fulfilledQty,
+							cancelledQty,
+							tables,
+						}) => (
 							<li
 								key={dishName}
-								className="flex items-center gap-3 min-h-[52px] px-2 rounded-lg"
+								className="flex items-start gap-3 min-h-[52px] px-2 py-1.5 rounded-lg"
 							>
 								<QtyBadge qty={totalQty} />
-								<p className="text-base font-medium leading-snug min-w-0 flex-1">
-									{dishName}
-								</p>
+								<div className="min-w-0 flex-1">
+									<p className="text-base font-medium leading-snug">
+										{dishName}
+									</p>
+									{tables.length > 0 ? (
+										<div className="flex flex-wrap gap-1 mt-1">
+											{tables.map((table) => (
+												<span
+													key={table}
+													className="inline-flex items-center rounded-full bg-blue-50 border border-blue-200 px-1.5 text-xs font-semibold text-blue-700"
+												>
+													{table}
+												</span>
+											))}
+										</div>
+									) : null}
+								</div>
 								<div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
 									{pendingQty > 0 ? (
 										<span className="text-xs font-medium text-amber-700">
@@ -1765,6 +1914,9 @@ function ItemGroupCard({
 									{unit.dishName}
 								</p>
 								<p className="text-xs text-gray-500 flex items-center gap-1.5 mt-0.5 flex-wrap">
+									<span className="inline-flex items-center rounded-full bg-blue-50 border border-blue-200 px-1.5 font-semibold text-blue-700">
+										{unit.orderLabel}
+									</span>
 									<span>{formatOrderTime(unit.createdAt)}</span>
 									<QtyBadge qty={1} />
 									{unit.cancelled && unit.cancelReason ? (
@@ -1934,6 +2086,7 @@ export default function OrderPage() {
 	const [itemsAggregatesView, setItemsAggregatesView] = useState(false);
 	const [viewFiltersOpen, setViewFiltersOpen] = useState(false);
 	const [readyModalOpen, setReadyModalOpen] = useState(false);
+	const [showDayOpenWarning, setShowDayOpenWarning] = useState(false);
 	const [editingOrder, setEditingOrder] = useState<TOrder | null>(null);
 	const [pendingMarkDone, setPendingMarkDone] = useState<TOrder | null>(null);
 	const [pendingWelcomeDrink, setPendingWelcomeDrink] =
@@ -1973,6 +2126,13 @@ export default function OrderPage() {
 		dishName: string;
 		isParcel: boolean;
 	} | null>(null);
+	const [pendingFulfillItem, setPendingFulfillItem] = useState<{
+		orderId: string;
+		itemIndex: number;
+		unitIndex: number;
+		dishName: string;
+		isFulfilled: boolean;
+	} | null>(null);
 	const [pendingActions, setPendingActions] = useState<Record<string, boolean>>(
 		{}
 	);
@@ -1991,6 +2151,7 @@ export default function OrderPage() {
 	const dishCategoryMapRef = useRef(dishCategoryMap);
 	dishCategoryMapRef.current = dishCategoryMap;
 	const hasLoadedOnceRef = useRef(false);
+	const orderSignaturesRef = useRef<OrderSignatureMap | null>(null);
 
 	const readyOrders = useMemo(() => getReadyOrders(orders), [orders]);
 
@@ -2081,6 +2242,17 @@ export default function OrderPage() {
 	const applyOrderState = useCallback(
 		(nextOrders: TOrder[], categoryMap?: Record<string, string>) => {
 			const map = categoryMap ?? dishCategoryMapRef.current;
+
+			const nextSignatures = buildOrderSignatures(nextOrders);
+			const prevSignatures = orderSignaturesRef.current;
+			if (prevSignatures) {
+				const drafts = diffOrderSignatures(prevSignatures, nextSignatures);
+				if (drafts.length > 0) {
+					void addOrderNotifications(drafts);
+				}
+			}
+			orderSignaturesRef.current = nextSignatures;
+
 			setOrders(nextOrders);
 			setGroups(groupOrdersByTable(nextOrders));
 			setItemGroups(groupItemsByKitchenGroup(nextOrders, map));
@@ -2346,6 +2518,64 @@ export default function OrderPage() {
 		});
 	};
 
+	const handleRequestToggleFulfill = (
+		order: TOrder,
+		itemIndex: number,
+		unitIndex: number
+	) => {
+		const item = order.items[itemIndex];
+		if (!item || isOrderMarkedDone(order)) {
+			return;
+		}
+		const display = getOrderItemUnitDisplay(item, unitIndex);
+		if (display !== "pending" && display !== "fulfilled") {
+			return;
+		}
+		setPendingFulfillItem({
+			orderId: order.id,
+			itemIndex,
+			unitIndex,
+			dishName: item.name,
+			isFulfilled: display === "fulfilled",
+		});
+	};
+
+	const handleToggleFulfill = async () => {
+		if (!pendingFulfillItem) {
+			return;
+		}
+		const { orderId, itemIndex, unitIndex, isFulfilled } = pendingFulfillItem;
+		const order = orders.find((entry) => entry.id === orderId);
+		const item = order?.items[itemIndex];
+		const unitDisplay = item
+			? getOrderItemUnitDisplay(item, unitIndex)
+			: null;
+		if (
+			!order ||
+			!item ||
+			isOrderMarkedDone(order) ||
+			(unitDisplay !== "pending" && unitDisplay !== "fulfilled")
+		) {
+			setPendingFulfillItem(null);
+			return;
+		}
+		const key = `fulfill:${orderId}:${itemIndex}:${unitIndex}`;
+		await runConfirmingAction(key, async () => {
+			await persistOrders(
+				setItemUnitFulfilled(orders, orderId, itemIndex, unitIndex, !isFulfilled)
+			);
+			setPendingFulfillItem(null);
+		});
+	};
+
+	const handleNewOrderClick = () => {
+		if (checklistProgress.open.done === 0) {
+			setShowDayOpenWarning(true);
+			return;
+		}
+		router.push("/order/new");
+	};
+
 	const openNotesModal = (group: OrderGroup) => {
 		setEditingNotesGroup(group);
 		setNotesDraft(getGroupNotes(group) ?? "");
@@ -2595,6 +2825,7 @@ export default function OrderPage() {
 						</div>
 					</div>
 					<div className="flex items-center gap-2 shrink-0 justify-end">
+						<OrderNotificationsBell />
 						<OrderOpsSyncIndicator />
 						{readyOrders.length > 0 && (
 							<button
@@ -2650,6 +2881,7 @@ export default function OrderPage() {
 										onRequestMarkDone={setPendingMarkDone}
 										onRequestCancelItem={handleRequestCancelItem}
 										onRequestToggleParcel={handleRequestToggleParcel}
+										onRequestToggleFulfill={handleRequestToggleFulfill}
 									/>
 								))
 							)
@@ -2682,6 +2914,7 @@ export default function OrderPage() {
 									onRequestKidMenu={setPendingKidMenu}
 									onRequestCancelItem={handleRequestCancelItem}
 									onRequestToggleParcel={handleRequestToggleParcel}
+									onRequestToggleFulfill={handleRequestToggleFulfill}
 									onEditNotes={openNotesModal}
 									onChangeTable={openChangeTableModal}
 								/>
@@ -2739,7 +2972,7 @@ export default function OrderPage() {
 
 			<button
 				type="button"
-				onClick={() => router.push("/order/new")}
+				onClick={handleNewOrderClick}
 				className="fixed right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-green-500 text-white text-sm font-semibold shadow-lg px-4 hover:bg-green-600 touch-manipulation z-20"
 				aria-label="New order"
 			>
@@ -2766,6 +2999,20 @@ export default function OrderPage() {
 				<ReadyOrdersModal
 					orders={readyOrders}
 					onClose={() => setReadyModalOpen(false)}
+				/>
+			)}
+
+			{showDayOpenWarning && (
+				<DayOpenWarningModal
+					onGoToChecklist={() => {
+						setShowDayOpenWarning(false);
+						router.push("/order/day-open");
+					}}
+					onProceed={() => {
+						setShowDayOpenWarning(false);
+						router.push("/order/new");
+					}}
+					onClose={() => setShowDayOpenWarning(false)}
 				/>
 			)}
 
@@ -2903,6 +3150,30 @@ export default function OrderPage() {
 					order={editingOrder}
 					onClose={() => setEditingOrder(null)}
 					onSaved={() => loadOrders({ background: true })}
+				/>
+			)}
+
+			{pendingFulfillItem && (
+				<ConfirmOrderActionModal
+					title={
+						pendingFulfillItem.isFulfilled
+							? "Mark item not done?"
+							: "Mark item done?"
+					}
+					message={
+						pendingFulfillItem.isFulfilled
+							? `Move ${pendingFulfillItem.dishName} back to pending?`
+							: `Confirm ${pendingFulfillItem.dishName} is done?`
+					}
+					confirmLabel={
+						pendingFulfillItem.isFulfilled ? "Move to pending" : "Mark done"
+					}
+					confirming={
+						confirmingAction ===
+						`fulfill:${pendingFulfillItem.orderId}:${pendingFulfillItem.itemIndex}:${pendingFulfillItem.unitIndex}`
+					}
+					onCancel={() => setPendingFulfillItem(null)}
+					onConfirm={() => void handleToggleFulfill()}
 				/>
 			)}
 

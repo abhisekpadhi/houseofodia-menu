@@ -91,7 +91,7 @@ const Receipt = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="sticky top-0 z-10 bg-white border-b px-6 py-4 print:hidden">
+      <div className="ops-sticky-header bg-white border-b px-6 pb-4 print:hidden">
         <div className="flex items-center justify-between">
           <button
             type="button"
