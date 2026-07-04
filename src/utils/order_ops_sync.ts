@@ -29,6 +29,11 @@ import {
 	upsertOrdersInHistory,
 } from '@/src/utils/order_history';
 import { maintainOrders } from '@/src/utils/order_utils';
+import {
+	addOrderNotifications,
+	buildOrderSignatures,
+	diffOrderSignatures,
+} from '@/src/utils/order_notifications';
 import { applyDayChecklistSnapshot } from '@/src/utils/day_checklist_utils';
 import { applySupplyInventorySnapshot } from '@/src/utils/supply_inventory_utils';
 import { applyWaitlistSnapshot } from '@/src/utils/waitlist_utils';
@@ -167,14 +172,21 @@ export async function applyOrderOpsSnapshot(
 			shouldApplyDomain(localVersions, remoteVersions, 'orders', legacyApplyAll)
 		) {
 			const existing = await localforage.getItem<TOrdersStore>(ORDERS_KEY);
-			const beforeIds = new Set(
-				(existing?.orders ?? []).map((order) => order.id)
-			);
+			const beforeOrders = existing?.orders ?? [];
+			const beforeIds = new Set(beforeOrders.map((order) => order.id));
 
 			const maintained = maintainOrders(payload.orders, Date.now());
 			newOrderIds = maintained
 				.filter((order) => !beforeIds.has(order.id))
 				.map((order) => order.id);
+
+			const notificationDrafts = diffOrderSignatures(
+				buildOrderSignatures(beforeOrders),
+				buildOrderSignatures(maintained)
+			);
+			if (notificationDrafts.length > 0) {
+				await addOrderNotifications(notificationDrafts);
+			}
 
 			await localforage.setItem<TOrdersStore>(ORDERS_KEY, {
 				orders: maintained,

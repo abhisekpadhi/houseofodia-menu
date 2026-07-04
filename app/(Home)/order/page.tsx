@@ -74,12 +74,6 @@ import { EditOrderModal } from "@/components/feature/order/edit-order-modal";
 import { CancelItemModal } from "@/components/feature/order/cancel-item-modal";
 import { OrderOpsSyncIndicator } from "@/components/feature/order/order-ops-sync-indicator";
 import { OrderNotificationsBell } from "@/components/feature/order/order-notifications";
-import {
-	addOrderNotifications,
-	buildOrderSignatures,
-	diffOrderSignatures,
-	type OrderSignatureMap,
-} from "@/src/utils/order_notifications";
 import { OpsMenuButton } from "@/components/feature/layout/ops-drawer";
 import {
 	ConfirmModalActions,
@@ -2151,7 +2145,6 @@ export default function OrderPage() {
 	const dishCategoryMapRef = useRef(dishCategoryMap);
 	dishCategoryMapRef.current = dishCategoryMap;
 	const hasLoadedOnceRef = useRef(false);
-	const orderSignaturesRef = useRef<OrderSignatureMap | null>(null);
 
 	const readyOrders = useMemo(() => getReadyOrders(orders), [orders]);
 
@@ -2242,17 +2235,6 @@ export default function OrderPage() {
 	const applyOrderState = useCallback(
 		(nextOrders: TOrder[], categoryMap?: Record<string, string>) => {
 			const map = categoryMap ?? dishCategoryMapRef.current;
-
-			const nextSignatures = buildOrderSignatures(nextOrders);
-			const prevSignatures = orderSignaturesRef.current;
-			if (prevSignatures) {
-				const drafts = diffOrderSignatures(prevSignatures, nextSignatures);
-				if (drafts.length > 0) {
-					void addOrderNotifications(drafts);
-				}
-			}
-			orderSignaturesRef.current = nextSignatures;
-
 			setOrders(nextOrders);
 			setGroups(groupOrdersByTable(nextOrders));
 			setItemGroups(groupItemsByKitchenGroup(nextOrders, map));
