@@ -219,6 +219,31 @@ const DAY_CLOSE_CHECKLIST: DayChecklistSection[] = [
 				label: 'Cleaning trolley empty & cleared',
 			},
 			{ id: 'k-close-glass-doors', label: 'Glass doors cleaned' },
+			{
+				id: 'k-close-cockroach-spray',
+				label: 'Cockroach spray on table legs',
+			},
+			{
+				id: 'k-close-photo-areas',
+				label:
+					'Take photo of washing area, plating area, grocery storage, wash area, packaging, material area, deep freezer, fridge, table, wears',
+			},
+			{
+				id: 'k-close-photo-under-tables',
+				label: 'Take photo of below the tables',
+			},
+			{
+				id: 'k-close-taste-filter-water',
+				label: 'Taste the water from filters',
+			},
+			{
+				id: 'k-close-cctv',
+				label: 'Verify all CCTV are working before closing',
+			},
+			{
+				id: 'k-close-fridge-corners',
+				label: 'Check corners inside fridge — no insects, no spoilage',
+			},
 		],
 	},
 ];
