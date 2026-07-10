@@ -33,6 +33,7 @@ import {
 	normalizeOrderItem,
 	parseTableParam,
 	formatCustomerContact,
+	isParcelDefaultOnForOrderKind,
 } from "@/src/utils/order_utils";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -373,20 +374,38 @@ function AddOrderContent() {
 	const canAddMore = (name: string) =>
 		!isOutOfStock(inventory, name, quantities[name] ?? 0);
 
+	const parcelDefaultOn = isParcelDefaultOnForOrderKind(orderKind);
+	const showParcelToggle =
+		orderKind === "table" ||
+		orderKind === "takeaway" ||
+		orderKind === "delivery";
+
+	const remapParcelUnitsForKind = useCallback(
+		(kind: OrderKind, qtyByName: Record<string, number>) => {
+			const defaultOn = isParcelDefaultOnForOrderKind(kind);
+			const next: Record<string, boolean[]> = {};
+			for (const [name, qty] of Object.entries(qtyByName)) {
+				if (qty > 0) {
+					next[name] = Array.from({ length: qty }, () => defaultOn);
+				}
+			}
+			return next;
+		},
+		[]
+	);
+
 	const getParcelUnitsForName = (name: string, qty = quantities[name] ?? 0) =>
-		resizeParcelUnits(parcelUnitsByName[name], qty);
+		resizeParcelUnits(parcelUnitsByName[name], qty, parcelDefaultOn);
 
 	const toggleParcelUnit = (name: string, unitIndex: number) => {
 		setParcelUnitsByName((prev) => {
 			const qty = quantities[name] ?? 0;
-			const units = resizeParcelUnits(prev[name], qty);
+			const units = resizeParcelUnits(prev[name], qty, parcelDefaultOn);
 			const next = [...units];
 			next[unitIndex] = !next[unitIndex];
 			return { ...prev, [name]: next };
 		});
 	};
-
-	const showParcelToggle = orderKind === "table";
 
 	const isSetupComplete =
 		!needsTableSelection &&
@@ -494,9 +513,18 @@ function AddOrderContent() {
 		const price = Number.isNaN(priceNumber) ? 0 : priceNumber;
 
 		setItemPrices((prev) => ({ ...prev, [item.name]: price }));
+		const nextQty = (quantities[item.name] ?? 0) + 1;
 		setQuantities((prev) => ({
 			...prev,
-			[item.name]: (prev[item.name] ?? 0) + 1,
+			[item.name]: nextQty,
+		}));
+		setParcelUnitsByName((parcelPrev) => ({
+			...parcelPrev,
+			[item.name]: resizeParcelUnits(
+				parcelPrev[item.name],
+				nextQty,
+				parcelDefaultOn
+			),
 		}));
 	};
 
@@ -524,7 +552,11 @@ function AddOrderContent() {
 		setQuantities((prev) => ({ ...prev, [item.name]: nextQty }));
 		setParcelUnitsByName((parcelPrev) => ({
 			...parcelPrev,
-			[item.name]: resizeParcelUnits(parcelPrev[item.name], nextQty),
+			[item.name]: resizeParcelUnits(
+				parcelPrev[item.name],
+				nextQty,
+				parcelDefaultOn
+			),
 		}));
 	};
 
@@ -665,6 +697,7 @@ function AddOrderContent() {
 												setSelectedTables([]);
 											}
 											setPax("");
+											setParcelUnitsByName(remapParcelUnitsForKind(kind, quantities));
 										}}
 										className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold capitalize transition-colors touch-manipulation ${
 											orderKind === kind

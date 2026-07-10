@@ -37,6 +37,7 @@ import {
 import { applyDayChecklistSnapshot } from '@/src/utils/day_checklist_utils';
 import { applySupplyInventorySnapshot } from '@/src/utils/supply_inventory_utils';
 import { applyWaitlistSnapshot } from '@/src/utils/waitlist_utils';
+import { applyServiceRequestsSnapshot } from '@/src/utils/service_requests_utils';
 import localforage from 'localforage';
 
 const ORDERS_KEY = 'orders';
@@ -259,6 +260,22 @@ export async function applyOrderOpsSnapshot(
 		) {
 			await applyWaitlistSnapshot(payload.businessDate, payload.waitlist);
 			appliedVersions.waitlist = remoteVersions.waitlist;
+		}
+
+		if (
+			shouldApplyDomain(
+				localVersions,
+				remoteVersions,
+				'serviceRequests',
+				legacyApplyAll
+			) &&
+			payload.serviceRequests
+		) {
+			await applyServiceRequestsSnapshot(
+				payload.businessDate,
+				payload.serviceRequests
+			);
+			appliedVersions.serviceRequests = remoteVersions.serviceRequests;
 		}
 
 		await setOrderOpsMetaVersions(appliedVersions, payload.businessDate);

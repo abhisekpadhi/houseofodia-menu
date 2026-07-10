@@ -56,12 +56,23 @@ function buildUnitStatesFromLegacy(item: TOrderItem): OrderItemUnitState[] {
 	);
 }
 
-function normalizeParcelUnits(item: TOrderItem, qty: number): boolean[] {
+export function isParcelDefaultOnForOrderKind(kind: OrderKind): boolean {
+	return kind === 'takeaway' || kind === 'delivery';
+}
+
+function normalizeParcelUnits(
+	item: TOrderItem,
+	qty: number,
+	defaultUnitValue = false
+): boolean[] {
 	const existing = item.parcelUnits ?? [];
 	if (existing.length < qty) {
 		return [
 			...existing,
-			...Array.from({ length: qty - existing.length }, () => false),
+			...Array.from(
+				{ length: qty - existing.length },
+				() => defaultUnitValue
+			),
 		];
 	}
 	return existing.slice(0, qty);
@@ -216,6 +227,7 @@ export function normalizeOrderItemsAfterEdit(
 					states = previous.slice(0, item.qty);
 					parcelUnits = previousParcel.slice(0, item.qty);
 				} else {
+					const defaultParcel = isParcelDefaultOnForOrderKind(order.kind);
 					states = [
 						...previous,
 						...Array.from(
@@ -227,12 +239,14 @@ export function normalizeOrderItemsAfterEdit(
 						...previousParcel,
 						...Array.from(
 							{ length: item.qty - previousParcel.length },
-							() => false
+							() => defaultParcel
 						),
 					];
 				}
 			} else {
+				const defaultParcel = isParcelDefaultOnForOrderKind(order.kind);
 				states = Array.from({ length: item.qty }, () => 'pending' as const);
+				parcelUnits = Array.from({ length: item.qty }, () => defaultParcel);
 			}
 			return normalizeOrderItem({ ...item, unitStates: states, parcelUnits });
 		});
@@ -322,7 +336,7 @@ export function orderGroupToCart(group: OrderGroup): TCart {
 				if (isUnitStateCancelled(states[unitIndex])) {
 					continue;
 				}
-				if (order.kind === 'table' && isItemUnitParcel(normalized, unitIndex)) {
+				if (isItemUnitParcel(normalized, unitIndex)) {
 					parcelQty += 1;
 				} else {
 					regularQty += 1;
@@ -346,9 +360,13 @@ export function groupHasBillableItems(group: OrderGroup): boolean {
 	return orderGroupToCart(group).items.length > 0;
 }
 
-/** Billable units that need packaging: all units for takeaway; parcel units for table. */
+/** Billable units marked for parcel packaging (table, takeaway, delivery). */
 export function getPackagingUnitCount(group: OrderGroup): number {
-	if (group.kind !== 'table' && group.kind !== 'takeaway') {
+	if (
+		group.kind !== 'table' &&
+		group.kind !== 'takeaway' &&
+		group.kind !== 'delivery'
+	) {
 		return 0;
 	}
 
@@ -367,7 +385,14 @@ export function getPackagingUnitCount(group: OrderGroup): number {
 					continue;
 				}
 				if (group.kind === 'takeaway') {
-					count += 1;
+					const parcelUnits = normalized.parcelUnits ?? [];
+					const hasAnyParcelFlag = parcelUnits.some((flag) => flag === true);
+					if (!hasAnyParcelFlag) {
+						// Legacy takeaway orders without parcel flags: all units packaged.
+						count += 1;
+					} else if (isItemUnitParcel(normalized, unitIndex)) {
+						count += 1;
+					}
 				} else if (isItemUnitParcel(normalized, unitIndex)) {
 					count += 1;
 				}

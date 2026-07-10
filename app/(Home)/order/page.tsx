@@ -82,6 +82,20 @@ import {
 	TouchIconButton,
 } from "@/components/ui/touch-controls";
 import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
+import {
+	ServiceRequest,
+	ServiceRequestKind,
+} from "@/src/models/service_requests";
+import { ServiceRequestStories } from "@/components/feature/order/service-request-stories";
+import { ServiceRequestModal } from "@/components/feature/order/service-request-modal";
+import {
+	createServiceRequest,
+	getPendingCountsForTables,
+	getServiceRequests,
+	markTableKindDone,
+} from "@/src/utils/service_requests_utils";
+import { SERVICE_REQUEST_KIND_EMOJI } from "@/src/models/service_requests";
+import { getStableDeviceId } from "@/src/utils/order_ops_meta";
 import axios from "axios";
 import localforage from "localforage";
 import Link from "next/link";
@@ -1101,9 +1115,44 @@ function GroupNotesModal({
 	);
 }
 
+function ServiceRequestBadges({
+	counts,
+}: {
+	counts: Record<ServiceRequestKind, number>;
+}) {
+	const items = (
+		(
+			["rice", "cutlery", "water"] as const
+		).map((kind) => ({
+			kind,
+			emoji: SERVICE_REQUEST_KIND_EMOJI[kind],
+			qty: counts[kind],
+		}))
+	).filter((item) => item.qty > 0);
+
+	if (items.length === 0) {
+		return null;
+	}
+
+	return (
+		<div className="flex flex-wrap gap-1.5">
+			{items.map((item) => (
+				<span
+					key={item.kind}
+					className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 border border-amber-300 px-2 py-0.5 text-xs font-semibold text-amber-900"
+				>
+					<span>{item.emoji}</span>
+					<span>×{item.qty}</span>
+				</span>
+			))}
+		</div>
+	);
+}
+
 function TableOrderCard({
 	group,
 	now,
+	serviceRequestCounts,
 	isActionPending,
 	onBill,
 	onEditOrder,
@@ -1120,6 +1169,7 @@ function TableOrderCard({
 }: {
 	group: OrderGroup;
 	now: number;
+	serviceRequestCounts: Record<ServiceRequestKind, number>;
 	isActionPending: (key: string) => boolean;
 	onBill: (group: OrderGroup) => void;
 	onEditOrder: (order: TOrder) => void;
@@ -1287,6 +1337,9 @@ function TableOrderCard({
 						<span className="font-semibold text-gray-700">Note:</span>{" "}
 						{groupNotes}
 					</p>
+				) : null}
+				{group.kind === "table" ? (
+					<ServiceRequestBadges counts={serviceRequestCounts} />
 				) : null}
 				<p className="text-xs text-gray-500">
 					{group.orders.length} order{group.orders.length === 1 ? "" : "s"}
@@ -1639,17 +1692,17 @@ function DayOpenWarningModal({
 				<div className="p-4 space-y-2">
 					<button
 						type="button"
-						onClick={onGoToChecklist}
+						onClick={onProceed}
 						className="w-full min-h-[48px] inline-flex items-center justify-center rounded-lg bg-red-600 text-white text-sm font-bold touch-manipulation active:bg-red-700"
 					>
-						Open day open checklist
+						Take order anyway
 					</button>
 					<button
 						type="button"
-						onClick={onProceed}
+						onClick={onGoToChecklist}
 						className="w-full min-h-[48px] inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-700 text-sm font-semibold touch-manipulation active:bg-gray-100"
 					>
-						Take order anyway
+						Open day open checklist
 					</button>
 					<button
 						type="button"
@@ -2127,6 +2180,11 @@ export default function OrderPage() {
 		dishName: string;
 		isFulfilled: boolean;
 	} | null>(null);
+	const [serviceRequests, setServiceRequests] = useState<ServiceRequest[]>([]);
+	const [activeServiceRequestKind, setActiveServiceRequestKind] =
+		useState<ServiceRequestKind | null>(null);
+	const [serviceRequestSubmitting, setServiceRequestSubmitting] =
+		useState(false);
 	const [pendingActions, setPendingActions] = useState<Record<string, boolean>>(
 		{}
 	);
@@ -2267,6 +2325,15 @@ export default function OrderPage() {
 		}
 	}, []);
 
+	const loadServiceRequests = useCallback(async () => {
+		try {
+			const entries = await getServiceRequests();
+			setServiceRequests(entries);
+		} catch (error) {
+			console.error("Failed to load service requests:", error);
+		}
+	}, []);
+
 	const loadOrders = useCallback((options?: { background?: boolean }) => {
 		if (!options?.background && !hasLoadedOnceRef.current) {
 			setLoading(true);
@@ -2308,23 +2375,26 @@ export default function OrderPage() {
 
 		loadOrders();
 		void loadChecklistProgress();
+		void loadServiceRequests();
 
 		const onFocus = () => {
 			loadOrders({ background: true });
 			void loadChecklistProgress();
+			void loadServiceRequests();
 		};
 		window.addEventListener("focus", onFocus);
 		return () => window.removeEventListener("focus", onFocus);
-	}, [pathname, loadOrders, loadChecklistProgress]);
+	}, [pathname, loadOrders, loadChecklistProgress, loadServiceRequests]);
 
 	useEffect(() => {
 		const onOrderOpsUpdated = () => {
 			loadOrders({ background: true });
 			void loadChecklistProgress();
+			void loadServiceRequests();
 		};
 		window.addEventListener(ORDER_OPS_EVENT, onOrderOpsUpdated);
 		return () => window.removeEventListener(ORDER_OPS_EVENT, onOrderOpsUpdated);
-	}, [loadOrders, loadChecklistProgress]);
+	}, [loadOrders, loadChecklistProgress, loadServiceRequests]);
 
 	useEffect(() => {
 		const interval = setInterval(() => {
@@ -2358,6 +2428,48 @@ export default function OrderPage() {
 	const persistOrders = async (nextOrders: TOrder[]) => {
 		const maintained = await updateOrders(nextOrders, Date.now());
 		applyOrderState(maintained);
+	};
+
+	const handleServiceRequest = async (tableNumber: number, qty: number) => {
+		if (!activeServiceRequestKind) {
+			return;
+		}
+		setServiceRequestSubmitting(true);
+		try {
+			const updated = await createServiceRequest({
+				kind: activeServiceRequestKind,
+				tableNumber,
+				qty,
+				deviceId: getStableDeviceId(),
+			});
+			setServiceRequests(updated);
+			setActiveServiceRequestKind(null);
+		} catch (error) {
+			console.error("Failed to create service request:", error);
+			alert("Could not save request. Try again.");
+		} finally {
+			setServiceRequestSubmitting(false);
+		}
+	};
+
+	const handleServiceRequestMarkDone = async (tableNumber: number) => {
+		if (!activeServiceRequestKind) {
+			return;
+		}
+		setServiceRequestSubmitting(true);
+		try {
+			const updated = await markTableKindDone({
+				kind: activeServiceRequestKind,
+				tableNumber,
+				deviceId: getStableDeviceId(),
+			});
+			setServiceRequests(updated);
+		} catch (error) {
+			console.error("Failed to mark service request done:", error);
+			alert("Could not update request. Try again.");
+		} finally {
+			setServiceRequestSubmitting(false);
+		}
 	};
 
 	const handleToggleDishUnit = async (
@@ -2821,6 +2933,10 @@ export default function OrderPage() {
 						)}
 					</div>
 				</div>
+				<ServiceRequestStories
+					requests={serviceRequests}
+					onSelectKind={setActiveServiceRequestKind}
+				/>
 			</div>
 
 			<div className="px-6 pb-6 pt-1 space-y-4">
@@ -2886,6 +3002,10 @@ export default function OrderPage() {
 									key={group.key}
 									group={group}
 									now={now}
+									serviceRequestCounts={getPendingCountsForTables(
+										serviceRequests,
+										group.tableNumbers ?? []
+									)}
 									isActionPending={isActionPending}
 									onBill={handleBill}
 									onEditOrder={setEditingOrder}
@@ -3077,6 +3197,22 @@ export default function OrderPage() {
 					onConfirm={() => void handleConfirmChangeTable()}
 				/>
 			)}
+
+			{activeServiceRequestKind ? (
+				<ServiceRequestModal
+					kind={activeServiceRequestKind}
+					requests={serviceRequests}
+					occupiedTables={Array.from(occupiedTables)}
+					submitting={serviceRequestSubmitting}
+					onClose={() => setActiveServiceRequestKind(null)}
+					onRequest={(tableNumber, qty) =>
+						void handleServiceRequest(tableNumber, qty)
+					}
+					onMarkDone={(tableNumber) =>
+						void handleServiceRequestMarkDone(tableNumber)
+					}
+				/>
+			) : null}
 
 			{pendingBillGroup && (
 				<WaterBottlesModal

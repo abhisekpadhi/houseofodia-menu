@@ -10,7 +10,7 @@ import axios from "axios";
 import localforage from "localforage";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { FaPlus, FaPrint } from "react-icons/fa";
+import { FaCheck, FaPrint } from "react-icons/fa";
 
 const Divider = () => {
   return <div className="my-2 border-t border-solid border-black" />;
@@ -22,6 +22,8 @@ const Receipt = () => {
   const [billingContext, setBillingContext] =
     useState<BillingContext | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [fullSize, setFullSize] = useState(false);
+  const [showPaymentQr, setShowPaymentQr] = useState(true);
   useEffect(() => {
     localforage.getItem<TBill>("bill").then((data) => {
       if (data) {
@@ -50,7 +52,7 @@ const Receipt = () => {
   );
   const upiAmount = Math.max(0, bill.payable);
   const upiPayload = `upi://pay?pa=q030249494@ybl&pn=Tangify&am=${upiAmount}&cu=INR`;
-  const upiQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=225x225&data=${encodeURIComponent(
+  const upiQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${fullSize ? "300x300" : "225x225"}&data=${encodeURIComponent(
     upiPayload
   )}`;
 
@@ -105,10 +107,19 @@ const Receipt = () => {
         </div>
       </div>
       <div
-        className="text-xs"
-        style={{ maxWidth: "58mm", fontFamily: "Helvetica" }}
+        className={
+          fullSize
+            ? "w-full px-6 py-4 text-base print:px-0"
+            : "text-xs"
+        }
+        style={{
+          maxWidth: fullSize ? undefined : "58mm",
+          fontFamily: "Helvetica",
+        }}
       >
-        <h1 className="text-center font-bold">Tangify</h1>
+        <h1 className={`text-center font-bold${fullSize ? " text-2xl" : ""}`}>
+          Tangify
+        </h1>
         <p className="text-center">Estimate</p>
         <p className="text-center">Sarjapura, BLR, KA - 562125</p>
         <p className="text-center">Ph: 7760601643</p>
@@ -168,16 +179,18 @@ const Receipt = () => {
           <span>₹{bill.payable}</span>
         </div>
         <p className="text-center mt-2">Thank you. Please visit again.</p>
-        <div className="mt-3 flex flex-col items-center">
-          <p className="text-center font-semibold">Scan & Pay (UPI)</p>
-          <img
-            src={upiQrUrl}
-            alt={`UPI QR for ₹${upiAmount}`}
-            width={140}
-            height={140}
-            className="mt-1"
-          />
-        </div>
+        {showPaymentQr ? (
+          <div className="mt-3 flex flex-col items-center">
+            <p className="text-center font-semibold">Scan & Pay (UPI)</p>
+            <img
+              src={upiQrUrl}
+              alt={`UPI QR for ₹${upiAmount}`}
+              width={fullSize ? 220 : 140}
+              height={fullSize ? 220 : 140}
+              className="mt-1"
+            />
+          </div>
+        ) : null}
         <br />
         <br />
         <br />
@@ -193,10 +206,26 @@ const Receipt = () => {
 
         <button
           type="button"
+          className="w-full py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors"
+          onClick={() => setFullSize((value) => !value)}
+        >
+          {fullSize ? "Receipt size (58mm)" : "Full size"}
+        </button>
+
+        <button
+          type="button"
+          className="w-full py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors"
+          onClick={() => setShowPaymentQr((value) => !value)}
+        >
+          {showPaymentQr ? "Hide payment QR" : "Show payment QR"}
+        </button>
+
+        <button
+          type="button"
           className="w-full py-3 rounded-lg bg-black hover:bg-gray-800 text-white text-sm font-bold flex items-center justify-center transition-colors"
           onClick={onClickCloseTable}
         >
-          <FaPlus className="mr-2" /> Close table
+          <FaCheck className="mr-2" /> Close table
         </button>
       </div>
     </div>

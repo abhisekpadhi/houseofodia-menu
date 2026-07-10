@@ -49,13 +49,17 @@ export function ParcelUnitButtons({
 
 export function resizeParcelUnits(
 	current: boolean[] | undefined,
-	qty: number
+	qty: number,
+	defaultUnitValue = false
 ): boolean[] {
 	const existing = current ?? [];
 	if (existing.length < qty) {
 		return [
 			...existing,
-			...Array.from({ length: qty - existing.length }, () => false),
+			...Array.from(
+				{ length: qty - existing.length },
+				() => defaultUnitValue
+			),
 		];
 	}
 	return existing.slice(0, qty);

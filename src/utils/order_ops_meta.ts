@@ -22,6 +22,7 @@ import { getOrdersStore, maintainOrders } from '@/src/utils/order_utils';
 import { getDayChecklistSnapshotForDate, pruneDayChecklistsForToday } from '@/src/utils/day_checklist_utils';
 import { getSupplyInventorySnapshotForDate } from '@/src/utils/supply_inventory_utils';
 import { getWaitlistSnapshotForDate } from '@/src/utils/waitlist_utils';
+import { getServiceRequestsSnapshotForDate } from '@/src/utils/service_requests_utils';
 import localforage from 'localforage';
 
 const DEVICE_ID_PATTERN =
@@ -199,11 +200,13 @@ export async function buildOrderOpsSnapshot(): Promise<OrderOpsSnapshot> {
 	const orders = maintainOrders(store.orders, Date.now());
 	const inventory = await getInventorySnapshotForDate(businessDate);
 	const orderHistory = await getTodayOrderHistory();
-	const [dayChecklists, supplyInventory, waitlist] = await Promise.all([
-		getDayChecklistSnapshotForDate(businessDate),
-		getSupplyInventorySnapshotForDate(businessDate),
-		getWaitlistSnapshotForDate(businessDate),
-	]);
+	const [dayChecklists, supplyInventory, waitlist, serviceRequests] =
+		await Promise.all([
+			getDayChecklistSnapshotForDate(businessDate),
+			getSupplyInventorySnapshotForDate(businessDate),
+			getWaitlistSnapshotForDate(businessDate),
+			getServiceRequestsSnapshotForDate(businessDate),
+		]);
 
 	return {
 		deviceId: meta.deviceId,
@@ -216,6 +219,7 @@ export async function buildOrderOpsSnapshot(): Promise<OrderOpsSnapshot> {
 		dayChecklists,
 		supplyInventory,
 		waitlist,
+		serviceRequests,
 		sentAt: Date.now(),
 	};
 }

@@ -1,4 +1,5 @@
 import { TOrder } from '@/src/models/common';
+import { ServiceRequest } from '@/src/models/service_requests';
 
 export const ORDER_OPS_CHANNEL_DEFAULT = 'order_ops';
 
@@ -23,6 +24,7 @@ export const ORDER_OPS_DOMAINS = [
 	'waitlist',
 	'dayChecklists',
 	'supplyInventory',
+	'serviceRequests',
 ] as const;
 
 export type OrderOpsDomain = (typeof ORDER_OPS_DOMAINS)[number];
@@ -35,6 +37,7 @@ export const ZERO_ORDER_OPS_VERSIONS: OrderOpsVersions = {
 	waitlist: 0,
 	dayChecklists: 0,
 	supplyInventory: 0,
+	serviceRequests: 0,
 };
 
 export function maxOrderOpsVersion(versions: OrderOpsVersions): number {
@@ -49,6 +52,7 @@ export function versionsFromLegacyStateVersion(stateVersion: number): OrderOpsVe
 		waitlist: version,
 		dayChecklists: version,
 		supplyInventory: version,
+		serviceRequests: version,
 	};
 }
 
@@ -79,6 +83,7 @@ export function mergeOrderOpsVersions(
 		waitlist: Math.max(local.waitlist, remote.waitlist),
 		dayChecklists: Math.max(local.dayChecklists, remote.dayChecklists),
 		supplyInventory: Math.max(local.supplyInventory, remote.supplyInventory),
+		serviceRequests: Math.max(local.serviceRequests, remote.serviceRequests),
 	};
 }
 
@@ -126,6 +131,7 @@ export type OrderOpsSnapshot = {
 		createdAt: number;
 		checkedAt?: number;
 	}>;
+	serviceRequests?: ServiceRequest[];
 	sentAt: number;
 };
 
