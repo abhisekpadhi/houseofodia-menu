@@ -6,7 +6,16 @@ import {
   TouchActionButton,
   TouchIconButton,
 } from "@/components/ui/touch-controls";
-import { TCart, TDish, TMenu, TMenuApiItem } from "@/src/models/common";
+import {
+  BillingContext,
+  BILLING_CONTEXT_KEY,
+  TCart,
+  TDish,
+  TMenu,
+  TMenuApiItem,
+} from "@/src/models/common";
+import { saveBillingSession } from "@/src/utils/billing_state";
+import { notifyOrderOpsChange } from "@/src/utils/order_ops_sync";
 import {
   fetchAndCacheMenuItems,
   getCachedMenuItems,
@@ -176,7 +185,24 @@ const FreeflowPage: React.FC = () => {
     return filtered;
   }, [allItems, selectedCategory, searchTerm]);
 
-  const goToCart = () => {
+  const goToCart = async () => {
+    let context =
+      await localforage.getItem<BillingContext>(BILLING_CONTEXT_KEY);
+    if (!context || context.source !== "freeflow" || !context.sessionId) {
+      const sessionId = `freeflow:${crypto.randomUUID()}`;
+      context = {
+        source: "freeflow",
+        sessionId,
+        groupKey: sessionId,
+        kind: "takeaway",
+        tableNumbers: [],
+        label: "Freeflow",
+      };
+      await localforage.setItem(BILLING_CONTEXT_KEY, context);
+    }
+    const cart = (await localforage.getItem<TCart>("cart")) ?? { items: [] };
+    await saveBillingSession(context, cart);
+    await notifyOrderOpsChange("billing");
     router.push("/cart");
   };
 

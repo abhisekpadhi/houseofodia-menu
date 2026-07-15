@@ -46,6 +46,8 @@ export type TCart = {items: TDish[]}
 
 export type TBill = {
 	billNumber: string;
+	sessionId: string;
+	stateKey: string;
 	date: string;
 	time: string;
 	cart: TCart;
@@ -54,6 +56,11 @@ export type TBill = {
 	sgst: number;
 	payable: number;
 	method: string;
+	membership?: 'none' | 'monthly' | 'yearly';
+	backendBillId?: string;
+	backendStatus?: 'idle' | 'saving' | 'saved' | 'failed';
+	backendSavedAt?: number;
+	updatedAt: number;
 	/** Rounded-up 10% service charge on discounted subtotal; 0 if not applied */
 	staffWelfare?: number;
 }
@@ -102,7 +109,8 @@ export type TOrdersStore = {
 };
 
 export type BillingContext = {
-	source: 'orders';
+	source: 'orders' | 'freeflow';
+	sessionId: string;
 	groupKey: string;
 	kind: OrderKind;
 	tableNumbers: number[];
@@ -110,6 +118,15 @@ export type BillingContext = {
 };
 
 export const BILLING_CONTEXT_KEY = 'billingContext';
+export const BILLING_SESSIONS_KEY = 'billing_sessions';
+
+export type BillingSessionState = {
+	sessionId: string;
+	context: BillingContext;
+	cart: TCart;
+	bill?: TBill;
+	updatedAt: number;
+};
 
 export type OrderGroup = {
 	key: string;

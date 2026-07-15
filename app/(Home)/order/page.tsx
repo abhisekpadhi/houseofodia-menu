@@ -96,6 +96,8 @@ import {
 } from "@/src/utils/service_requests_utils";
 import { SERVICE_REQUEST_KIND_EMOJI } from "@/src/models/service_requests";
 import { getStableDeviceId } from "@/src/utils/order_ops_meta";
+import { saveBillingSession } from "@/src/utils/billing_state";
+import { notifyOrderOpsChange } from "@/src/utils/order_ops_sync";
 import axios from "axios";
 import localforage from "localforage";
 import Link from "next/link";
@@ -1528,6 +1530,32 @@ function WaterBottlesModal({
 }) {
 	const parsedCount = parseInt(value.trim(), 10);
 	const count = Number.isNaN(parsedCount) ? 0 : parsedCount;
+	const [visibleViewport, setVisibleViewport] = useState<{
+		top: number;
+		height: number;
+	} | null>(null);
+
+	useEffect(() => {
+		const viewport = window.visualViewport;
+		if (!viewport) {
+			return;
+		}
+
+		const updateVisibleViewport = () => {
+			setVisibleViewport({
+				top: viewport.offsetTop,
+				height: viewport.height,
+			});
+		};
+
+		updateVisibleViewport();
+		viewport.addEventListener("resize", updateVisibleViewport);
+		viewport.addEventListener("scroll", updateVisibleViewport);
+		return () => {
+			viewport.removeEventListener("resize", updateVisibleViewport);
+			viewport.removeEventListener("scroll", updateVisibleViewport);
+		};
+	}, []);
 
 	const decrement = () => {
 		onChange(String(Math.max(0, count - 1)));
@@ -1539,7 +1567,15 @@ function WaterBottlesModal({
 
 	return (
 		<div
-			className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+			className="fixed left-0 right-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 px-4 py-4 transition-[top,height] duration-150"
+			style={
+				visibleViewport
+					? {
+							top: `${visibleViewport.top}px`,
+							height: `${visibleViewport.height}px`,
+						}
+					: { top: 0, bottom: 0 }
+			}
 			onClick={() => {
 				if (!confirming) {
 					onCancel();
@@ -1547,7 +1583,7 @@ function WaterBottlesModal({
 			}}
 		>
 			<div
-				className="w-full max-w-sm rounded-xl bg-white shadow-xl"
+				className="max-h-full w-full max-w-sm overflow-y-auto rounded-xl bg-white shadow-xl"
 				onClick={(event) => event.stopPropagation()}
 			>
 				<div className="px-5 py-4 border-b">
@@ -2758,8 +2794,13 @@ export default function OrderPage() {
 			return;
 		}
 		const cart = await orderGroupToBillCart(group);
+		const oldestOrder = group.orders.reduce((oldest, order) =>
+			order.createdAt < oldest.createdAt ? order : oldest
+		);
+		const sessionId = `order-session:${oldestOrder.id}`;
 		const billingContext: BillingContext = {
 			source: "orders",
+			sessionId,
 			groupKey: group.key,
 			kind: group.kind,
 			tableNumbers: group.tableNumbers ?? [],
@@ -2767,6 +2808,8 @@ export default function OrderPage() {
 		};
 		await localforage.setItem<TCart>("cart", cart);
 		await localforage.setItem(BILLING_CONTEXT_KEY, billingContext);
+		await saveBillingSession(billingContext, cart);
+		await notifyOrderOpsChange("billing");
 		router.push("/cart");
 	};
 
@@ -2843,8 +2886,12 @@ export default function OrderPage() {
 
 	const handleCloseTable = async (group: OrderGroup) => {
 		await runConfirmingAction(`close:${group.key}`, async () => {
+			const oldestOrder = group.orders.reduce((oldest, order) =>
+				order.createdAt < oldest.createdAt ? order : oldest
+			);
 			const billingContext: BillingContext = {
 				source: "orders",
+				sessionId: `order-session:${oldestOrder.id}`,
 				groupKey: group.key,
 				kind: group.kind,
 				tableNumbers: group.tableNumbers ?? [],

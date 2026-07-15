@@ -1,4 +1,4 @@
-import { TOrder } from '@/src/models/common';
+import { BillingSessionState, TOrder } from '@/src/models/common';
 import { ServiceRequest } from '@/src/models/service_requests';
 
 export const ORDER_OPS_CHANNEL_DEFAULT = 'order_ops';
@@ -25,6 +25,7 @@ export const ORDER_OPS_DOMAINS = [
 	'dayChecklists',
 	'supplyInventory',
 	'serviceRequests',
+	'billing',
 ] as const;
 
 export type OrderOpsDomain = (typeof ORDER_OPS_DOMAINS)[number];
@@ -38,6 +39,7 @@ export const ZERO_ORDER_OPS_VERSIONS: OrderOpsVersions = {
 	dayChecklists: 0,
 	supplyInventory: 0,
 	serviceRequests: 0,
+	billing: 0,
 };
 
 export function maxOrderOpsVersion(versions: OrderOpsVersions): number {
@@ -53,6 +55,7 @@ export function versionsFromLegacyStateVersion(stateVersion: number): OrderOpsVe
 		dayChecklists: version,
 		supplyInventory: version,
 		serviceRequests: version,
+		billing: version,
 	};
 }
 
@@ -61,7 +64,10 @@ export function resolveSnapshotVersions(snapshot: {
 	stateVersion?: number;
 }): OrderOpsVersions {
 	if (snapshot.versions) {
-		return snapshot.versions;
+		return mergeOrderOpsVersions(
+			ZERO_ORDER_OPS_VERSIONS,
+			snapshot.versions
+		);
 	}
 	return versionsFromLegacyStateVersion(snapshot.stateVersion ?? 0);
 }
@@ -78,12 +84,22 @@ export function mergeOrderOpsVersions(
 	remote: OrderOpsVersions
 ): OrderOpsVersions {
 	return {
-		orders: Math.max(local.orders, remote.orders),
-		inventory: Math.max(local.inventory, remote.inventory),
-		waitlist: Math.max(local.waitlist, remote.waitlist),
-		dayChecklists: Math.max(local.dayChecklists, remote.dayChecklists),
-		supplyInventory: Math.max(local.supplyInventory, remote.supplyInventory),
-		serviceRequests: Math.max(local.serviceRequests, remote.serviceRequests),
+		orders: Math.max(local.orders ?? 0, remote.orders ?? 0),
+		inventory: Math.max(local.inventory ?? 0, remote.inventory ?? 0),
+		waitlist: Math.max(local.waitlist ?? 0, remote.waitlist ?? 0),
+		dayChecklists: Math.max(
+			local.dayChecklists ?? 0,
+			remote.dayChecklists ?? 0
+		),
+		supplyInventory: Math.max(
+			local.supplyInventory ?? 0,
+			remote.supplyInventory ?? 0
+		),
+		serviceRequests: Math.max(
+			local.serviceRequests ?? 0,
+			remote.serviceRequests ?? 0
+		),
+		billing: Math.max(local.billing ?? 0, remote.billing ?? 0),
 	};
 }
 
@@ -132,6 +148,7 @@ export type OrderOpsSnapshot = {
 		checkedAt?: number;
 	}>;
 	serviceRequests?: ServiceRequest[];
+	billingSessions?: BillingSessionState[];
 	sentAt: number;
 };
 

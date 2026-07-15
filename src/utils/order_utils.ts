@@ -1208,6 +1208,7 @@ export function getTableServiceFlagsForTables(
 > {
 	const context: BillingContext = {
 		source: 'orders',
+		sessionId: '',
 		groupKey: '',
 		kind: 'table',
 		tableNumbers,

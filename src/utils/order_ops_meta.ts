@@ -23,6 +23,7 @@ import { getDayChecklistSnapshotForDate, pruneDayChecklistsForToday } from '@/sr
 import { getSupplyInventorySnapshotForDate } from '@/src/utils/supply_inventory_utils';
 import { getWaitlistSnapshotForDate } from '@/src/utils/waitlist_utils';
 import { getServiceRequestsSnapshotForDate } from '@/src/utils/service_requests_utils';
+import { getBillingSessions } from '@/src/utils/billing_state';
 import localforage from 'localforage';
 
 const DEVICE_ID_PATTERN =
@@ -200,12 +201,13 @@ export async function buildOrderOpsSnapshot(): Promise<OrderOpsSnapshot> {
 	const orders = maintainOrders(store.orders, Date.now());
 	const inventory = await getInventorySnapshotForDate(businessDate);
 	const orderHistory = await getTodayOrderHistory();
-	const [dayChecklists, supplyInventory, waitlist, serviceRequests] =
+	const [dayChecklists, supplyInventory, waitlist, serviceRequests, billingSessions] =
 		await Promise.all([
 			getDayChecklistSnapshotForDate(businessDate),
 			getSupplyInventorySnapshotForDate(businessDate),
 			getWaitlistSnapshotForDate(businessDate),
 			getServiceRequestsSnapshotForDate(businessDate),
+			getBillingSessions(),
 		]);
 
 	return {
@@ -220,6 +222,7 @@ export async function buildOrderOpsSnapshot(): Promise<OrderOpsSnapshot> {
 		supplyInventory,
 		waitlist,
 		serviceRequests,
+		billingSessions,
 		sentAt: Date.now(),
 	};
 }

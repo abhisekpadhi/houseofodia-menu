@@ -38,6 +38,7 @@ import { applyDayChecklistSnapshot } from '@/src/utils/day_checklist_utils';
 import { applySupplyInventorySnapshot } from '@/src/utils/supply_inventory_utils';
 import { applyWaitlistSnapshot } from '@/src/utils/waitlist_utils';
 import { applyServiceRequestsSnapshot } from '@/src/utils/service_requests_utils';
+import { applyBillingSessions } from '@/src/utils/billing_state';
 import localforage from 'localforage';
 
 const ORDERS_KEY = 'orders';
@@ -276,6 +277,14 @@ export async function applyOrderOpsSnapshot(
 				payload.serviceRequests
 			);
 			appliedVersions.serviceRequests = remoteVersions.serviceRequests;
+		}
+
+		if (
+			shouldApplyDomain(localVersions, remoteVersions, 'billing', legacyApplyAll) &&
+			payload.billingSessions
+		) {
+			await applyBillingSessions(payload.billingSessions);
+			appliedVersions.billing = remoteVersions.billing;
 		}
 
 		await setOrderOpsMetaVersions(appliedVersions, payload.businessDate);

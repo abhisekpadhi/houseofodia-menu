@@ -4,12 +4,16 @@ import {
 	BillingContext,
 	BILLING_CONTEXT_KEY,
 	TBill,
-	TBillNoResp,
 	TCart,
 	TDish,
 } from "@/src/models/common";
 import { ConfirmModalActions } from "@/components/ui/touch-controls";
-import axios from "axios";
+import {
+	getBillingSession,
+	removeBillingSession,
+	saveBillingSession,
+} from "@/src/utils/billing_state";
+import { notifyOrderOpsChange } from "@/src/utils/order_ops_sync";
 import localforage from "localforage";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -40,18 +44,19 @@ const Cart = () => {
 		});
 	}, []);
 
-	const handleClear = () => {
+	const handleClear = async () => {
 		setCart({ items: [] });
-		localforage.setItem("cart", { items: [] }).then(() => {
-			localforage.removeItem(BILLING_CONTEXT_KEY).then(() => {
-				localforage.setItem("bill", null).then(() => {
-					setClearConfirmOpen(false);
-					router.push(
-						billingContext?.source === "orders" ? "/order" : "/freeflow"
-					);
-				});
-			});
-		});
+		await localforage.setItem("cart", { items: [] });
+		await localforage.removeItem(BILLING_CONTEXT_KEY);
+		await localforage.setItem("bill", null);
+		if (billingContext?.sessionId) {
+			await removeBillingSession(billingContext.sessionId);
+			await notifyOrderOpsChange("billing");
+		}
+		setClearConfirmOpen(false);
+		router.push(
+			billingContext?.source === "orders" ? "/order" : "/freeflow"
+		);
 	};
 
 	const requestClear = () => {
@@ -79,31 +84,66 @@ const Cart = () => {
 
 		setProcessing(true);
 		try {
-			const response = await axios.get<TBillNoResp>("/api/bill_no");
-			const bill_no = response.data.bill_no;
+			let context = billingContext;
+			if (context && !context.sessionId) {
+				context = {
+					...context,
+					sessionId: `legacy:${context.source}:${crypto.randomUUID()}`,
+				};
+				await localforage.setItem(BILLING_CONTEXT_KEY, context);
+				setBillingContext(context);
+			}
+			if (!context) {
+				const sessionId = `freeflow:${crypto.randomUUID()}`;
+				context = {
+					source: "freeflow",
+					sessionId,
+					groupKey: sessionId,
+					kind: "takeaway",
+					tableNumbers: [],
+					label: "Freeflow",
+				};
+				await localforage.setItem(BILLING_CONTEXT_KEY, context);
+				setBillingContext(context);
+			}
 
-			await localforage.setItem<TBill>("bill", {
-				method: "CASH",
-				billNumber: bill_no.toString(),
-				date: new Date().toLocaleDateString("en-IN", {
+			const existingSession = await getBillingSession(context.sessionId);
+			const existingBill = existingSession?.bill;
+			const cgst = totalAmount * 0.025;
+			const sgst = totalAmount * 0.025;
+
+			const bill: TBill = {
+				method: "CASH/UPI",
+				billNumber: existingBill?.billNumber ?? "Pending",
+				sessionId: context.sessionId,
+				stateKey: `${context.sessionId}::checkout`,
+				date: existingBill?.date ?? new Date().toLocaleDateString("en-IN", {
 					day: "2-digit",
 					month: "2-digit",
 					year: "2-digit",
 				}),
-				time: new Date().toLocaleTimeString("en-IN", {
+				time: existingBill?.time ?? new Date().toLocaleTimeString("en-IN", {
 					hour: "2-digit",
 					minute: "2-digit",
 					hour12: true,
 				}),
 				cart: cart,
 				subtotal: totalAmount,
-				cgst: totalAmount * 0,
-				sgst: totalAmount * 0,
-				payable: totalAmount,
-			});
-			router.push("/payment");
+				cgst,
+				sgst,
+				payable: totalAmount + cgst + sgst,
+				membership: "none",
+				backendBillId: existingBill?.backendBillId,
+				backendStatus: existingBill?.backendBillId ? "saved" : "idle",
+				backendSavedAt: existingBill?.backendSavedAt,
+				updatedAt: Date.now(),
+			};
+			await localforage.setItem<TBill>("bill", bill);
+			await saveBillingSession(context, cart, bill);
+			await notifyOrderOpsChange("billing");
+			router.push("/bill");
 		} catch (error) {
-			alert("Failed to update bill number, err:" + error);
+			alert("Failed to prepare bill, err:" + error);
 		} finally {
 			setProcessing(false);
 		}
@@ -322,7 +362,7 @@ const Cart = () => {
 					>
 						{processing
 							? "Processing…"
-							: `${cart.items.length} items · ₹${totalAmount} · Pay`}
+							: `${cart.items.length} items · ₹${totalAmount} · Bill`}
 					</button>
 				</div>
 			</div>
