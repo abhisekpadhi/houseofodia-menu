@@ -450,7 +450,21 @@ const Receipt = () => {
         : "bg-gray-100 text-gray-700 hover:bg-gray-200"
     }`;
 
-  const finalizeCloseTable = async (context: BillingContext) => {
+  const finalizeCloseTable = async (
+    context: BillingContext,
+    closedBill: TBill = bill
+  ) => {
+    const billSummary = {
+      subtotal: closedBill.subtotal,
+      cgst: closedBill.cgst,
+      sgst: closedBill.sgst,
+      roundOff: closedBill.roundOff ?? 0,
+      payable: closedBill.payable,
+      ...(closedBill.backendBillId || closedBill.billNumber !== "Pending"
+        ? { billNumber: closedBill.backendBillId ?? closedBill.billNumber }
+        : {}),
+    };
+
     await localforage.setItem("cart", { items: [] });
     await localforage.setItem("bill", null);
     await localforage.removeItem(BILLING_CONTEXT_KEY);
@@ -458,7 +472,7 @@ const Receipt = () => {
     await notifyOrderOpsChange("billing");
 
     if (context.source === "orders") {
-      await closeTableFromBilling(context);
+      await closeTableFromBilling(context, billSummary);
       router.push("/order");
       return;
     }
@@ -480,22 +494,13 @@ const Receipt = () => {
         return;
       }
 
+      let closedBill = bill;
       if (!bill.backendBillId || bill.backendSavedAt !== bill.updatedAt) {
         setBusyMessage("Saving bill…");
-        await saveWithRetry(
-          () => saveBillToBackend(bill, context),
-          (attempt) => {
-            setSaveAttempt(attempt);
-            setBusyMessage(
-              attempt === 1
-                ? "Saving bill…"
-                : `Retrying save… attempt ${attempt} of ${BILL_SAVE_ATTEMPTS}`
-            );
-          }
-        );
+        closedBill = await persistBillToBackend(bill, context);
         setBusyMessage("Closing table…");
       }
-      await finalizeCloseTable(context);
+      await finalizeCloseTable(context, closedBill);
     } catch {
       setFallbackAction("close");
       setSaveFailureOpen(true);

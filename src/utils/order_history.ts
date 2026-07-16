@@ -289,8 +289,29 @@ export type OrderHistorySession = {
 	closedAt: number | null;
 	pax: number | '';
 	sessionTotal: number;
+	/** Present when the session was closed with a saved bill snapshot */
+	billSummary?: {
+		subtotal: number;
+		cgst: number;
+		sgst: number;
+		roundOff: number;
+		payable: number;
+		billNumber?: string;
+	};
 	orders: TOrder[];
 };
+
+function sessionBillSummary(orders: TOrder[]) {
+	return orders.find((order) => order.billSummary)?.billSummary;
+}
+
+function sessionAmountTotal(orders: TOrder[]): number {
+	const summary = sessionBillSummary(orders);
+	if (summary) {
+		return summary.payable;
+	}
+	return orders.reduce((sum, order) => sum + orderLineTotal(order), 0);
+}
 
 /** Groups orders into table/takeaway/delivery sessions closed by "Close table" (billedAt batch). */
 export function buildOrderHistorySessions(orders: TOrder[]): OrderHistorySession[] {
@@ -343,10 +364,8 @@ export function buildOrderHistorySessions(orders: TOrder[]): OrderHistorySession
 				startedAt,
 				closedAt,
 				pax: sessionPax(sortedOrders),
-				sessionTotal: sortedOrders.reduce(
-					(sum, order) => sum + orderLineTotal(order),
-					0
-				),
+				sessionTotal: sessionAmountTotal(sortedOrders),
+				billSummary: sessionBillSummary(sortedOrders),
 				orders: sortedOrders,
 			});
 			sessionNumber += 1;
@@ -365,10 +384,8 @@ export function buildOrderHistorySessions(orders: TOrder[]): OrderHistorySession
 				startedAt,
 				closedAt: null,
 				pax: sessionPax(sortedOrders),
-				sessionTotal: sortedOrders.reduce(
-					(sum, order) => sum + orderLineTotal(order),
-					0
-				),
+				sessionTotal: sessionAmountTotal(sortedOrders),
+				billSummary: sessionBillSummary(sortedOrders),
 				orders: sortedOrders,
 			});
 		}
@@ -444,6 +461,20 @@ export function sortOrderHistorySessions(
 	return sorted;
 }
 
+function sessionBillCsvFields(session: OrderHistorySession): (string | number)[] {
+	const summary = session.billSummary;
+	if (!summary) {
+		return ['', '', '', '', ''];
+	}
+	return [
+		summary.subtotal,
+		summary.cgst,
+		summary.sgst,
+		summary.roundOff,
+		summary.payable,
+	];
+}
+
 export function buildOrderHistoryCsv(orders: TOrder[]): string {
 	const header = [
 		'Session',
@@ -452,6 +483,12 @@ export function buildOrderHistoryCsv(orders: TOrder[]): string {
 		'Session End',
 		'Session Pax',
 		'Session Total',
+		'SubTotal',
+		'CGST',
+		'SGST',
+		'Round Off',
+		'Payable',
+		'Bill No',
 		'Order Time',
 		'Order ID',
 		'Item',
@@ -473,6 +510,8 @@ export function buildOrderHistoryCsv(orders: TOrder[]): string {
 			session.closedAt != null
 				? formatSessionDateTime(session.closedAt)
 				: 'Open';
+		const billFields = sessionBillCsvFields(session);
+		const billNumber = session.billSummary?.billNumber ?? '';
 
 		for (const order of session.orders) {
 			const orderTotal = orderLineTotal(order);
@@ -489,6 +528,8 @@ export function buildOrderHistoryCsv(orders: TOrder[]): string {
 						sessionEnd,
 						session.pax,
 						session.sessionTotal,
+						...billFields,
+						billNumber,
 						orderTime,
 						order.id,
 						'',
@@ -514,6 +555,8 @@ export function buildOrderHistoryCsv(orders: TOrder[]): string {
 						sessionEnd,
 						session.pax,
 						session.sessionTotal,
+						...billFields,
+						billNumber,
 						orderTime,
 						order.id,
 						item.name,

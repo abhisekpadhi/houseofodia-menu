@@ -106,6 +106,17 @@ export type TOrder = {
 	groupNotes?: string;
 	/** Set when table was billed and order removed from the active list */
 	billedAt?: number;
+	/** Snapshot of bill totals written when the table is closed */
+	billSummary?: OrderBillSummary;
+};
+
+export type OrderBillSummary = {
+	subtotal: number;
+	cgst: number;
+	sgst: number;
+	roundOff: number;
+	payable: number;
+	billNumber?: string;
 };
 
 export type TOrdersStore = {

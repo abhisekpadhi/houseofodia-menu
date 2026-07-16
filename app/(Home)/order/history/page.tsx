@@ -113,6 +113,9 @@ function OrderHistorySessionCard({ session }: { session: OrderHistorySession }) 
 		session.closedAt != null
 			? formatOrderHistorySessionTime(session.closedAt)
 			: 'Open';
+	const summary = session.billSummary;
+	const formatMoney = (amount: number) =>
+		(Math.round(amount * 100) / 100).toFixed(2);
 
 	return (
 		<li className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
@@ -124,6 +127,11 @@ function OrderHistorySessionCard({ session }: { session: OrderHistorySession }) 
 							{formatOrderHistorySessionTime(session.startedAt)} –{' '}
 							{sessionEndLabel}
 						</p>
+						{summary?.billNumber ? (
+							<p className="text-xs text-gray-500 mt-0.5">
+								Bill No {summary.billNumber}
+							</p>
+						) : null}
 					</div>
 					<div className="flex flex-col items-end gap-1 shrink-0">
 						<span
@@ -132,7 +140,7 @@ function OrderHistorySessionCard({ session }: { session: OrderHistorySession }) 
 							{session.closedAt != null ? 'Closed' : 'Open'}
 						</span>
 						<span className="text-sm font-semibold text-gray-800">
-							₹{session.sessionTotal}
+							₹{formatMoney(session.sessionTotal)}
 						</span>
 					</div>
 				</div>
@@ -145,6 +153,32 @@ function OrderHistorySessionCard({ session }: { session: OrderHistorySession }) 
 						{session.orders.length === 1 ? '' : 's'}
 					</span>
 				</div>
+				{summary ? (
+					<div className="mt-3 space-y-1 text-xs text-gray-700 border-t border-gray-200 pt-2">
+						<div className="flex justify-between gap-3">
+							<span>SubTotal</span>
+							<span>₹{formatMoney(summary.subtotal)}</span>
+						</div>
+						<div className="flex justify-between gap-3">
+							<span>CGST @2.5%</span>
+							<span>₹{formatMoney(summary.cgst)}</span>
+						</div>
+						<div className="flex justify-between gap-3">
+							<span>SGST @2.5%</span>
+							<span>₹{formatMoney(summary.sgst)}</span>
+						</div>
+						{summary.roundOff > 0 ? (
+							<div className="flex justify-between gap-3">
+								<span>Round off</span>
+								<span>₹{formatMoney(summary.roundOff)}</span>
+							</div>
+						) : null}
+						<div className="flex justify-between gap-3 font-semibold text-gray-900 pt-1">
+							<span>Total</span>
+							<span>₹{formatMoney(summary.payable)}</span>
+						</div>
+					</div>
+				) : null}
 			</div>
 			<ul className="p-3 space-y-2">
 				{session.orders.map((order) => (

@@ -3,6 +3,7 @@ import {
 	DishUnit,
 	ItemCancelReason,
 	ItemGroup,
+	OrderBillSummary,
 	OrderGroup,
 	OrderItemUnitState,
 	OrderKind,
@@ -653,13 +654,17 @@ export function removeOrdersForBillingGroup(
 }
 
 export async function closeTableFromBilling(
-	context: BillingContext
+	context: BillingContext,
+	billSummary?: OrderBillSummary
 ): Promise<TOrder[]> {
 	const store = await getOrdersStore();
 	const removing = store.orders.filter((order) =>
 		orderBelongsToBillingGroup(order, context)
 	);
-	await upsertOrdersInHistory(removing, { billedAt: Date.now() });
+	await upsertOrdersInHistory(removing, {
+		billedAt: Date.now(),
+		...(billSummary ? { billSummary } : {}),
+	});
 	const remaining = removeOrdersForBillingGroup(store.orders, context);
 	return updateOrders(remaining);
 }
