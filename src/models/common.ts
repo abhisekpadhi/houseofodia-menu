@@ -55,8 +55,12 @@ export type TBill = {
 	cgst: number;
 	sgst: number;
 	payable: number;
+	/** Amount added so payable rounds up to a whole rupee */
+	roundOff?: number;
 	method: string;
 	membership?: 'none' | 'monthly' | 'yearly';
+	/** 10-digit Indian mobile; sent to backend as customer_id */
+	customerPhone?: string;
 	backendBillId?: string;
 	backendStatus?: 'idle' | 'saving' | 'saved' | 'failed';
 	backendSavedAt?: number;

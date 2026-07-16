@@ -13,7 +13,12 @@ import {
 import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
 import { notifyOrderOpsChange } from "@/src/utils/order_ops_sync";
 import { saveBillToBackend } from "@/src/utils/tangify_api";
+import {
+  CUSTOMER_PHONE_DIGITS,
+  isValidCustomerPhone,
+} from "@/src/utils/order_utils";
 import localforage from "localforage";
+import { ConfirmModalActions, LoadingSpinner } from "@/components/ui/touch-controls";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
@@ -34,9 +39,13 @@ const BILL_SAVE_RETRY_DELAY_MS = 5_000;
 const wait = (duration: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, duration));
 
-async function saveWithRetry<T>(operation: () => Promise<T>): Promise<T> {
+async function saveWithRetry<T>(
+  operation: () => Promise<T>,
+  onAttempt?: (attempt: number) => void
+): Promise<T> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= BILL_SAVE_ATTEMPTS; attempt += 1) {
+    onAttempt?.(attempt);
     try {
       return await operation();
     } catch (error) {
@@ -60,12 +69,18 @@ const calculateBillAmounts = (
   const taxableAmount = subtotal - discount;
   const cgst = roundCurrency(taxableAmount * 0.025);
   const sgst = roundCurrency(taxableAmount * 0.025);
+  const preRoundPayable = roundCurrency(
+    taxableAmount + cgst + sgst + staffWelfare
+  );
+  const payable = Math.ceil(preRoundPayable);
+  const roundOff = roundCurrency(payable - preRoundPayable);
 
   return {
     discount,
     cgst,
     sgst,
-    payable: roundCurrency(taxableAmount + cgst + sgst + staffWelfare),
+    roundOff,
+    payable,
   };
 };
 
@@ -73,18 +88,127 @@ const Divider = () => {
   return <div className="my-2 border-t border-solid border-black" />;
 };
 
+function CustomerPhoneModal({
+  value,
+  onChange,
+  onConfirm,
+  onCancel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const [visibleViewport, setVisibleViewport] = useState<{
+    top: number;
+    height: number;
+  } | null>(null);
+  const isValid = isValidCustomerPhone(value);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) {
+      return;
+    }
+
+    const updateVisibleViewport = () => {
+      setVisibleViewport({
+        top: viewport.offsetTop,
+        height: viewport.height,
+      });
+    };
+
+    updateVisibleViewport();
+    viewport.addEventListener("resize", updateVisibleViewport);
+    viewport.addEventListener("scroll", updateVisibleViewport);
+    return () => {
+      viewport.removeEventListener("resize", updateVisibleViewport);
+      viewport.removeEventListener("scroll", updateVisibleViewport);
+    };
+  }, []);
+
+  return (
+    <div
+      className="fixed left-0 right-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 px-4 py-4 transition-[top,height] duration-150 print:hidden"
+      style={
+        visibleViewport
+          ? {
+              top: `${visibleViewport.top}px`,
+              height: `${visibleViewport.height}px`,
+            }
+          : { top: 0, bottom: 0 }
+      }
+      onClick={onCancel}
+    >
+      <div
+        className="max-h-full w-full max-w-sm overflow-y-auto rounded-xl bg-white shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b">
+          <h2 className="text-lg font-bold">Customer phone</h2>
+          <p className="text-sm text-gray-600 mt-2">
+            Enter a 10-digit Indian mobile number.
+          </p>
+          <label htmlFor="customer-phone" className="sr-only">
+            Customer phone
+          </label>
+          <div className="mt-4 flex items-center gap-2">
+            <span className="text-sm font-semibold text-gray-700">+91</span>
+            <input
+              id="customer-phone"
+              type="tel"
+              inputMode="numeric"
+              autoComplete="tel"
+              autoFocus
+              maxLength={CUSTOMER_PHONE_DIGITS}
+              value={value}
+              onChange={(event) =>
+                onChange(
+                  event.target.value.replace(/\D/g, "").slice(0, CUSTOMER_PHONE_DIGITS)
+                )
+              }
+              placeholder="10-digit phone"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm touch-manipulation"
+            />
+          </div>
+          {value.length > 0 && !isValid ? (
+            <p className="text-xs text-red-600 mt-2">
+              Enter exactly {CUSTOMER_PHONE_DIGITS} digits.
+            </p>
+          ) : (
+            <p className="text-xs text-gray-500 mt-2">
+              Optional — used as customer ID when saving the bill.
+            </p>
+          )}
+        </div>
+        <ConfirmModalActions
+          onCancel={onCancel}
+          onConfirm={onConfirm}
+          confirmLabel={value ? "Save phone" : "Clear phone"}
+          confirmDisabled={value.length > 0 && !isValid}
+        />
+      </div>
+    </div>
+  );
+}
+
 const Receipt = () => {
   const router = useRouter();
   const [bill, setBill] = useState<TBill | null>(null);
   const [billingContext, setBillingContext] = useState<BillingContext | null>(null);
   const [processing, setProcessing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveAttempt, setSaveAttempt] = useState(1);
+  const [busyMessage, setBusyMessage] = useState("Saving bill…");
   const [saveFailureOpen, setSaveFailureOpen] = useState(false);
   const [fallbackAction, setFallbackAction] = useState<"print" | "close">(
     "print"
   );
   const [fullSize, setFullSize] = useState(false);
   const [showPaymentQr, setShowPaymentQr] = useState(true);
+  const [phoneModalOpen, setPhoneModalOpen] = useState(false);
+  const [phoneDraft, setPhoneDraft] = useState("");
+  const isBusy = saving || processing;
   useEffect(() => {
     const loadBill = async () => {
       let context =
@@ -130,6 +254,9 @@ const Receipt = () => {
   }, []);
 
   const handleBack = () => {
+    if (isBusy) {
+      return;
+    }
     router.push("/cart");
   };
 
@@ -160,6 +287,9 @@ const Receipt = () => {
   };
 
   const handleMembershipSelect = (value: Exclude<Membership, "none">) => {
+    if (isBusy) {
+      return;
+    }
     const nextMembership = membership === value ? "none" : value;
     const totals = calculateBillAmounts(
       bill.subtotal,
@@ -176,6 +306,9 @@ const Receipt = () => {
   };
 
   const handlePaymentMethod = (method: string) => {
+    if (isBusy) {
+      return;
+    }
     void updateBill({
       ...bill,
       method,
@@ -184,47 +317,120 @@ const Receipt = () => {
     });
   };
 
+  const openPhoneModal = () => {
+    if (isBusy) {
+      return;
+    }
+    setPhoneDraft(bill.customerPhone ?? "");
+    setPhoneModalOpen(true);
+  };
+
+  const handleSaveCustomerPhone = () => {
+    const trimmed = phoneDraft.trim();
+    if (trimmed && !isValidCustomerPhone(trimmed)) {
+      return;
+    }
+    void updateBill({
+      ...bill,
+      customerPhone: trimmed || undefined,
+      backendStatus: "idle",
+      updatedAt: Date.now(),
+    });
+    setPhoneModalOpen(false);
+  };
+
+  const persistBillToBackend = async (
+    billToSave: TBill,
+    context: BillingContext
+  ): Promise<TBill> => {
+    const savingBill = {
+      ...billToSave,
+      backendStatus: "saving" as const,
+      updatedAt: Date.now(),
+    };
+    await updateBill(savingBill);
+    const stored = await saveWithRetry(
+      () => saveBillToBackend(savingBill, context),
+      (attempt) => {
+        setSaveAttempt(attempt);
+        setBusyMessage(
+          attempt === 1
+            ? "Saving bill…"
+            : `Retrying save… attempt ${attempt} of ${BILL_SAVE_ATTEMPTS}`
+        );
+      }
+    );
+    const savedAt = Date.now();
+    const savedBill: TBill = {
+      ...savingBill,
+      billNumber: stored.id,
+      backendBillId: stored.id,
+      backendStatus: "saved",
+      backendSavedAt: savedAt,
+      updatedAt: savedAt,
+    };
+    flushSync(() => setBill(savedBill));
+    await localforage.setItem<TBill>("bill", savedBill);
+    await saveBillingSession(context, savedBill.cart, savedBill);
+    await notifyOrderOpsChange("billing");
+    return savedBill;
+  };
+
+  const handleSaveAndGoBack = async () => {
+    if (!billingContext || isBusy) {
+      return;
+    }
+    const needsSave =
+      !bill.backendBillId || bill.backendSavedAt !== bill.updatedAt;
+    if (!needsSave) {
+      router.push("/cart");
+      return;
+    }
+    setBusyMessage("Saving bill…");
+    setSaveAttempt(1);
+    setSaving(true);
+    try {
+      await persistBillToBackend(bill, billingContext);
+      router.push("/cart");
+    } catch {
+      const failedBill: TBill = {
+        ...bill,
+        billNumber: bill.backendBillId
+          ? bill.billNumber
+          : `UNSAVED-${Date.now().toString().slice(-6)}`,
+        backendStatus: "failed",
+        updatedAt: Date.now(),
+      };
+      await updateBill(failedBill);
+      setFallbackAction("print");
+      setSaveFailureOpen(true);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handlePrint = async () => {
-    if (!billingContext || saving) {
+    if (!billingContext || isBusy) {
       return;
     }
     if (bill.backendBillId) {
       window.print();
       return;
     }
+    setBusyMessage("Saving bill…");
+    setSaveAttempt(1);
     setSaving(true);
-    const savingBill = {
-      ...bill,
-      backendStatus: "saving" as const,
-      updatedAt: Date.now(),
-    };
-    await updateBill(savingBill);
     try {
-      const stored = await saveWithRetry(() =>
-        saveBillToBackend(savingBill, billingContext)
-      );
-      const savedAt = Date.now();
-      const savedBill: TBill = {
-        ...savingBill,
-        billNumber: stored.id,
-        backendBillId: stored.id,
-        backendStatus: "saved",
-        backendSavedAt: savedAt,
-        updatedAt: savedAt,
-      };
-      flushSync(() => setBill(savedBill));
-      await localforage.setItem<TBill>("bill", savedBill);
-      await saveBillingSession(billingContext, savedBill.cart, savedBill);
-      await notifyOrderOpsChange("billing");
+      await persistBillToBackend(bill, billingContext);
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
       );
       window.print();
     } catch {
       const failedBill: TBill = {
-        ...savingBill,
-        billNumber: savingBill.backendBillId
-          ? savingBill.billNumber
+        ...bill,
+        billNumber: bill.backendBillId
+          ? bill.billNumber
           : `UNSAVED-${Date.now().toString().slice(-6)}`,
         backendStatus: "failed",
         updatedAt: Date.now(),
@@ -238,7 +444,7 @@ const Receipt = () => {
   };
 
   const tabClass = (active: boolean) =>
-    `flex-1 py-2.5 px-3 rounded-lg text-xs font-semibold transition-colors ${
+    `flex-1 py-2.5 px-3 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
       active
         ? "bg-black text-white"
         : "bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -260,6 +466,11 @@ const Receipt = () => {
   };
 
   const onClickCloseTable = async () => {
+    if (isBusy) {
+      return;
+    }
+    setBusyMessage("Closing table…");
+    setSaveAttempt(1);
     setProcessing(true);
     try {
       const context =
@@ -270,7 +481,19 @@ const Receipt = () => {
       }
 
       if (!bill.backendBillId || bill.backendSavedAt !== bill.updatedAt) {
-        await saveWithRetry(() => saveBillToBackend(bill, context));
+        setBusyMessage("Saving bill…");
+        await saveWithRetry(
+          () => saveBillToBackend(bill, context),
+          (attempt) => {
+            setSaveAttempt(attempt);
+            setBusyMessage(
+              attempt === 1
+                ? "Saving bill…"
+                : `Retrying save… attempt ${attempt} of ${BILL_SAVE_ATTEMPTS}`
+            );
+          }
+        );
+        setBusyMessage("Closing table…");
       }
       await finalizeCloseTable(context);
     } catch {
@@ -282,6 +505,9 @@ const Receipt = () => {
   };
 
   const handlePrintFallbackCopies = () => {
+    if (isBusy) {
+      return;
+    }
     const action = fallbackAction;
     flushSync(() => setSaveFailureOpen(false));
     window.print();
@@ -299,10 +525,6 @@ const Receipt = () => {
     }, 500);
   };
 
-  if (processing) {
-    return <div>Loading...</div>;
-  }
-
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="ops-sticky-header bg-white border-b px-6 pb-4 print:hidden">
@@ -310,7 +532,8 @@ const Receipt = () => {
           <button
             type="button"
             onClick={handleBack}
-            className="text-sm font-semibold text-gray-600 hover:text-black"
+            disabled={isBusy}
+            className="text-sm font-semibold text-gray-600 hover:text-black disabled:opacity-40 disabled:cursor-not-allowed"
           >
             ← Back
           </button>
@@ -326,6 +549,7 @@ const Receipt = () => {
           <div className="flex gap-2">
             <button
               type="button"
+              disabled={isBusy}
               className={tabClass(membership === "monthly")}
               onClick={() => handleMembershipSelect("monthly")}
             >
@@ -333,6 +557,7 @@ const Receipt = () => {
             </button>
             <button
               type="button"
+              disabled={isBusy}
               className={tabClass(membership === "yearly")}
               onClick={() => handleMembershipSelect("yearly")}
             >
@@ -349,8 +574,9 @@ const Receipt = () => {
               <button
                 type="button"
                 key={method.value}
+                disabled={isBusy}
                 onClick={() => handlePaymentMethod(method.value)}
-                className={`rounded-xl border-2 px-3 py-3 text-sm font-bold transition-colors ${
+                className={`rounded-xl border-2 px-3 py-3 text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                   bill.method === method.value
                     ? "border-green-500 bg-green-100 text-green-900"
                     : "border-gray-200 bg-white hover:bg-gray-50"
@@ -360,6 +586,25 @@ const Receipt = () => {
               </button>
             ))}
           </div>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-gray-600 mb-2">
+            Customer phone (optional)
+          </p>
+          <button
+            type="button"
+            disabled={isBusy}
+            onClick={openPhoneModal}
+            className={`w-full rounded-xl border-2 px-3 py-3 text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              bill.customerPhone
+                ? "border-green-500 bg-green-100 text-green-900"
+                : "border-gray-200 bg-white hover:bg-gray-50 text-gray-800"
+            }`}
+          >
+            {bill.customerPhone
+              ? `📱 +91 ${bill.customerPhone}`
+              : "📱 Add customer phone"}
+          </button>
         </div>
       </div>
       <div
@@ -429,6 +674,12 @@ const Receipt = () => {
             <span>{formatCurrency(staffWelfare)}</span>
           </div>
         )}
+        {(bill.roundOff ?? 0) > 0 && (
+          <div className="flex justify-between">
+            <span>Round off</span>
+            <span>{formatCurrency(bill.roundOff ?? 0)}</span>
+          </div>
+        )}
         <Divider />
         <div className="flex justify-between">
           <span>Payable ({bill.method})</span>
@@ -452,18 +703,29 @@ const Receipt = () => {
         <br />
       </div>
       <div className="px-6 py-4 space-y-3 print:hidden">
-        <button
-          type="button"
-          disabled={saving}
-          className="w-full py-3 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50"
-          onClick={() => void handlePrint()}
-        >
-          <FaPrint className="mr-2" /> {saving ? "Saving…" : "Print"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={isBusy}
+            className="basis-[70%] py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => void handleSaveAndGoBack()}
+          >
+            {saving ? "Saving…" : "Save & go back"}
+          </button>
+          <button
+            type="button"
+            disabled={isBusy}
+            className="basis-[30%] py-3 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => void handlePrint()}
+          >
+            <FaPrint className="mr-2" /> Print
+          </button>
+        </div>
 
         <button
           type="button"
-          className="w-full py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors"
+          disabled={isBusy}
+          className="w-full py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={() => setFullSize((value) => !value)}
         >
           {fullSize ? "Receipt size (58mm)" : "Full size"}
@@ -472,7 +734,8 @@ const Receipt = () => {
         {bill.method === "CASH/UPI" ? (
           <button
             type="button"
-            className="w-full py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors"
+            disabled={isBusy}
+            className="w-full py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={() => setShowPaymentQr((value) => !value)}
           >
             {showPaymentQr ? "Hide payment QR" : "Show payment QR"}
@@ -481,12 +744,40 @@ const Receipt = () => {
 
         <button
           type="button"
-          className="w-full py-3 rounded-lg bg-black hover:bg-gray-800 text-white text-sm font-bold flex items-center justify-center transition-colors"
-          onClick={onClickCloseTable}
+          disabled={isBusy}
+          className="w-full py-3 rounded-lg bg-black hover:bg-gray-800 text-white text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={() => void onClickCloseTable()}
         >
-          <FaCheck className="mr-2" /> Close table
+          <FaCheck className="mr-2" />{" "}
+          {processing ? "Closing…" : "Close table"}
         </button>
       </div>
+      {phoneModalOpen ? (
+        <CustomerPhoneModal
+          value={phoneDraft}
+          onChange={setPhoneDraft}
+          onCancel={() => setPhoneModalOpen(false)}
+          onConfirm={handleSaveCustomerPhone}
+        />
+      ) : null}
+      {isBusy ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 print:hidden">
+          <div className="w-full max-w-sm rounded-xl bg-white px-6 py-8 shadow-xl text-center">
+            <LoadingSpinner className="h-8 w-8 mx-auto text-black" />
+            <p className="mt-4 text-base font-semibold text-gray-900">
+              {busyMessage}
+            </p>
+            <p className="mt-2 text-sm text-gray-600">
+              Please wait. Do not tap other buttons.
+            </p>
+            {saving || busyMessage.startsWith("Saving") || busyMessage.startsWith("Retrying") ? (
+              <p className="mt-1 text-xs text-gray-500">
+                Attempt {saveAttempt} of {BILL_SAVE_ATTEMPTS}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       {saveFailureOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 print:hidden">
           <div className="w-full max-w-sm rounded-xl bg-white shadow-xl">

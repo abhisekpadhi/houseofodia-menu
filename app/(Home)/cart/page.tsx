@@ -109,8 +109,12 @@ const Cart = () => {
 
 			const existingSession = await getBillingSession(context.sessionId);
 			const existingBill = existingSession?.bill;
-			const cgst = totalAmount * 0.025;
-			const sgst = totalAmount * 0.025;
+			const cgst = Math.round(totalAmount * 0.025 * 100) / 100;
+			const sgst = Math.round(totalAmount * 0.025 * 100) / 100;
+			const preRoundPayable =
+				Math.round((totalAmount + cgst + sgst) * 100) / 100;
+			const payable = Math.ceil(preRoundPayable);
+			const roundOff = Math.round((payable - preRoundPayable) * 100) / 100;
 
 			const bill: TBill = {
 				method: "CASH/UPI",
@@ -131,7 +135,8 @@ const Cart = () => {
 				subtotal: totalAmount,
 				cgst,
 				sgst,
-				payable: totalAmount + cgst + sgst,
+				roundOff,
+				payable,
 				membership: "none",
 				backendBillId: existingBill?.backendBillId,
 				backendStatus: existingBill?.backendBillId ? "saved" : "idle",

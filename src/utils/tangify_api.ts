@@ -82,6 +82,9 @@ export async function saveBillToBackend(
 				? { id: bill.backendBillId }
 				: { state_key: bill.stateKey }),
 			session_id: bill.sessionId,
+			...(bill.customerPhone
+				? { customer_id: bill.customerPhone.trim() }
+				: {}),
 			table_ids: context.tableNumbers.map((table) => `T${table}`),
 			line_items: bill.cart.items.map((item) => ({
 				name: item.name,
@@ -112,6 +115,16 @@ export async function saveBillToBackend(
 					rate_in_bps: 250,
 					amount_in_paise: toPaise(bill.sgst),
 				},
+				...((bill.roundOff ?? 0) > 0
+					? [
+							{
+								id: 'round_off',
+								name: 'Round off',
+								rate_in_bps: 0,
+								amount_in_paise: toPaise(bill.roundOff ?? 0),
+							},
+						]
+					: []),
 			],
 			payment_method:
 				bill.method === 'CARD' ? 'card' : 'cash_or_upi',
