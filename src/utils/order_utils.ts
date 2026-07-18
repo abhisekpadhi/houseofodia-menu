@@ -669,6 +669,14 @@ export async function closeTableFromBilling(
 	return updateOrders(remaining);
 }
 
+/** Permanently discard a group from active orders without writing to history/DB. */
+export async function discardOrderGroup(group: OrderGroup): Promise<TOrder[]> {
+	const orderIds = new Set(group.orders.map((order) => order.id));
+	const store = await getOrdersStore();
+	const remaining = store.orders.filter((order) => !orderIds.has(order.id));
+	return updateOrders(remaining);
+}
+
 export function formatTableGroupLabel(tableNumbers: number[]): string {
 	if (tableNumbers.length === 1) {
 		return `Table ${tableNumbers[0]}`;

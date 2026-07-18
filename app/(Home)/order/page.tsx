@@ -37,6 +37,7 @@ import {
 	orderGroupToBillCart,
 	groupHasBillableItems,
 	closeTableFromBilling,
+	discardOrderGroup,
 	ordersStoreChanged,
 	getGroupWaterBottleCount,
 	syncGroupWaterBottleCount,
@@ -560,10 +561,12 @@ function TableGroupMoreSheet({
 	kidPending,
 	notesPending,
 	paxPending,
+	closePending,
 	onBill,
 	onChangeTable,
 	onEditNotes,
 	onEditPax,
+	onCloseOrder,
 	onRequestWelcomeDrink,
 	onRequestComplementary,
 	onRequestKidMenu,
@@ -585,10 +588,12 @@ function TableGroupMoreSheet({
 	kidPending: boolean;
 	notesPending: boolean;
 	paxPending: boolean;
+	closePending: boolean;
 	onBill: (group: OrderGroup) => void;
 	onChangeTable: (group: OrderGroup) => void;
 	onEditNotes: (group: OrderGroup) => void;
 	onEditPax: (group: OrderGroup) => void;
+	onCloseOrder: (group: OrderGroup) => void;
 	onRequestWelcomeDrink: (group: OrderGroup) => void;
 	onRequestComplementary: (group: OrderGroup) => void;
 	onRequestKidMenu: (group: OrderGroup) => void;
@@ -712,6 +717,17 @@ function TableGroupMoreSheet({
 							) : null}
 						</div>
 					) : null}
+					<button
+						type="button"
+						onClick={() => {
+							onClose();
+							onCloseOrder(group);
+						}}
+						disabled={!hasOrdersInGroup || closePending}
+						className="w-full min-h-[44px] rounded-xl border border-red-600 bg-red-600 text-sm font-semibold text-white active:bg-red-700 touch-manipulation disabled:opacity-40"
+					>
+						{closePending ? "Closing…" : "Close order"}
+					</button>
 				</div>
 			</div>
 		</div>
@@ -1379,6 +1395,7 @@ function TableOrderCard({
 	onEditNotes,
 	onEditPax,
 	onAddPhone,
+	onCloseOrder,
 	onChangeTable,
 }: {
 	group: OrderGroup;
@@ -1410,6 +1427,7 @@ function TableOrderCard({
 	onEditNotes: (group: OrderGroup) => void;
 	onEditPax: (group: OrderGroup) => void;
 	onAddPhone: (group: OrderGroup) => void;
+	onCloseOrder: (group: OrderGroup) => void;
 	onChangeTable: (group: OrderGroup) => void;
 }) {
 	const addOrderHref =
@@ -1438,6 +1456,7 @@ function TableOrderCard({
 	const notesPending = isActionPending(`notes:${group.key}`);
 	const paxPending = isActionPending(`pax:${group.key}`);
 	const phonePending = isActionPending(`phone:${group.key}`);
+	const closePending = isActionPending(`discard:${group.key}`);
 	const changeTablePending = isActionPending(`move-table:${group.key}`);
 	const [moreOpen, setMoreOpen] = useState(false);
 	const [namePopoverOpen, setNamePopoverOpen] = useState(false);
@@ -1613,10 +1632,12 @@ function TableOrderCard({
 					kidPending={kidPending}
 					notesPending={notesPending}
 					paxPending={paxPending}
+					closePending={closePending}
 					onBill={onBill}
 					onChangeTable={onChangeTable}
 					onEditNotes={onEditNotes}
 					onEditPax={onEditPax}
+					onCloseOrder={onCloseOrder}
 					onRequestWelcomeDrink={onRequestWelcomeDrink}
 					onRequestComplementary={onRequestComplementary}
 					onRequestKidMenu={onRequestKidMenu}
@@ -1877,6 +1898,7 @@ function ConfirmOrderActionModal({
 	confirmLabel,
 	cancelLabel,
 	confirming,
+	destructive,
 	onConfirm,
 	onCancel,
 }: {
@@ -1885,6 +1907,7 @@ function ConfirmOrderActionModal({
 	confirmLabel: string;
 	cancelLabel?: string;
 	confirming?: boolean;
+	destructive?: boolean;
 	onConfirm: () => void;
 	onCancel: () => void;
 }) {
@@ -1901,18 +1924,53 @@ function ConfirmOrderActionModal({
 				className="w-full max-w-sm rounded-xl bg-white shadow-xl"
 				onClick={(event) => event.stopPropagation()}
 			>
-				<div className="px-5 py-4 border-b">
-					<h2 className="text-lg font-bold">{title}</h2>
-					<p className="text-sm text-gray-600 mt-2">{message}</p>
+				<div
+					className={`px-5 py-4 border-b ${
+						destructive ? "bg-red-50 border-red-200" : ""
+					}`}
+				>
+					<h2
+						className={`text-lg font-bold ${
+							destructive ? "text-red-700" : ""
+						}`}
+					>
+						{title}
+					</h2>
+					<p
+						className={`text-sm mt-2 ${
+							destructive ? "text-red-800" : "text-gray-600"
+						}`}
+					>
+						{message}
+					</p>
 				</div>
-				<ConfirmModalActions
-					onCancel={onCancel}
-					onConfirm={onConfirm}
-					confirmLabel={confirmLabel}
-					cancelLabel={cancelLabel}
-					confirming={confirming}
-					cancelDisabled={confirming}
-				/>
+				<div className="flex gap-2 p-4">
+					<button
+						type="button"
+						onClick={onCancel}
+						disabled={confirming}
+						className="flex-1 min-h-[44px] rounded-lg bg-gray-100 border border-gray-300 text-sm font-semibold touch-manipulation active:bg-gray-200 disabled:opacity-60"
+					>
+						{cancelLabel ?? "Cancel"}
+					</button>
+					<button
+						type="button"
+						onClick={onConfirm}
+						disabled={confirming}
+						aria-busy={confirming}
+						className={`flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg text-white text-sm font-semibold touch-manipulation disabled:opacity-60 ${
+							destructive
+								? "bg-red-600 active:bg-red-700"
+								: "bg-green-500 active:bg-green-600"
+						}`}
+					>
+						{confirming ? (
+							<LoadingSpinner className="h-4 w-4 text-white" />
+						) : (
+							confirmLabel
+						)}
+					</button>
+				</div>
 			</div>
 		</div>
 	);
@@ -2421,6 +2479,8 @@ export default function OrderPage() {
 	const [pendingCloseTable, setPendingCloseTable] = useState<OrderGroup | null>(
 		null
 	);
+	const [pendingDiscardGroup, setPendingDiscardGroup] =
+		useState<OrderGroup | null>(null);
 	const [editingNotesGroup, setEditingNotesGroup] = useState<OrderGroup | null>(
 		null
 	);
@@ -3186,6 +3246,14 @@ export default function OrderPage() {
 		});
 	};
 
+	const handleDiscardOrder = async (group: OrderGroup) => {
+		await runConfirmingAction(`discard:${group.key}`, async () => {
+			const remaining = await discardOrderGroup(group);
+			applyOrderState(remaining);
+			setPendingDiscardGroup(null);
+		});
+	};
+
 	const hasOrders = groups.length > 0;
 	const hasFilteredOrders = filteredGroups.length > 0;
 	const hasFilteredChronologicalOrders = chronologicalOrders.length > 0;
@@ -3350,6 +3418,7 @@ export default function OrderPage() {
 									onEditNotes={openNotesModal}
 									onEditPax={openPaxModal}
 									onAddPhone={openPhoneModal}
+									onCloseOrder={setPendingDiscardGroup}
 									onChangeTable={openChangeTableModal}
 								/>
 							))
@@ -3578,6 +3647,19 @@ export default function OrderPage() {
 					confirming={confirmingAction === `close:${pendingCloseTable.key}`}
 					onCancel={() => setPendingCloseTable(null)}
 					onConfirm={() => void handleCloseTable(pendingCloseTable)}
+				/>
+			)}
+
+			{pendingDiscardGroup && (
+				<ConfirmOrderActionModal
+					title="Close order permanently?"
+					message={`This is a destructive action. ${pendingDiscardGroup.label} will not be saved to the database and will be permanently lost. This cannot be undone.`}
+					confirmLabel="Close order"
+					cancelLabel="Keep order"
+					destructive
+					confirming={confirmingAction === `discard:${pendingDiscardGroup.key}`}
+					onCancel={() => setPendingDiscardGroup(null)}
+					onConfirm={() => void handleDiscardOrder(pendingDiscardGroup)}
 				/>
 			)}
 
