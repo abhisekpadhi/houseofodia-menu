@@ -84,8 +84,13 @@ export type TOrder = {
 	items: TOrderItem[];
 	/** Group-level guest contact for takeaway / delivery (copied to orders in the group) */
 	customerName?: string;
-	/** Group-level guest phone for takeaway / delivery (also used as group key) */
+	/** Group-level guest phone for takeaway / delivery (optional contact) */
 	customerPhone?: string;
+	/**
+	 * Shared session id for takeaway / delivery.
+	 * FAB new orders create a fresh session; adding via group + continues it.
+	 */
+	sessionKey?: string;
 	/** Guest count for the table / order group */
 	pax?: number;
 	/** Optional instructions for kitchen / service */

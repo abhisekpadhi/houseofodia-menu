@@ -21,6 +21,7 @@ function KotContent() {
 		Record<string, string>
 	>({});
 	const [loading, setLoading] = useState(true);
+	const [fullSize, setFullSize] = useState(true);
 
 	useEffect(() => {
 		if (!orderId) {
@@ -89,10 +90,19 @@ function KotContent() {
 				</div>
 			</div>
 			<div
-				className="text-xs"
-				style={{ maxWidth: "58mm", fontFamily: "Helvetica" }}
+				className={
+					fullSize
+						? "w-full px-6 py-4 text-base print:px-0"
+						: "text-xs"
+				}
+				style={{
+					maxWidth: fullSize ? undefined : "58mm",
+					fontFamily: "Helvetica",
+				}}
 			>
-				<h1 className="text-center font-bold">Tangify</h1>
+				<h1 className={`text-center font-bold${fullSize ? " text-2xl" : ""}`}>
+					Tangify
+				</h1>
 				<p className="text-center">Kitchen Order Ticket</p>
 				<p className="text-center">Sarjapura, BLR, KA - 562125</p>
 				<Divider />
@@ -138,13 +148,20 @@ function KotContent() {
 				<br />
 				<br />
 			</div>
-			<div className="px-6 py-4 print:hidden">
+			<div className="px-6 py-4 space-y-3 print:hidden">
 				<button
 					type="button"
 					className="w-full py-3 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-bold flex items-center justify-center transition-colors"
 					onClick={() => window.print()}
 				>
 					<FaPrint className="mr-2" /> Print KOT
+				</button>
+				<button
+					type="button"
+					className="w-full py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors"
+					onClick={() => setFullSize((value) => !value)}
+				>
+					{fullSize ? "Receipt size (58mm)" : "Full size"}
 				</button>
 			</div>
 		</div>

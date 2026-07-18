@@ -53,10 +53,14 @@ import {
 	isUnitNextToFulfill,
 	unfulfillLastUnitForDish,
 	updateGroupNotes,
+	updateGroupPax,
+	updateGroupCustomerPhone,
 	updateOrders,
 	cancelItemUnit,
 	toggleItemUnitParcel,
 	setItemUnitFulfilled,
+	CUSTOMER_PHONE_DIGITS,
+	isValidCustomerPhone,
 } from "@/src/utils/order_utils";
 import {
 	decrementInventoryForOrder,
@@ -555,9 +559,11 @@ function TableGroupMoreSheet({
 	compPending,
 	kidPending,
 	notesPending,
+	paxPending,
 	onBill,
 	onChangeTable,
 	onEditNotes,
+	onEditPax,
 	onRequestWelcomeDrink,
 	onRequestComplementary,
 	onRequestKidMenu,
@@ -578,9 +584,11 @@ function TableGroupMoreSheet({
 	compPending: boolean;
 	kidPending: boolean;
 	notesPending: boolean;
+	paxPending: boolean;
 	onBill: (group: OrderGroup) => void;
 	onChangeTable: (group: OrderGroup) => void;
 	onEditNotes: (group: OrderGroup) => void;
+	onEditPax: (group: OrderGroup) => void;
 	onRequestWelcomeDrink: (group: OrderGroup) => void;
 	onRequestComplementary: (group: OrderGroup) => void;
 	onRequestKidMenu: (group: OrderGroup) => void;
@@ -649,10 +657,37 @@ function TableGroupMoreSheet({
 						{notesPending ? "Saving notes…" : groupNotes ? "Edit notes" : "Add notes"}
 					</button>
 					{groupPax != null ? (
-						<div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-800">
-							{groupPax} pax
+						<div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+							<span className="flex-1 text-sm font-semibold text-gray-800">
+								{groupPax} pax
+							</span>
+							<button
+								type="button"
+								onClick={() => {
+									onClose();
+									onEditPax(group);
+								}}
+								disabled={paxPending}
+								className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 active:bg-gray-200 touch-manipulation disabled:opacity-50"
+								aria-label="Edit pax"
+							>
+								<PencilIcon className="w-3.5 h-3.5" />
+								Edit
+							</button>
 						</div>
-					) : null}
+					) : (
+						<button
+							type="button"
+							onClick={() => {
+								onClose();
+								onEditPax(group);
+							}}
+							disabled={paxPending}
+							className="w-full min-h-[44px] rounded-xl border border-gray-300 bg-white text-sm font-semibold text-gray-700 active:bg-gray-100 touch-manipulation disabled:opacity-50"
+						>
+							{paxPending ? "Saving pax…" : "Add pax"}
+						</button>
+					)}
 					{showTableService ? (
 						<div className="flex flex-wrap gap-2 pt-1">
 							<TableServicePill
@@ -1117,6 +1152,181 @@ function GroupNotesModal({
 	);
 }
 
+const PAX_QUICK_PICK_OPTIONS = Array.from({ length: 30 }, (_, index) => index + 1);
+
+function GroupPaxModal({
+	group,
+	draft,
+	saving,
+	onDraftChange,
+	onClose,
+	onSave,
+}: {
+	group: OrderGroup;
+	draft: string;
+	saving: boolean;
+	onDraftChange: (value: string) => void;
+	onClose: () => void;
+	onSave: () => void;
+}) {
+	const paxNumber = parseInt(draft.trim(), 10);
+	const isValid = !Number.isNaN(paxNumber) && paxNumber >= 1;
+	const selectedQuickPick =
+		isValid &&
+		paxNumber >= 1 &&
+		paxNumber <= PAX_QUICK_PICK_OPTIONS.length &&
+		String(paxNumber) === draft.trim()
+			? paxNumber
+			: null;
+
+	return (
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+			onClick={() => {
+				if (!saving) {
+					onClose();
+				}
+			}}
+		>
+			<div
+				className="w-full max-w-sm rounded-xl bg-white shadow-xl"
+				onClick={(event) => event.stopPropagation()}
+			>
+				<div className="px-5 py-4 border-b">
+					<h2 className="text-lg font-bold">Edit pax</h2>
+					<p className="text-sm text-gray-600 mt-2">
+						Guest count for {group.label}.
+					</p>
+					<div className="mt-3 flex items-center gap-3">
+						<input
+							id="edit-group-pax"
+							type="text"
+							inputMode="numeric"
+							autoFocus
+							value={draft}
+							onChange={(e) =>
+								onDraftChange(e.target.value.replace(/\D/g, "").slice(0, 3))
+							}
+							placeholder="Guests"
+							className="w-20 shrink-0 border border-gray-300 rounded-lg px-3 py-2 text-sm text-center touch-manipulation"
+						/>
+						<div className="min-w-0 flex-1 overflow-x-auto pb-1">
+							<div className="flex gap-2 w-max">
+								{PAX_QUICK_PICK_OPTIONS.map((option) => {
+									const isSelected = selectedQuickPick === option;
+									return (
+										<button
+											key={option}
+											type="button"
+											onClick={() => onDraftChange(String(option))}
+											aria-pressed={isSelected}
+											className={`shrink-0 min-w-[2.5rem] min-h-[2.5rem] rounded-lg border px-3 py-2 text-sm font-semibold touch-manipulation transition-colors ${
+												isSelected
+													? "border-green-600 bg-green-100 text-green-800"
+													: "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+											}`}
+										>
+											{option}
+										</button>
+									);
+								})}
+							</div>
+						</div>
+					</div>
+					{draft.length > 0 && !isValid ? (
+						<p className="text-xs text-red-600 mt-2">Enter at least 1 pax.</p>
+					) : null}
+				</div>
+				<ConfirmModalActions
+					onCancel={onClose}
+					onConfirm={onSave}
+					confirmLabel="Save pax"
+					confirmDisabled={!isValid}
+					confirming={saving}
+					cancelDisabled={saving}
+				/>
+			</div>
+		</div>
+	);
+}
+
+function GroupPhoneModal({
+	group,
+	draft,
+	saving,
+	onDraftChange,
+	onClose,
+	onSave,
+}: {
+	group: OrderGroup;
+	draft: string;
+	saving: boolean;
+	onDraftChange: (value: string) => void;
+	onClose: () => void;
+	onSave: () => void;
+}) {
+	const isValid = draft.length === 0 || isValidCustomerPhone(draft);
+
+	return (
+		<div
+			className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+			onClick={() => {
+				if (!saving) {
+					onClose();
+				}
+			}}
+		>
+			<div
+				className="w-full max-w-sm rounded-xl bg-white shadow-xl"
+				onClick={(event) => event.stopPropagation()}
+			>
+				<div className="px-5 py-4 border-b">
+					<h2 className="text-lg font-bold">Customer phone</h2>
+					<p className="text-sm text-gray-600 mt-2">
+						Phone for {group.label} (optional).
+					</p>
+					<div className="mt-4 flex items-center gap-2">
+						<span className="text-sm font-semibold text-gray-700">+91</span>
+						<input
+							id="edit-group-phone"
+							type="tel"
+							inputMode="numeric"
+							autoComplete="tel"
+							autoFocus
+							maxLength={CUSTOMER_PHONE_DIGITS}
+							value={draft}
+							onChange={(e) =>
+								onDraftChange(
+									e.target.value.replace(/\D/g, "").slice(0, CUSTOMER_PHONE_DIGITS)
+								)
+							}
+							placeholder="10-digit phone"
+							className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm touch-manipulation"
+						/>
+					</div>
+					{draft.length > 0 && !isValidCustomerPhone(draft) ? (
+						<p className="text-xs text-red-600 mt-2">
+							Enter exactly {CUSTOMER_PHONE_DIGITS} digits.
+						</p>
+					) : (
+						<p className="text-xs text-gray-500 mt-2">
+							Optional — leave blank to clear.
+						</p>
+					)}
+				</div>
+				<ConfirmModalActions
+					onCancel={onClose}
+					onConfirm={onSave}
+					confirmLabel={draft ? "Save phone" : "Clear phone"}
+					confirmDisabled={!isValid}
+					confirming={saving}
+					cancelDisabled={saving}
+				/>
+			</div>
+		</div>
+	);
+}
+
 function ServiceRequestBadges({
 	counts,
 }: {
@@ -1167,6 +1377,8 @@ function TableOrderCard({
 	onRequestToggleParcel,
 	onRequestToggleFulfill,
 	onEditNotes,
+	onEditPax,
+	onAddPhone,
 	onChangeTable,
 }: {
 	group: OrderGroup;
@@ -1196,6 +1408,8 @@ function TableOrderCard({
 		unitIndex: number
 	) => void;
 	onEditNotes: (group: OrderGroup) => void;
+	onEditPax: (group: OrderGroup) => void;
+	onAddPhone: (group: OrderGroup) => void;
 	onChangeTable: (group: OrderGroup) => void;
 }) {
 	const addOrderHref =
@@ -1217,11 +1431,13 @@ function TableOrderCard({
 	const kidEnabled = isTableKidMenuEnabled(group);
 	const showTableService = group.kind === "table";
 	const groupCustomer = getGroupCustomerDetails(group);
-	const hasGroupCustomer =
-		groupCustomer.name !== undefined || groupCustomer.phone !== undefined;
+	const showCustomerRow =
+		group.kind === "takeaway" || group.kind === "delivery";
 	const groupNotes = getGroupNotes(group);
 	const groupPax = getGroupPax(group);
 	const notesPending = isActionPending(`notes:${group.key}`);
+	const paxPending = isActionPending(`pax:${group.key}`);
+	const phonePending = isActionPending(`phone:${group.key}`);
 	const changeTablePending = isActionPending(`move-table:${group.key}`);
 	const [moreOpen, setMoreOpen] = useState(false);
 	const [namePopoverOpen, setNamePopoverOpen] = useState(false);
@@ -1314,7 +1530,7 @@ function TableOrderCard({
 						</Link>
 					</div>
 				</div>
-				{hasGroupCustomer ? (
+				{showCustomerRow ? (
 					<div className="flex items-center gap-2 flex-wrap text-sm font-medium text-gray-700">
 						{groupCustomer.name ? <span>{groupCustomer.name}</span> : null}
 						{groupCustomer.name && groupCustomer.phone ? (
@@ -1331,7 +1547,18 @@ function TableOrderCard({
 									<PhoneIcon className="w-3.5 h-3.5 shrink-0" />
 								</a>
 							</span>
-						) : null}
+						) : (
+							<button
+								type="button"
+								onClick={() => onAddPhone(group)}
+								disabled={phonePending}
+								className="inline-flex min-h-[32px] items-center gap-1 rounded-full border border-dashed border-gray-300 bg-white px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 active:bg-gray-100 touch-manipulation disabled:opacity-50"
+								aria-label="Add phone number"
+							>
+								<PlusIcon className="w-3.5 h-3.5 shrink-0" />
+								phone
+							</button>
+						)}
 					</div>
 				) : null}
 				{groupNotes ? (
@@ -1385,9 +1612,11 @@ function TableOrderCard({
 					compPending={compPending}
 					kidPending={kidPending}
 					notesPending={notesPending}
+					paxPending={paxPending}
 					onBill={onBill}
 					onChangeTable={onChangeTable}
 					onEditNotes={onEditNotes}
+					onEditPax={onEditPax}
 					onRequestWelcomeDrink={onRequestWelcomeDrink}
 					onRequestComplementary={onRequestComplementary}
 					onRequestKidMenu={onRequestKidMenu}
@@ -2196,6 +2425,14 @@ export default function OrderPage() {
 		null
 	);
 	const [notesDraft, setNotesDraft] = useState("");
+	const [editingPaxGroup, setEditingPaxGroup] = useState<OrderGroup | null>(
+		null
+	);
+	const [paxDraft, setPaxDraft] = useState("");
+	const [editingPhoneGroup, setEditingPhoneGroup] = useState<OrderGroup | null>(
+		null
+	);
+	const [phoneDraft, setPhoneDraft] = useState("");
 	const [pendingCancelItem, setPendingCancelItem] = useState<{
 		orderId: string;
 		itemIndex: number;
@@ -2724,6 +2961,52 @@ export default function OrderPage() {
 		});
 	};
 
+	const openPaxModal = (group: OrderGroup) => {
+		const current = getGroupPax(group);
+		setEditingPaxGroup(group);
+		setPaxDraft(current != null ? String(current) : "");
+	};
+
+	const handleSaveGroupPax = async () => {
+		if (!editingPaxGroup) {
+			return;
+		}
+		const paxNumber = parseInt(paxDraft.trim(), 10);
+		if (Number.isNaN(paxNumber) || paxNumber < 1) {
+			alert("Enter a valid pax count (at least 1).");
+			return;
+		}
+		await runPendingAction(`pax:${editingPaxGroup.key}`, async () => {
+			await persistOrders(updateGroupPax(orders, editingPaxGroup, paxNumber));
+			setEditingPaxGroup(null);
+			setPaxDraft("");
+		});
+	};
+
+	const openPhoneModal = (group: OrderGroup) => {
+		const current = getGroupCustomerDetails(group).phone ?? "";
+		setEditingPhoneGroup(group);
+		setPhoneDraft(current);
+	};
+
+	const handleSaveGroupPhone = async () => {
+		if (!editingPhoneGroup) {
+			return;
+		}
+		const trimmed = phoneDraft.trim();
+		if (trimmed && !isValidCustomerPhone(trimmed)) {
+			alert(`Enter a valid ${CUSTOMER_PHONE_DIGITS}-digit phone number.`);
+			return;
+		}
+		await runPendingAction(`phone:${editingPhoneGroup.key}`, async () => {
+			await persistOrders(
+				updateGroupCustomerPhone(orders, editingPhoneGroup, trimmed)
+			);
+			setEditingPhoneGroup(null);
+			setPhoneDraft("");
+		});
+	};
+
 	const handleKotPrint = (order: TOrder) => {
 		router.push(`/kot?orderId=${encodeURIComponent(order.id)}`);
 	};
@@ -3065,6 +3348,8 @@ export default function OrderPage() {
 									onRequestToggleParcel={handleRequestToggleParcel}
 									onRequestToggleFulfill={handleRequestToggleFulfill}
 									onEditNotes={openNotesModal}
+									onEditPax={openPaxModal}
+									onAddPhone={openPhoneModal}
 									onChangeTable={openChangeTableModal}
 								/>
 							))
@@ -3307,6 +3592,34 @@ export default function OrderPage() {
 						setNotesDraft("");
 					}}
 					onSave={() => void handleSaveGroupNotes()}
+				/>
+			)}
+
+			{editingPaxGroup && (
+				<GroupPaxModal
+					group={editingPaxGroup}
+					draft={paxDraft}
+					saving={Boolean(pendingActions[`pax:${editingPaxGroup.key}`])}
+					onDraftChange={setPaxDraft}
+					onClose={() => {
+						setEditingPaxGroup(null);
+						setPaxDraft("");
+					}}
+					onSave={() => void handleSaveGroupPax()}
+				/>
+			)}
+
+			{editingPhoneGroup && (
+				<GroupPhoneModal
+					group={editingPhoneGroup}
+					draft={phoneDraft}
+					saving={Boolean(pendingActions[`phone:${editingPhoneGroup.key}`])}
+					onDraftChange={setPhoneDraft}
+					onClose={() => {
+						setEditingPhoneGroup(null);
+						setPhoneDraft("");
+					}}
+					onSave={() => void handleSaveGroupPhone()}
 				/>
 			)}
 

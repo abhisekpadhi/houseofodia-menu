@@ -705,6 +705,12 @@ export function getOrderGroupKey(order: TOrder): string {
 		return `table-${tableNumbers.join('-')}`;
 	}
 
+	const sessionKey = order.sessionKey?.trim();
+	if (sessionKey) {
+		return `${order.kind}-${sessionKey}`;
+	}
+
+	// Legacy takeaway/delivery orders without sessionKey
 	const phone = order.customerPhone?.trim();
 	if (phone && isValidCustomerPhone(phone)) {
 		return `${order.kind}-${phone}`;
@@ -717,7 +723,7 @@ export function getCustomerContactFlagsForGroupKey(
 	orders: TOrder[],
 	groupKey: string,
 	kind: OrderKind
-): Pick<TOrder, 'customerName' | 'customerPhone' | 'groupNotes' | 'pax'> {
+): Pick<TOrder, 'customerName' | 'customerPhone' | 'groupNotes' | 'pax' | 'sessionKey'> {
 	if (kind !== 'takeaway' && kind !== 'delivery') {
 		return {};
 	}
@@ -730,12 +736,20 @@ export function getCustomerContactFlagsForGroupKey(
 		const name = order.customerName?.trim();
 		const phone = order.customerPhone?.trim();
 		const groupNotes = order.groupNotes?.trim();
+		const sessionKey = order.sessionKey?.trim();
 		const pax = order.pax;
-		if (name || phone || groupNotes || (pax != null && pax >= 1)) {
+		if (
+			name ||
+			phone ||
+			groupNotes ||
+			sessionKey ||
+			(pax != null && pax >= 1)
+		) {
 			return {
 				...(name ? { customerName: name } : {}),
 				...(phone ? { customerPhone: phone } : {}),
 				...(groupNotes ? { groupNotes } : {}),
+				...(sessionKey ? { sessionKey } : {}),
 				...(pax != null && pax >= 1 ? { pax } : {}),
 			};
 		}
@@ -1037,6 +1051,7 @@ export function ordersStoreChanged(before: TOrder[], after: TOrder[]): boolean {
 			order.kidMenuServed !== next.kidMenuServed ||
 			order.customerName !== next.customerName ||
 			order.customerPhone !== next.customerPhone ||
+			order.sessionKey !== next.sessionKey ||
 			order.pax !== next.pax ||
 			order.groupNotes !== next.groupNotes ||
 			order.items.length !== next.items.length
@@ -1180,6 +1195,45 @@ export function updateGroupNotes(
 			return rest;
 		}
 		return { ...order, groupNotes: trimmed };
+	});
+}
+
+export function updateGroupPax(
+	orders: TOrder[],
+	group: OrderGroup,
+	pax: number
+): TOrder[] {
+	if (!Number.isFinite(pax) || pax < 1) {
+		return orders;
+	}
+	const nextPax = Math.floor(pax);
+	const orderIds = orderIdsInGroup(group);
+
+	return orders.map((order) => {
+		if (!orderIds.has(order.id)) {
+			return order;
+		}
+		return { ...order, pax: nextPax };
+	});
+}
+
+export function updateGroupCustomerPhone(
+	orders: TOrder[],
+	group: OrderGroup,
+	phone: string
+): TOrder[] {
+	const trimmed = phone.trim();
+	const orderIds = orderIdsInGroup(group);
+
+	return orders.map((order) => {
+		if (!orderIds.has(order.id)) {
+			return order;
+		}
+		if (!trimmed) {
+			const { customerPhone: _removed, ...rest } = order;
+			return rest;
+		}
+		return { ...order, customerPhone: trimmed };
 	});
 }
 

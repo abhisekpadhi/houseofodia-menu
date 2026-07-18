@@ -204,7 +204,7 @@ const Receipt = () => {
   const [fallbackAction, setFallbackAction] = useState<"print" | "close">(
     "print"
   );
-  const [fullSize, setFullSize] = useState(false);
+  const [fullSize, setFullSize] = useState(true);
   const [showPaymentQr, setShowPaymentQr] = useState(true);
   const [phoneModalOpen, setPhoneModalOpen] = useState(false);
   const [phoneDraft, setPhoneDraft] = useState("");
@@ -376,14 +376,13 @@ const Receipt = () => {
     return savedBill;
   };
 
-  const handleSaveAndGoBack = async () => {
+  const handleSave = async () => {
     if (!billingContext || isBusy) {
       return;
     }
     const needsSave =
       !bill.backendBillId || bill.backendSavedAt !== bill.updatedAt;
     if (!needsSave) {
-      router.push("/cart");
       return;
     }
     setBusyMessage("Saving bill…");
@@ -391,7 +390,6 @@ const Receipt = () => {
     setSaving(true);
     try {
       await persistBillToBackend(bill, billingContext);
-      router.push("/cart");
     } catch {
       const failedBill: TBill = {
         ...bill,
@@ -713,9 +711,9 @@ const Receipt = () => {
             type="button"
             disabled={isBusy}
             className="basis-[70%] py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={() => void handleSaveAndGoBack()}
+            onClick={() => void handleSave()}
           >
-            {saving ? "Saving…" : "Save & go back"}
+            {saving ? "Saving…" : "Save"}
           </button>
           <button
             type="button"

@@ -352,8 +352,10 @@ function AddOrderContent() {
 	const needsCustomerDetails =
 		(orderKind === "takeaway" || orderKind === "delivery") &&
 		!isFromExistingGroup;
-	const hasCustomerDetails =
-		customerName.trim().length > 0 && isValidCustomerPhone(customerPhone);
+	const trimmedCustomerPhone = customerPhone.trim();
+	const hasValidCustomerPhone =
+		trimmedCustomerPhone.length === 0 ||
+		isValidCustomerPhone(trimmedCustomerPhone);
 	const paxNumber = parseInt(pax.trim(), 10);
 	const hasValidPax = !Number.isNaN(paxNumber) && paxNumber >= 1;
 	const selectedQuickPickPax =
@@ -369,7 +371,7 @@ function AddOrderContent() {
 		cartItems.length > 0 &&
 		!needsTableSelection &&
 		hasValidPax &&
-		(!needsCustomerDetails || hasCustomerDetails);
+		(!needsCustomerDetails || hasValidCustomerPhone);
 
 	const canAddMore = (name: string) =>
 		!isOutOfStock(inventory, name, quantities[name] ?? 0);
@@ -410,7 +412,7 @@ function AddOrderContent() {
 	const isSetupComplete =
 		!needsTableSelection &&
 		hasValidPax &&
-		(!needsCustomerDetails || hasCustomerDetails);
+		(!needsCustomerDetails || hasValidCustomerPhone);
 
 	useEffect(() => {
 		if (isSetupComplete && !setupWasCompleteRef.current) {
@@ -582,8 +584,8 @@ function AddOrderContent() {
 			return;
 		}
 
-		if (needsCustomerDetails && !hasCustomerDetails) {
-			alert("Enter customer name and a 10-digit phone number.");
+		if (needsCustomerDetails && !hasValidCustomerPhone) {
+			alert(`Enter a valid ${CUSTOMER_PHONE_DIGITS}-digit phone number, or leave phone blank.`);
 			return;
 		}
 
@@ -602,21 +604,31 @@ function AddOrderContent() {
 				orderKind === "table"
 					? getTableServiceFlagsForTables(store.orders, selectedTables)
 					: {};
+			const orderId = generateOrderId();
 			const customerFlags =
 				orderKind === "takeaway" || orderKind === "delivery"
 					? isFromExistingGroup && preselectedGroupKey
-						? getCustomerContactFlagsForGroupKey(
-								store.orders,
-								preselectedGroupKey,
-								orderKind
-							)
+						? (() => {
+								const flags = getCustomerContactFlagsForGroupKey(
+									store.orders,
+									preselectedGroupKey,
+									orderKind
+								);
+								const sessionKey =
+									flags.sessionKey ??
+									(preselectedGroupKey.startsWith(`${orderKind}-`)
+										? preselectedGroupKey.slice(orderKind.length + 1)
+										: preselectedGroupKey);
+								return { ...flags, sessionKey };
+							})()
 						: {
+								sessionKey: orderId,
 								...(trimmedName ? { customerName: trimmedName } : {}),
 								...(trimmedPhone ? { customerPhone: trimmedPhone } : {}),
 							}
 					: {};
 			const order: TOrder = {
-				id: generateOrderId(),
+				id: orderId,
 				createdAt: Date.now(),
 				kind: orderKind,
 				tableNumbers: orderKind === "table" ? selectedTables : [],
@@ -808,7 +820,8 @@ function AddOrderContent() {
 											htmlFor="customer-phone"
 											className="block text-xs text-gray-500 mb-1"
 										>
-											Phone
+											Phone{" "}
+											<span className="font-normal text-gray-400">(optional)</span>
 										</label>
 										<input
 											id="customer-phone"
@@ -829,10 +842,10 @@ function AddOrderContent() {
 										/>
 									</div>
 								</div>
-								{!hasCustomerDetails ? (
+								{!hasValidCustomerPhone ? (
 									<p className="text-xs font-medium text-red-600">
-										Enter name and a 10-digit phone number before placing the
-										order.
+										Enter a valid {CUSTOMER_PHONE_DIGITS}-digit phone number, or
+										leave it blank.
 									</p>
 								) : null}
 							</div>
@@ -1006,8 +1019,8 @@ function AddOrderContent() {
 							? "Select a table"
 							: !hasValidPax
 								? "Enter pax"
-								: needsCustomerDetails && !hasCustomerDetails
-									? "Enter customer details"
+								: needsCustomerDetails && !hasValidCustomerPhone
+									? "Fix phone number"
 									: "Place Order"}
 				</Button>
 			</div>
