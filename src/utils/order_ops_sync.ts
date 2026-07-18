@@ -29,6 +29,7 @@ import {
 	upsertOrdersInHistory,
 } from '@/src/utils/order_history';
 import { maintainOrders } from '@/src/utils/order_utils';
+import { applyDailyOrderNumberSnapshot } from '@/src/utils/daily_order_number';
 import {
 	addOrderNotifications,
 	buildOrderSignatures,
@@ -202,6 +203,13 @@ export async function applyOrderOpsSnapshot(
 			} else {
 				await upsertOrdersInHistory(maintained);
 			}
+
+			await applyDailyOrderNumberSnapshot(
+				payload.businessDate,
+				payload.nextOrderNumber,
+				maintained,
+				payload.orderHistory ?? []
+			);
 
 			appliedVersions.orders = remoteVersions.orders;
 		}

@@ -489,6 +489,7 @@ export function buildOrderHistoryCsv(orders: TOrder[]): string {
 		'Round Off',
 		'Payable',
 		'Bill No',
+		'Order No',
 		'Order Time',
 		'Order ID',
 		'Item',
@@ -518,6 +519,12 @@ export function buildOrderHistoryCsv(orders: TOrder[]): string {
 			const status = getOrderHistoryStatus(order);
 			const orderTime = formatHistoryClockTime(order.createdAt);
 			const notes = order.notes?.trim() ?? '';
+			const orderNo =
+				order.orderNumber != null &&
+				Number.isFinite(order.orderNumber) &&
+				order.orderNumber >= 1
+					? Math.floor(order.orderNumber)
+					: '';
 
 			if (order.items.length === 0) {
 				rows.push(
@@ -530,6 +537,7 @@ export function buildOrderHistoryCsv(orders: TOrder[]): string {
 						session.sessionTotal,
 						...billFields,
 						billNumber,
+						orderNo,
 						orderTime,
 						order.id,
 						'',
@@ -557,6 +565,7 @@ export function buildOrderHistoryCsv(orders: TOrder[]): string {
 						session.sessionTotal,
 						...billFields,
 						billNumber,
+						orderNo,
 						orderTime,
 						order.id,
 						item.name,

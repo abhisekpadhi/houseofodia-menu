@@ -23,6 +23,7 @@ import {
 	sortOrderHistorySessions,
 } from '@/src/utils/order_history';
 import { formatCustomerContact, formatOrderTime, orderTotal } from '@/src/utils/order_utils';
+import { formatDailyOrderNumber } from '@/src/utils/daily_order_number';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -62,7 +63,9 @@ function OrderHistoryOrderCard({ order }: { order: TOrder }) {
 			<div className="flex items-start justify-between gap-3">
 				<div className="min-w-0">
 					<p className="text-sm font-semibold text-gray-900">
-						Order · {formatOrderTime(order.createdAt)}
+						{order.orderNumber != null
+							? `${formatDailyOrderNumber(order.orderNumber)} · ${formatOrderTime(order.createdAt)}`
+							: `Order · ${formatOrderTime(order.createdAt)}`}
 					</p>
 					{customerContact ? (
 						<p className="text-xs font-medium text-gray-700 mt-0.5">

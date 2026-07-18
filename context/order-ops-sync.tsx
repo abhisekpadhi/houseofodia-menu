@@ -704,6 +704,34 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			}}
 		>
 			{children}
+			{syncing && !syncConflict ? (
+				<div
+					className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 px-4"
+					role="alertdialog"
+					aria-modal="true"
+					aria-busy="true"
+					aria-labelledby="order-ops-sync-blocking-title"
+					onClick={(event) => event.stopPropagation()}
+					onPointerDown={(event) => event.stopPropagation()}
+				>
+					<div className="w-full max-w-sm rounded-xl bg-white shadow-xl px-6 py-8 text-center">
+						<span
+							className="mx-auto mb-4 inline-block h-10 w-10 rounded-full border-4 border-gray-200 border-t-green-600 animate-spin"
+							aria-hidden
+						/>
+						<h2
+							id="order-ops-sync-blocking-title"
+							className="text-lg font-bold text-gray-900"
+						>
+							Sync in progress
+						</h2>
+						<p className="mt-2 text-sm text-gray-600">
+							Please wait while devices sync. Don&apos;t tap around until this
+							finishes.
+						</p>
+					</div>
+				</div>
+			) : null}
 		</OrderOpsSyncContext.Provider>
 	);
 }

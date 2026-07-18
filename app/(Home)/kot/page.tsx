@@ -2,6 +2,7 @@
 
 import { TMenuApiItem, TOrder } from "@/src/models/common";
 import { buildDishInternalNameMap, getKotDisplayName } from "@/src/utils/menu_utils";
+import { formatDailyOrderNumber } from "@/src/utils/daily_order_number";
 import { formatCustomerContact, formatOrderLabel, formatOrderTime, getOrdersStore } from "@/src/utils/order_utils";
 import axios from "axios";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -11,6 +12,16 @@ import { FaPrint } from "react-icons/fa";
 const Divider = () => {
 	return <div className="my-2 border-t border-solid border-black" />;
 };
+
+function BlankRows({ count }: { count: number }) {
+	return (
+		<div aria-hidden className="select-none">
+			{Array.from({ length: count }, (_, index) => (
+				<br key={index} />
+			))}
+		</div>
+	);
+}
 
 function KotContent() {
 	const router = useRouter();
@@ -73,6 +84,7 @@ function KotContent() {
 		year: "2-digit",
 	});
 	const customerContact = formatCustomerContact(order);
+	const orderNumberLabel = formatDailyOrderNumber(order.orderNumber);
 
 	return (
 		<div className="min-h-screen bg-gray-50">
@@ -100,9 +112,19 @@ function KotContent() {
 					fontFamily: "Helvetica",
 				}}
 			>
-				<h1 className={`text-center font-bold${fullSize ? " text-2xl" : ""}`}>
+				<BlankRows count={6} />
+				{orderNumberLabel ? (
+					<h1
+						className={`text-center font-black tracking-tight${
+							fullSize ? " text-5xl" : " text-3xl"
+						}`}
+					>
+						{orderNumberLabel}
+					</h1>
+				) : null}
+				<h2 className={`text-center font-bold${fullSize ? " text-2xl" : ""}`}>
 					Tangify
-				</h1>
+				</h2>
 				<p className="text-center">Kitchen Order Ticket</p>
 				<p className="text-center">Sarjapura, BLR, KA - 562125</p>
 				<Divider />
@@ -144,9 +166,7 @@ function KotContent() {
 						<p className="mt-1 whitespace-pre-wrap">{order.notes.trim()}</p>
 					</>
 				) : null}
-				<br />
-				<br />
-				<br />
+				<BlankRows count={3} />
 			</div>
 			<div className="px-6 py-4 space-y-3 print:hidden">
 				<button

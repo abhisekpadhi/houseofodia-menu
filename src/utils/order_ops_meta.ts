@@ -19,6 +19,7 @@ import { TOrdersStore } from '@/src/models/common';
 import { getInventorySnapshotForDate, getTodayDateKey } from '@/src/utils/inventory_utils';
 import { getTodayOrderHistory } from '@/src/utils/order_history';
 import { getOrdersStore, maintainOrders } from '@/src/utils/order_utils';
+import { getDailyOrderNumberSnapshot } from '@/src/utils/daily_order_number';
 import { getDayChecklistSnapshotForDate, pruneDayChecklistsForToday } from '@/src/utils/day_checklist_utils';
 import { getSupplyInventorySnapshotForDate } from '@/src/utils/supply_inventory_utils';
 import { getWaitlistSnapshotForDate } from '@/src/utils/waitlist_utils';
@@ -201,13 +202,14 @@ export async function buildOrderOpsSnapshot(): Promise<OrderOpsSnapshot> {
 	const orders = maintainOrders(store.orders, Date.now());
 	const inventory = await getInventorySnapshotForDate(businessDate);
 	const orderHistory = await getTodayOrderHistory();
-	const [dayChecklists, supplyInventory, waitlist, serviceRequests, billingSessions] =
+	const [dayChecklists, supplyInventory, waitlist, serviceRequests, billingSessions, nextOrderNumber] =
 		await Promise.all([
 			getDayChecklistSnapshotForDate(businessDate),
 			getSupplyInventorySnapshotForDate(businessDate),
 			getWaitlistSnapshotForDate(businessDate),
 			getServiceRequestsSnapshotForDate(businessDate),
 			getBillingSessions(),
+			getDailyOrderNumberSnapshot(),
 		]);
 
 	return {
@@ -218,6 +220,7 @@ export async function buildOrderOpsSnapshot(): Promise<OrderOpsSnapshot> {
 		orders,
 		inventory,
 		orderHistory,
+		nextOrderNumber,
 		dayChecklists,
 		supplyInventory,
 		waitlist,

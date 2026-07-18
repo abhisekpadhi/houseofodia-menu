@@ -482,7 +482,8 @@ export function syncGroupWaterBottleCount(
 	orders: TOrder[],
 	group: OrderGroup,
 	targetQty: number,
-	waterPrice: number
+	waterPrice: number,
+	nextOrderNumber?: number
 ): TOrder[] {
 	if (targetQty < 0) {
 		return orders;
@@ -552,6 +553,7 @@ export function syncGroupWaterBottleCount(
 					qty: addQty,
 				}),
 			],
+			...(nextOrderNumber != null ? { orderNumber: nextOrderNumber } : {}),
 			...(pax != null ? { pax } : {}),
 			...tableServiceFlags,
 		};
@@ -1060,6 +1062,7 @@ export function ordersStoreChanged(before: TOrder[], after: TOrder[]): boolean {
 			order.customerName !== next.customerName ||
 			order.customerPhone !== next.customerPhone ||
 			order.sessionKey !== next.sessionKey ||
+			order.orderNumber !== next.orderNumber ||
 			order.pax !== next.pax ||
 			order.groupNotes !== next.groupNotes ||
 			order.items.length !== next.items.length

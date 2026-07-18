@@ -129,6 +129,8 @@ export type OrderOpsSnapshot = {
 	inventory: Record<string, number>;
 	/** Archived orders for today, including billed tables */
 	orderHistory: TOrder[];
+	/** Next global daily order serial to assign (starts at 1 each day; shared across all kinds); synced with orders */
+	nextOrderNumber?: number;
 	dayChecklists?: {
 		open: Record<string, boolean>;
 		close: Record<string, boolean>;

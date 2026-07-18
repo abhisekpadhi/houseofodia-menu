@@ -82,6 +82,8 @@ export type TOrder = {
 	kind: OrderKind;
 	tableNumbers: number[];
 	items: TOrderItem[];
+	/** Global daily serial (#1, #2, …) shared across table / takeaway / delivery; resets each business day; synced */
+	orderNumber?: number;
 	/** Group-level guest contact for takeaway / delivery (copied to orders in the group) */
 	customerName?: string;
 	/** Group-level guest phone for takeaway / delivery (optional contact) */

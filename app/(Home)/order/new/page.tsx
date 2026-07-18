@@ -35,6 +35,7 @@ import {
 	formatCustomerContact,
 	isParcelDefaultOnForOrderKind,
 } from "@/src/utils/order_utils";
+import { allocateNextDailyOrderNumber } from "@/src/utils/daily_order_number";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -605,6 +606,7 @@ function AddOrderContent() {
 					? getTableServiceFlagsForTables(store.orders, selectedTables)
 					: {};
 			const orderId = generateOrderId();
+			const orderNumber = await allocateNextDailyOrderNumber(store.orders);
 			const customerFlags =
 				orderKind === "takeaway" || orderKind === "delivery"
 					? isFromExistingGroup && preselectedGroupKey
@@ -644,6 +646,7 @@ function AddOrderContent() {
 				...(orderKind === "table" && kidMenuEnabled
 					? { kidMenuEnabled: true }
 					: {}),
+				orderNumber,
 				pax: paxNumber,
 			};
 
