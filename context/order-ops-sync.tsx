@@ -34,6 +34,7 @@ import {
 	type PresenceMember,
 } from '@/src/utils/order_ops_sync';
 import Ably, { PresenceMessage, Realtime, RealtimeChannel } from 'ably';
+import { usePathname } from 'next/navigation';
 import {
 	createContext,
 	useCallback,
@@ -216,6 +217,7 @@ async function teardownAbly(
 }
 
 export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
+	const pathname = usePathname();
 	const [connectionState, setConnectionState] =
 		useState<OrderOpsConnectionState>('idle');
 	const [syncing, setSyncing] = useState(false);
@@ -684,6 +686,8 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 
 	connectionStateRef.current = connectionState;
 
+	const hideSyncBlockingModal = pathname === '/order/new';
+
 	return (
 		<OrderOpsSyncContext.Provider
 			value={{
@@ -704,7 +708,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			}}
 		>
 			{children}
-			{syncing && !syncConflict ? (
+			{syncing && !syncConflict && !hideSyncBlockingModal ? (
 				<div
 					className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 px-4"
 					role="alertdialog"
