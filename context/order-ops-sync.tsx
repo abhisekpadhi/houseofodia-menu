@@ -686,7 +686,10 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 
 	connectionStateRef.current = connectionState;
 
-	const hideSyncBlockingModal = pathname === '/order/new';
+	const hideSyncBlockingModal =
+		pathname === '/order/new' ||
+		pathname === '/cart' ||
+		pathname === '/bill';
 
 	return (
 		<OrderOpsSyncContext.Provider

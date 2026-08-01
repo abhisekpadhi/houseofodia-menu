@@ -32,7 +32,7 @@ function KotContent() {
 		Record<string, string>
 	>({});
 	const [loading, setLoading] = useState(true);
-	const [fullSize, setFullSize] = useState(true);
+	const [fullSize, setFullSize] = useState(false);
 
 	useEffect(() => {
 		if (!orderId) {
@@ -88,6 +88,26 @@ function KotContent() {
 
 	return (
 		<div className="min-h-screen bg-gray-50">
+			{!fullSize ? (
+				<style
+					dangerouslySetInnerHTML={{
+						__html: `
+              @media print {
+                @page {
+                  size: 58mm auto;
+                  margin: 0;
+                }
+                html, body {
+                  width: 58mm;
+                  max-width: 58mm;
+                  margin: 0;
+                  padding: 0;
+                }
+              }
+            `,
+					}}
+				/>
+			) : null}
 			<div className="ops-sticky-header bg-white border-b px-6 pb-4 print:hidden">
 				<div className="flex items-center justify-between">
 					<button
