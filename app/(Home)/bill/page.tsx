@@ -448,6 +448,12 @@ const Receipt = () => {
         : "bg-gray-100 text-gray-700 hover:bg-gray-200"
     }`;
 
+  const resolveBillingContext = async (): Promise<BillingContext | null> => {
+    const stored =
+      await localforage.getItem<BillingContext>(BILLING_CONTEXT_KEY);
+    return stored ?? billingContext;
+  };
+
   const finalizeCloseTable = async (
     context: BillingContext,
     closedBill: TBill = bill
@@ -463,6 +469,11 @@ const Receipt = () => {
         : {}),
     };
 
+    // Finish local close first so retries still have billing context if this fails.
+    if (context.source === "orders") {
+      await closeTableFromBilling(context, billSummary);
+    }
+
     await localforage.setItem("cart", { items: [] });
     await localforage.setItem("bill", null);
     await localforage.removeItem(BILLING_CONTEXT_KEY);
@@ -470,7 +481,6 @@ const Receipt = () => {
     await notifyOrderOpsChange("billing");
 
     if (context.source === "orders") {
-      await closeTableFromBilling(context, billSummary);
       router.push("/order");
       return;
     }
@@ -485,8 +495,7 @@ const Receipt = () => {
     setSaveAttempt(1);
     setProcessing(true);
     try {
-      const context =
-        await localforage.getItem<BillingContext>(BILLING_CONTEXT_KEY);
+      const context = await resolveBillingContext();
       if (!context) {
         alert("Billing session is missing.");
         return;
@@ -517,13 +526,11 @@ const Receipt = () => {
     window.setTimeout(() => {
       window.print();
       if (action === "close") {
-        void localforage
-          .getItem<BillingContext>(BILLING_CONTEXT_KEY)
-          .then((context) => {
-            if (context) {
-              return finalizeCloseTable(context);
-            }
-          });
+        void resolveBillingContext().then((context) => {
+          if (context) {
+            return finalizeCloseTable(context);
+          }
+        });
       }
     }, 500);
   };
