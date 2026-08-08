@@ -19,10 +19,11 @@ import {
 } from "@/src/utils/order_utils";
 import localforage from "localforage";
 import { ConfirmModalActions, LoadingSpinner } from "@/components/ui/touch-controls";
+import { toPng } from "html-to-image";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { FaCheck, FaPrint } from "react-icons/fa";
+import { FaCheck, FaDownload, FaPrint, FaShareAlt } from "react-icons/fa";
 
 type Membership = "none" | "monthly" | "yearly";
 
@@ -208,7 +209,27 @@ const Receipt = () => {
   const [showPaymentQr, setShowPaymentQr] = useState(true);
   const [phoneModalOpen, setPhoneModalOpen] = useState(false);
   const [phoneDraft, setPhoneDraft] = useState("");
+  const [downloadingImage, setDownloadingImage] = useState(false);
+  const [supportsShareImage, setSupportsShareImage] = useState(false);
+  const billReceiptRef = useRef<HTMLDivElement>(null);
   const isBusy = saving || processing;
+  const controlsDisabled = isBusy || downloadingImage;
+  useEffect(() => {
+    try {
+      const probe = new File(
+        [new Blob(["x"], { type: "image/png" })],
+        "x.png",
+        { type: "image/png" }
+      );
+      setSupportsShareImage(
+        typeof navigator.share === "function" &&
+          typeof navigator.canShare === "function" &&
+          navigator.canShare({ files: [probe] })
+      );
+    } catch {
+      setSupportsShareImage(false);
+    }
+  }, []);
   useEffect(() => {
     const loadBill = async () => {
       let context =
@@ -272,7 +293,9 @@ const Receipt = () => {
     staffWelfare
   );
   const upiAmount = Math.max(0, bill.payable);
-  const upiPayload = `upi://pay?pa=q030249494@ybl&pn=Tangify&am=${upiAmount}&cu=INR`;
+  // const upiId = "q030249494@ybl"; // phonepe business
+  const upiId = "tangify@kotak"; // kotak
+  const upiPayload = `upi://pay?pa=${upiId}&pn=Tangify&am=${upiAmount}&cu=INR`;
   const upiQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${fullSize ? "300x300" : "225x225"}&data=${encodeURIComponent(
     upiPayload
   )}`;
@@ -516,6 +539,80 @@ const Receipt = () => {
     }
   };
 
+  const handleDownloadBillImage = async () => {
+    if (!billReceiptRef.current || controlsDisabled) {
+      return;
+    }
+    setDownloadingImage(true);
+    try {
+      const rawDataUrl = await toPng(billReceiptRef.current, {
+        cacheBust: true,
+        pixelRatio: 2,
+        backgroundColor: "#ffffff",
+      });
+
+      const padding = 48;
+      const paddedDataUrl = await new Promise<string>((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = image.width + padding * 2;
+          canvas.height = image.height + padding * 2;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            reject(new Error("Could not create canvas context"));
+            return;
+          }
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(image, padding, padding);
+          resolve(canvas.toDataURL("image/png"));
+        };
+        image.onerror = () => reject(new Error("Could not load bill image"));
+        image.src = rawDataUrl;
+      });
+
+      const safeBillNo = String(bill.billNumber).replace(/[^\w.-]+/g, "_");
+      const filename = `bill-${safeBillNo}.png`;
+      const blob = await (await fetch(paddedDataUrl)).blob();
+      const file = new File([blob], filename, { type: "image/png" });
+
+      const canShareFile =
+        typeof navigator !== "undefined" &&
+        typeof navigator.share === "function" &&
+        typeof navigator.canShare === "function" &&
+        navigator.canShare({ files: [file] });
+
+      if (canShareFile) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: `Bill ${bill.billNumber}`,
+          });
+          return;
+        } catch (shareError) {
+          if (
+            shareError instanceof DOMException &&
+            shareError.name === "AbortError"
+          ) {
+            return;
+          }
+          // Fall through to download if share fails for another reason.
+        }
+      }
+
+      const link = document.createElement("a");
+      link.download = filename;
+      link.href = paddedDataUrl;
+      link.click();
+    } catch (error) {
+      console.error("Failed to download bill image:", error);
+      alert("Could not download bill image. Please try again.");
+    } finally {
+      setDownloadingImage(false);
+    }
+  };
+
   const handlePrintFallbackCopies = () => {
     if (isBusy) {
       return;
@@ -562,7 +659,7 @@ const Receipt = () => {
           <button
             type="button"
             onClick={handleBack}
-            disabled={isBusy}
+            disabled={controlsDisabled}
             className="text-sm font-semibold text-gray-600 hover:text-black disabled:opacity-40 disabled:cursor-not-allowed"
           >
             ← Back
@@ -579,7 +676,7 @@ const Receipt = () => {
           <div className="flex gap-2">
             <button
               type="button"
-              disabled={isBusy}
+              disabled={controlsDisabled}
               className={tabClass(membership === "monthly")}
               onClick={() => handleMembershipSelect("monthly")}
             >
@@ -587,7 +684,7 @@ const Receipt = () => {
             </button>
             <button
               type="button"
-              disabled={isBusy}
+              disabled={controlsDisabled}
               className={tabClass(membership === "yearly")}
               onClick={() => handleMembershipSelect("yearly")}
             >
@@ -604,7 +701,7 @@ const Receipt = () => {
               <button
                 type="button"
                 key={method.value}
-                disabled={isBusy}
+                disabled={controlsDisabled}
                 onClick={() => handlePaymentMethod(method.value)}
                 className={`rounded-xl border-2 px-3 py-3 text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                   bill.method === method.value
@@ -623,7 +720,7 @@ const Receipt = () => {
           </p>
           <button
             type="button"
-            disabled={isBusy}
+            disabled={controlsDisabled}
             onClick={openPhoneModal}
             className={`w-full rounded-xl border-2 px-3 py-3 text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               bill.customerPhone
@@ -638,10 +735,11 @@ const Receipt = () => {
         </div>
       </div>
       <div
+        ref={billReceiptRef}
         className={
           fullSize
-            ? "w-full px-6 py-4 text-base print:px-0"
-            : "text-xs"
+            ? "w-full px-6 py-4 text-base print:px-0 bg-white"
+            : "text-xs bg-white"
         }
         style={{
           maxWidth: fullSize ? undefined : "58mm",
@@ -725,6 +823,7 @@ const Receipt = () => {
               width={fullSize ? 220 : 140}
               height={fullSize ? 220 : 140}
               className="mt-1"
+              crossOrigin="anonymous"
             />
           </div>
         ) : null}
@@ -736,7 +835,7 @@ const Receipt = () => {
         <div className="flex gap-2">
           <button
             type="button"
-            disabled={isBusy}
+            disabled={controlsDisabled}
             className="basis-[70%] py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={() => void handleSave()}
           >
@@ -744,7 +843,7 @@ const Receipt = () => {
           </button>
           <button
             type="button"
-            disabled={isBusy}
+            disabled={controlsDisabled}
             className="basis-[30%] py-3 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={() => void handlePrint()}
           >
@@ -754,7 +853,27 @@ const Receipt = () => {
 
         <button
           type="button"
-          disabled={isBusy}
+          disabled={controlsDisabled}
+          className="w-full py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={() => void handleDownloadBillImage()}
+        >
+          {supportsShareImage ? (
+            <FaShareAlt className="mr-2" />
+          ) : (
+            <FaDownload className="mr-2" />
+          )}
+          {downloadingImage
+            ? supportsShareImage
+              ? "Preparing…"
+              : "Downloading…"
+            : supportsShareImage
+              ? "Share image"
+              : "Download image"}
+        </button>
+
+        <button
+          type="button"
+          disabled={controlsDisabled}
           className="w-full py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={() => setFullSize((value) => !value)}
         >
@@ -764,7 +883,7 @@ const Receipt = () => {
         {bill.method === "CASH/UPI" ? (
           <button
             type="button"
-            disabled={isBusy}
+            disabled={controlsDisabled}
             className="w-full py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             onClick={() => setShowPaymentQr((value) => !value)}
           >
@@ -774,7 +893,7 @@ const Receipt = () => {
 
         <button
           type="button"
-          disabled={isBusy}
+          disabled={controlsDisabled}
           className="w-full py-3 rounded-lg bg-black hover:bg-gray-800 text-white text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={() => void onClickCloseTable()}
         >
