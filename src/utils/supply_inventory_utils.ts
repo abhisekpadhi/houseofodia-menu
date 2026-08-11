@@ -44,6 +44,14 @@ export function normalizeRawMaterialQty(value: unknown): RawMaterialQty {
 	return { ...EMPTY_RAW_MATERIAL_QTY };
 }
 
+/** Coerce a stored supply value to a plain number (utensils/tableware). */
+export function normalizeSupplyNumber(value: unknown): number {
+	if (typeof value === 'number' && Number.isFinite(value)) {
+		return Math.max(0, Math.floor(value));
+	}
+	return 0;
+}
+
 function storeKey(dateKey: string, kind: SupplyInventoryKind): string {
 	return `${dateKey}:${kind}`;
 }

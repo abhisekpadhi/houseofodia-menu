@@ -9,6 +9,7 @@ import {
 import {
 	getSupplyInventoryForDate,
 	getTodayDateKey,
+	normalizeSupplyNumber,
 	saveSupplyInventoryForDate,
 } from '@/src/utils/supply_inventory_utils';
 import { ORDER_OPS_EVENT } from '@/src/models/order_ops';
@@ -58,7 +59,7 @@ export function SupplyInventoryPage({ kind }: SupplyInventoryPageProps) {
 			const nextQuantities: Record<string, string> = {};
 			const nextSaved: Record<string, number> = {};
 			for (const item of config.items) {
-				const qty = saved[item.name] ?? 0;
+				const qty = normalizeSupplyNumber(saved[item.name]);
 				nextQuantities[item.name] = String(qty);
 				nextSaved[item.name] = qty;
 			}

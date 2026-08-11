@@ -136,8 +136,8 @@ export type OrderOpsSnapshot = {
 		close: Record<string, boolean>;
 	};
 	supplyInventory?: {
-		utensils: Record<string, number>;
-		tableware: Record<string, number>;
+		utensils: Record<string, number | { kg: number; gm: number; pcs: number }>;
+		tableware: Record<string, number | { kg: number; gm: number; pcs: number }>;
 		'raw-materials': Record<
 			string,
 			number | { kg: number; gm: number; pcs: number }
