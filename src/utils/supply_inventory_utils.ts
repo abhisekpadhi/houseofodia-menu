@@ -1,5 +1,4 @@
 import type { SupplyInventoryKind } from '@/src/constants/supply_inventory';
-import { getTodayDateKey } from '@/src/utils/inventory_utils';
 import localforage from 'localforage';
 
 export const SUPPLY_INVENTORY_KEY = 'supplyInventory';
@@ -7,6 +6,13 @@ export const SUPPLY_INVENTORY_KEY = 'supplyInventory';
 export type SupplyInventoryDayStore = Record<string, number>;
 
 export type SupplyInventoryStore = Record<string, SupplyInventoryDayStore>;
+
+export function getTodayDateKey(date = new Date()): string {
+	const year = date.getFullYear();
+	const month = String(date.getMonth() + 1).padStart(2, '0');
+	const day = String(date.getDate()).padStart(2, '0');
+	return `${year}-${month}-${day}`;
+}
 
 function storeKey(dateKey: string, kind: SupplyInventoryKind): string {
 	return `${dateKey}:${kind}`;
@@ -24,6 +30,14 @@ export async function getSupplyInventoryForDate(
 ): Promise<SupplyInventoryDayStore> {
 	const store = await getSupplyInventoryStore();
 	return store[storeKey(dateKey, kind)] ?? {};
+}
+
+export async function hasSupplyInventoryForDate(
+	dateKey: string,
+	kind: SupplyInventoryKind
+): Promise<boolean> {
+	const store = await getSupplyInventoryStore();
+	return Object.prototype.hasOwnProperty.call(store, storeKey(dateKey, kind));
 }
 
 export async function saveSupplyInventoryForDate(
@@ -73,5 +87,3 @@ export async function applySupplyInventorySnapshot(
 	store[storeKey(dateKey, 'raw-materials')] = { ...snapshot['raw-materials'] };
 	await localforage.setItem(SUPPLY_INVENTORY_KEY, store);
 }
-
-export { getTodayDateKey };

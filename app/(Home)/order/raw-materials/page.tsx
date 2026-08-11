@@ -1,5 +1,7 @@
-import { SupplyInventoryPage } from '@/components/feature/ops/supply-inventory-page';
+'use client';
 
-export default function RawMaterialsInventoryPage() {
-	return <SupplyInventoryPage kind="raw-materials" />;
+import { RawMaterialsInventoryPage } from '@/components/feature/ops/raw-materials-inventory-page';
+
+export default function RawMaterialsPage() {
+	return <RawMaterialsInventoryPage />;
 }

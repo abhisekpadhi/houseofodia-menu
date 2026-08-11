@@ -52,19 +52,7 @@ export const SUPPLY_INVENTORY_CONFIGS: Record<
 	'raw-materials': {
 		kind: 'raw-materials',
 		title: 'Raw material inventory',
-		items: [
-			{ name: 'Basmati rice', unit: 'kg' },
-			{ name: 'Atta / flour', unit: 'kg' },
-			{ name: 'Cooking oil', unit: 'L' },
-			{ name: 'Onions', unit: 'kg' },
-			{ name: 'Potatoes', unit: 'kg' },
-			{ name: 'Tomatoes', unit: 'kg' },
-			{ name: 'Ginger-garlic paste', unit: 'kg' },
-			{ name: 'Chicken — boneless', unit: 'kg' },
-			{ name: 'Chicken — with bone', unit: 'kg' },
-			{ name: 'Mutton', unit: 'kg' },
-			{ name: 'Fish — rohu', unit: 'kg' },
-			{ name: 'Spice mix box', unit: 'box' },
-		],
+		/** Item list is loaded from the Google Sheet on the raw-materials page. */
+		items: [],
 	},
 };

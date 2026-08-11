@@ -503,11 +503,7 @@ const Receipt = () => {
     await removeBillingSession(context.sessionId);
     await notifyOrderOpsChange("billing");
 
-    if (context.source === "orders") {
-      router.push("/order");
-      return;
-    }
-    router.push("/freeflow");
+    router.push("/order");
   };
 
   const onClickCloseTable = async () => {
@@ -521,6 +517,12 @@ const Receipt = () => {
       const context = await resolveBillingContext();
       if (!context) {
         alert("Billing session is missing.");
+        return;
+      }
+
+      if (context.source === "freeflow") {
+        setBusyMessage("Clearing bill…");
+        await finalizeCloseTable(context);
         return;
       }
 
@@ -545,6 +547,43 @@ const Receipt = () => {
     }
     setDownloadingImage(true);
     try {
+      const context = await resolveBillingContext();
+      if (!context) {
+        alert("Billing session is missing.");
+        return;
+      }
+
+      let billForImage = bill;
+      if (!bill.backendBillId || bill.backendSavedAt !== bill.updatedAt) {
+        setBusyMessage("Saving bill…");
+        setSaveAttempt(1);
+        setSaving(true);
+        try {
+          billForImage = await persistBillToBackend(bill, context);
+        } catch {
+          const failedBill: TBill = {
+            ...bill,
+            billNumber: bill.backendBillId
+              ? bill.billNumber
+              : `UNSAVED-${Date.now().toString().slice(-6)}`,
+            backendStatus: "failed",
+            updatedAt: Date.now(),
+          };
+          await updateBill(failedBill);
+          alert("Could not generate bill number. Please try again.");
+          return;
+        } finally {
+          setSaving(false);
+        }
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        );
+      }
+
+      if (!billReceiptRef.current) {
+        return;
+      }
+
       const rawDataUrl = await toPng(billReceiptRef.current, {
         cacheBust: true,
         pixelRatio: 2,
@@ -572,7 +611,10 @@ const Receipt = () => {
         image.src = rawDataUrl;
       });
 
-      const safeBillNo = String(bill.billNumber).replace(/[^\w.-]+/g, "_");
+      const safeBillNo = String(billForImage.billNumber).replace(
+        /[^\w.-]+/g,
+        "_"
+      );
       const filename = `bill-${safeBillNo}.png`;
       const blob = await (await fetch(paddedDataUrl)).blob();
       const file = new File([blob], filename, { type: "image/png" });
@@ -587,7 +629,7 @@ const Receipt = () => {
         try {
           await navigator.share({
             files: [file],
-            title: `Bill ${bill.billNumber}`,
+            title: `Bill ${billForImage.billNumber}`,
           });
           return;
         } catch (shareError) {
