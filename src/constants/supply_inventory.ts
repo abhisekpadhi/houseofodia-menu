@@ -1,4 +1,8 @@
-export type SupplyInventoryKind = 'utensils' | 'tableware' | 'raw-materials';
+export type SupplyInventoryKind =
+	| 'utensils'
+	| 'tableware'
+	| 'raw-materials'
+	| 'dish';
 
 export type SupplyInventoryItem = {
 	name: string;
@@ -52,7 +56,13 @@ export const SUPPLY_INVENTORY_CONFIGS: Record<
 	'raw-materials': {
 		kind: 'raw-materials',
 		title: 'Raw material inventory',
-		/** Item list is loaded from the Google Sheet on the raw-materials page. */
+		/** Item list is loaded from the Google Sheet "raw material" tab. */
+		items: [],
+	},
+	dish: {
+		kind: 'dish',
+		title: 'Dish inventory',
+		/** Item list is loaded from the Google Sheet "dish" tab. */
 		items: [],
 	},
 };

@@ -138,7 +138,14 @@ export type OrderOpsSnapshot = {
 	supplyInventory?: {
 		utensils: Record<string, number>;
 		tableware: Record<string, number>;
-		'raw-materials': Record<string, number>;
+		'raw-materials': Record<
+			string,
+			number | { kg: number; gm: number; pcs: number }
+		>;
+		dish?: Record<
+			string,
+			number | { kg: number; gm: number; pcs: number }
+		>;
 	};
 	waitlist?: Array<{
 		id: string;

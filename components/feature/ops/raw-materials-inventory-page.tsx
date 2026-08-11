@@ -4,18 +4,54 @@ import { OpsPageShell } from '@/components/feature/layout/ops-page-shell';
 import { LoadingSpinner } from '@/components/ui/touch-controls';
 import { ORDER_OPS_EVENT } from '@/src/models/order_ops';
 import {
+	EMPTY_RAW_MATERIAL_QTY,
 	getSupplyInventoryForDate,
 	getTodayDateKey,
 	hasSupplyInventoryForDate,
+	normalizeRawMaterialQty,
 	saveSupplyInventoryForDate,
+	type RawMaterialQty,
+	type RawMaterialUnit,
 } from '@/src/utils/supply_inventory_utils';
+import type { SupplyInventoryKind } from '@/src/constants/supply_inventory';
 import axios from 'axios';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 type RawMaterialItem = {
 	category: string;
 	name: string;
 };
+
+type QtyDraft = Record<RawMaterialUnit, string>;
+
+type InventoryTabId = 'raw material' | 'dish';
+
+type InventoryTab = {
+	id: InventoryTabId;
+	label: string;
+	sheetName: InventoryTabId;
+	kind: SupplyInventoryKind;
+	fileSlug: string;
+};
+
+const INVENTORY_TABS: InventoryTab[] = [
+	{
+		id: 'raw material',
+		label: 'Raw material',
+		sheetName: 'raw material',
+		kind: 'raw-materials',
+		fileSlug: 'raw-material',
+	},
+	{
+		id: 'dish',
+		label: 'Dish',
+		sheetName: 'dish',
+		kind: 'dish',
+		fileSlug: 'dish',
+	},
+];
+
+const UNITS: RawMaterialUnit[] = ['kg', 'gm', 'pcs'];
 
 function ShareIcon({ className }: { className?: string }) {
 	return (
@@ -51,6 +87,41 @@ function parseQty(value: string | undefined): number {
 	return Number.isNaN(parsed) ? 0 : Math.max(0, parsed);
 }
 
+function qtyToDraft(qty: RawMaterialQty): QtyDraft {
+	return {
+		kg: qty.kg > 0 ? String(qty.kg) : '',
+		gm: qty.gm > 0 ? String(qty.gm) : '',
+		pcs: qty.pcs > 0 ? String(qty.pcs) : '',
+	};
+}
+
+function draftToQty(draft: QtyDraft | undefined): RawMaterialQty {
+	return {
+		kg: parseQty(draft?.kg),
+		gm: parseQty(draft?.gm),
+		pcs: parseQty(draft?.pcs),
+	};
+}
+
+function qtyEquals(a: RawMaterialQty, b: RawMaterialQty): boolean {
+	return a.kg === b.kg && a.gm === b.gm && a.pcs === b.pcs;
+}
+
+/** Report format: "2kg", "2kg500g", "10pcs", "500g", "1kg3pcs", etc. Empty if all zero. */
+function formatRawMaterialQty(qty: RawMaterialQty): string {
+	const parts: string[] = [];
+	if (qty.kg > 0) {
+		parts.push(`${qty.kg}kg`);
+	}
+	if (qty.gm > 0) {
+		parts.push(`${qty.gm}g`);
+	}
+	if (qty.pcs > 0) {
+		parts.push(`${qty.pcs}pcs`);
+	}
+	return parts.join('');
+}
+
 function escapeCsvCell(value: string | number): string {
 	const text = String(value);
 	if (/[",\n\r]/.test(text)) {
@@ -61,32 +132,35 @@ function escapeCsvCell(value: string | number): string {
 
 function buildRawMaterialsCsv(
 	items: RawMaterialItem[],
-	quantities: Record<string, number>,
+	quantities: Record<string, RawMaterialQty>,
 	dateKey: string
 ): string {
 	const rows = [
 		['Date', 'Category', 'Item', 'Qty'].map(escapeCsvCell).join(','),
-		...items.map((item) =>
-			[
+		...items.map((item) => {
+			const qty = quantities[item.name] ?? EMPTY_RAW_MATERIAL_QTY;
+			return [
 				dateKey,
 				item.category,
 				item.name,
-				quantities[item.name] ?? 0,
+				formatRawMaterialQty(qty),
 			]
 				.map(escapeCsvCell)
-				.join(',')
-		),
+				.join(',');
+		}),
 	];
 	return `\uFEFF${rows.join('\n')}`;
 }
 
 async function shareRawMaterialsCsv(
 	items: RawMaterialItem[],
-	quantities: Record<string, number>,
-	dateKey: string
+	quantities: Record<string, RawMaterialQty>,
+	dateKey: string,
+	fileSlug: string,
+	titleLabel: string
 ): Promise<void> {
 	const csv = buildRawMaterialsCsv(items, quantities, dateKey);
-	const filename = `raw-materials-${dateKey}.csv`;
+	const filename = `${fileSlug}-${dateKey}.csv`;
 	const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
 	const file = new File([blob], filename, { type: 'text/csv' });
 
@@ -98,7 +172,7 @@ async function shareRawMaterialsCsv(
 	) {
 		await navigator.share({
 			files: [file],
-			title: `Raw materials ${dateKey}`,
+			title: `${titleLabel} ${dateKey}`,
 		});
 		return;
 	}
@@ -113,10 +187,14 @@ async function shareRawMaterialsCsv(
 
 export function RawMaterialsInventoryPage() {
 	const dateKey = getTodayDateKey();
+	const [activeTabId, setActiveTabId] =
+		useState<InventoryTabId>('raw material');
+	const activeTab =
+		INVENTORY_TABS.find((tab) => tab.id === activeTabId) ?? INVENTORY_TABS[0];
 	const [items, setItems] = useState<RawMaterialItem[]>([]);
-	const [quantities, setQuantities] = useState<Record<string, string>>({});
+	const [quantities, setQuantities] = useState<Record<string, QtyDraft>>({});
 	const [savedQuantities, setSavedQuantities] = useState<
-		Record<string, number>
+		Record<string, RawMaterialQty>
 	>({});
 	const [hasSavedToday, setHasSavedToday] = useState(false);
 	const [loading, setLoading] = useState(true);
@@ -125,6 +203,7 @@ export function RawMaterialsInventoryPage() {
 	const [sharing, setSharing] = useState(false);
 	const [searchTerm, setSearchTerm] = useState('');
 	const [keyboardInset, setKeyboardInset] = useState(0);
+	const hasUnsavedChangesRef = useRef(false);
 
 	useEffect(() => {
 		const viewport = window.visualViewport;
@@ -165,21 +244,22 @@ export function RawMaterialsInventoryPage() {
 		try {
 			const [sheetResponse, saved, alreadySaved] = await Promise.all([
 				axios.get<RawMaterialItem[]>('/api/raw-materials', {
+					params: { sheet: activeTab.sheetName },
 					headers: {
 						'Cache-Control': 'no-cache',
 						Pragma: 'no-cache',
 					},
 				}),
-				getSupplyInventoryForDate(dateKey, 'raw-materials'),
-				hasSupplyInventoryForDate(dateKey, 'raw-materials'),
+				getSupplyInventoryForDate(dateKey, activeTab.kind),
+				hasSupplyInventoryForDate(dateKey, activeTab.kind),
 			]);
 
 			const nextItems = sheetResponse.data.filter((item) => item.name.trim());
-			const nextQuantities: Record<string, string> = {};
-			const nextSaved: Record<string, number> = {};
+			const nextQuantities: Record<string, QtyDraft> = {};
+			const nextSaved: Record<string, RawMaterialQty> = {};
 			for (const item of nextItems) {
-				const qty = saved[item.name] ?? 0;
-				nextQuantities[item.name] = String(qty);
+				const qty = normalizeRawMaterialQty(saved[item.name]);
+				nextQuantities[item.name] = qtyToDraft(qty);
 				nextSaved[item.name] = qty;
 			}
 
@@ -188,15 +268,15 @@ export function RawMaterialsInventoryPage() {
 			setSavedQuantities(nextSaved);
 			setHasSavedToday(alreadySaved);
 		} catch (error) {
-			console.error('Failed to load raw materials inventory:', error);
+			console.error(`Failed to load ${activeTab.label} inventory:`, error);
 			setLoadError(
-				'Could not load raw materials from the sheet. Please try again.'
+				`Could not load ${activeTab.label.toLowerCase()} from the sheet. Please try again.`
 			);
 			setItems([]);
 		} finally {
 			setLoading(false);
 		}
-	}, [dateKey]);
+	}, [activeTab.kind, activeTab.label, activeTab.sheetName, dateKey]);
 
 	useEffect(() => {
 		void load();
@@ -241,36 +321,66 @@ export function RawMaterialsInventoryPage() {
 		if (loading || items.length === 0) {
 			return false;
 		}
-		return items.some(
-			(item) =>
-				parseQty(quantities[item.name]) !== (savedQuantities[item.name] ?? 0)
-		);
+		return items.some((item) => {
+			const current = draftToQty(quantities[item.name]);
+			const saved = savedQuantities[item.name] ?? EMPTY_RAW_MATERIAL_QTY;
+			return !qtyEquals(current, saved);
+		});
 	}, [items, loading, quantities, savedQuantities]);
 
-	const handleQtyChange = (name: string, value: string) => {
+	useEffect(() => {
+		hasUnsavedChangesRef.current = hasUnsavedChanges;
+	}, [hasUnsavedChanges]);
+
+	const handleTabChange = (tabId: InventoryTabId) => {
+		if (tabId === activeTabId) {
+			return;
+		}
+		if (hasUnsavedChangesRef.current) {
+			const confirmed = window.confirm(
+				'You have unsaved changes. Switch tab and discard them?'
+			);
+			if (!confirmed) {
+				return;
+			}
+		}
+		setSearchTerm('');
+		setActiveTabId(tabId);
+	};
+
+	const handleQtyChange = (
+		name: string,
+		unit: RawMaterialUnit,
+		value: string
+	) => {
 		if (value !== '' && !/^\d+$/.test(value)) {
 			return;
 		}
-		setQuantities((prev) => ({ ...prev, [name]: value }));
+		setQuantities((prev) => ({
+			...prev,
+			[name]: {
+				...(prev[name] ?? qtyToDraft(EMPTY_RAW_MATERIAL_QTY)),
+				[unit]: value,
+			},
+		}));
 	};
 
 	const handleSave = async () => {
 		setSaving(true);
 		try {
-			const nextSaved: Record<string, number> = {};
+			const nextSaved: Record<string, RawMaterialQty> = {};
+			const nextDrafts: Record<string, QtyDraft> = {};
 			for (const item of items) {
-				nextSaved[item.name] = parseQty(quantities[item.name]);
+				const qty = draftToQty(quantities[item.name]);
+				nextSaved[item.name] = qty;
+				nextDrafts[item.name] = qtyToDraft(qty);
 			}
-			await saveSupplyInventoryForDate(dateKey, 'raw-materials', nextSaved);
+			await saveSupplyInventoryForDate(dateKey, activeTab.kind, nextSaved);
 			setSavedQuantities(nextSaved);
+			setQuantities(nextDrafts);
 			setHasSavedToday(true);
-			setQuantities(
-				Object.fromEntries(
-					Object.entries(nextSaved).map(([name, qty]) => [name, String(qty)])
-				)
-			);
 		} catch (error) {
-			console.error('Failed to save raw materials inventory:', error);
+			console.error(`Failed to save ${activeTab.label} inventory:`, error);
 			alert('Failed to save inventory. Please try again.');
 		} finally {
 			setSaving(false);
@@ -283,32 +393,57 @@ export function RawMaterialsInventoryPage() {
 		}
 		setSharing(true);
 		try {
-			const current: Record<string, number> = {};
+			const current: Record<string, RawMaterialQty> = {};
 			for (const item of items) {
-				current[item.name] = parseQty(quantities[item.name]);
+				current[item.name] = draftToQty(quantities[item.name]);
 			}
-			await shareRawMaterialsCsv(items, current, dateKey);
+			await shareRawMaterialsCsv(
+				items,
+				current,
+				dateKey,
+				activeTab.fileSlug,
+				activeTab.label
+			);
 		} catch (error) {
-			if (
-				error instanceof DOMException &&
-				error.name === 'AbortError'
-			) {
+			if (error instanceof DOMException && error.name === 'AbortError') {
 				return;
 			}
-			console.error('Failed to share raw materials CSV:', error);
+			console.error(`Failed to share ${activeTab.label} CSV:`, error);
 			alert('Could not share inventory. Please try again.');
 		} finally {
 			setSharing(false);
 		}
 	};
 
+	const tabClass = (active: boolean) =>
+		`flex-1 min-h-[44px] rounded-lg text-sm font-semibold transition-colors touch-manipulation disabled:opacity-50 ${
+			active
+				? 'bg-black text-white'
+				: 'bg-gray-100 text-gray-700 active:bg-gray-200'
+		}`;
+
 	return (
 		<OpsPageShell
 			title="Raw material inventory"
 			headerExtra={
-				<div className="pb-3 px-1">
-					<p className="text-xs font-medium text-gray-600">Today</p>
-					<p className="text-sm font-semibold">{formatTodayLabel(dateKey)}</p>
+				<div className="pb-3 px-1 space-y-3">
+					<div>
+						<p className="text-xs font-medium text-gray-600">Today</p>
+						<p className="text-sm font-semibold">{formatTodayLabel(dateKey)}</p>
+					</div>
+					<div className="flex gap-2">
+						{INVENTORY_TABS.map((tab) => (
+							<button
+								key={tab.id}
+								type="button"
+								disabled={loading || saving}
+								onClick={() => handleTabChange(tab.id)}
+								className={tabClass(tab.id === activeTabId)}
+							>
+								{tab.label}
+							</button>
+						))}
+					</div>
 				</div>
 			}
 			footer={
@@ -372,10 +507,10 @@ export function RawMaterialsInventoryPage() {
 				<div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
 					<LoadingSpinner className="h-8 w-8 text-black" />
 					<p className="text-sm font-semibold text-gray-900">
-						Loading raw materials…
+						Loading {activeTab.label.toLowerCase()}…
 					</p>
 					<p className="text-xs text-gray-500 max-w-xs">
-						Fetching the latest list from the inventory sheet.
+						Fetching the latest list from the “{activeTab.sheetName}” sheet.
 					</p>
 				</div>
 			) : loadError ? (
@@ -406,29 +541,52 @@ export function RawMaterialsInventoryPage() {
 								{group.category}
 							</h2>
 							<ul className="space-y-2">
-								{group.items.map((item) => (
-									<li
-										key={`${item.category}:${item.name}`}
-										className="flex items-center justify-between gap-3 border border-gray-200 rounded-lg px-3 py-2.5 bg-white"
-									>
-										<p className="text-sm font-medium min-w-0 flex-1 leading-snug break-words pr-1">
-											{item.name}
-										</p>
-										<input
-											type="text"
-											inputMode="numeric"
-											pattern="[0-9]*"
-											enterKeyHint="done"
-											value={quantities[item.name] ?? '0'}
-											onChange={(e) =>
-												handleQtyChange(item.name, e.target.value)
-											}
-											onFocus={(e) => scrollQtyIntoView(e.currentTarget)}
-											className="w-[4.5rem] min-h-[44px] border border-gray-300 rounded-lg px-2 py-2 text-base text-center bg-white shrink-0 touch-manipulation"
-											aria-label={`Quantity for ${item.name}`}
-										/>
-									</li>
-								))}
+								{group.items.map((item) => {
+									const draft =
+										quantities[item.name] ??
+										qtyToDraft(EMPTY_RAW_MATERIAL_QTY);
+									return (
+										<li
+											key={`${item.category}:${item.name}`}
+											className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border border-gray-200 rounded-lg px-3 py-2.5 bg-white"
+										>
+											<p className="text-sm font-medium leading-snug break-words min-w-0">
+												{item.name}
+											</p>
+											<div className="grid grid-cols-3 gap-1.5 shrink-0">
+												{UNITS.map((unit) => (
+													<label
+														key={unit}
+														className="flex flex-col gap-0.5 w-[3.75rem] sm:w-16"
+													>
+														<span className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 text-center">
+															{unit}
+														</span>
+														<input
+															type="text"
+															inputMode="numeric"
+															pattern="[0-9]*"
+															enterKeyHint="done"
+															value={draft[unit]}
+															onChange={(e) =>
+																handleQtyChange(
+																	item.name,
+																	unit,
+																	e.target.value
+																)
+															}
+															onFocus={(e) =>
+																scrollQtyIntoView(e.currentTarget)
+															}
+															className="w-full min-h-[40px] border border-gray-300 rounded-lg px-1 py-1.5 text-base text-center bg-white touch-manipulation"
+															aria-label={`${unit} for ${item.name}`}
+														/>
+													</label>
+												))}
+											</div>
+										</li>
+									);
+								})}
 							</ul>
 						</section>
 					))}

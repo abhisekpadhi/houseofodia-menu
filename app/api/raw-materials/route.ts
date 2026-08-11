@@ -4,12 +4,18 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
 const DEFAULT_SHEET_ID = '1B0m-Zc1iaIqsxuaWhmaoIpuWnujRHW4brIhafSHvXXc';
-const DEFAULT_SHEET_NAME = 'raw material';
+
+const ALLOWED_SHEETS = ['raw material', 'dish'] as const;
+type AllowedSheet = (typeof ALLOWED_SHEETS)[number];
 
 export type RawMaterialSheetItem = {
 	category: string;
 	name: string;
 };
+
+function isAllowedSheet(value: string): value is AllowedSheet {
+	return (ALLOWED_SHEETS as readonly string[]).includes(value);
+}
 
 function parseRawMaterialRows(values: string[][] | undefined): RawMaterialSheetItem[] {
 	if (!values?.length) {
@@ -37,17 +43,27 @@ function parseRawMaterialRows(values: string[][] | undefined): RawMaterialSheetI
 	return items;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
 	const apiKey = process.env.GOOGLE_SHEETS_API_KEY;
 	const sheetId =
 		process.env.GOOGLE_RAW_MATERIALS_SHEET_ID?.trim() || DEFAULT_SHEET_ID;
-	const sheetName =
-		process.env.GOOGLE_RAW_MATERIALS_SHEET_NAME?.trim() || DEFAULT_SHEET_NAME;
+	const requestedSheet =
+		new URL(request.url).searchParams.get('sheet')?.trim() || 'raw material';
+	const sheetName = isAllowedSheet(requestedSheet)
+		? requestedSheet
+		: null;
 
 	if (!apiKey) {
 		return NextResponse.json(
 			{ error: 'Google Sheets API key not provided' },
 			{ status: 500 }
+		);
+	}
+
+	if (!sheetName) {
+		return NextResponse.json(
+			{ error: `Invalid sheet. Allowed: ${ALLOWED_SHEETS.join(', ')}` },
+			{ status: 400 }
 		);
 	}
 
@@ -59,9 +75,9 @@ export async function GET() {
 
 		return NextResponse.json(items);
 	} catch (error) {
-		console.error('Failed to fetch raw materials sheet:', error);
+		console.error(`Failed to fetch "${sheetName}" sheet:`, error);
 		return NextResponse.json(
-			{ error: 'Failed to fetch raw materials from Google Sheets' },
+			{ error: `Failed to fetch "${sheetName}" from Google Sheets` },
 			{ status: 500 }
 		);
 	}
