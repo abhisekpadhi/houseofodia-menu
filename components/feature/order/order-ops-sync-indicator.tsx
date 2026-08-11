@@ -103,9 +103,15 @@ export function OrderOpsSyncIndicator({
 	};
 
 	const handleSaveName = async () => {
+		const trimmed = nameDraft.trim();
+		if (!trimmed) {
+			alert('Device name is required.');
+			return;
+		}
 		setSavingName(true);
 		try {
-			await sync.updateDeviceName(nameDraft);
+			await sync.updateDeviceName(trimmed);
+			setNameDraft(trimmed);
 		} finally {
 			setSavingName(false);
 		}
@@ -247,7 +253,7 @@ export function OrderOpsSyncIndicator({
 								<button
 									type="button"
 									onClick={() => void handleSaveName()}
-									disabled={savingName}
+									disabled={savingName || !nameDraft.trim()}
 									className="px-3 py-2 rounded-lg text-sm font-semibold bg-black text-white hover:bg-gray-800 disabled:opacity-50"
 								>
 									{savingName ? '…' : 'Save'}

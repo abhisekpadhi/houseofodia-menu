@@ -306,6 +306,45 @@ export function orderTotal(items: TOrder['items']): number {
 
 const PARCEL_LINE_SUFFIX = ' (parcel)';
 
+export type KotLine = {
+	qty: number;
+	/** Bill / order item name (without parcel suffix). */
+	name: string;
+	isParcel: boolean;
+};
+
+/** Expand order items into KOT print lines, splitting parcel vs dine-in units. */
+export function getOrderKotLines(order: TOrder): KotLine[] {
+	const lines: KotLine[] = [];
+
+	for (const item of order.items) {
+		const normalized = normalizeOrderItem(item);
+		const states = getItemUnitStates(normalized);
+		let regularQty = 0;
+		let parcelQty = 0;
+
+		for (let unitIndex = 0; unitIndex < normalized.qty; unitIndex++) {
+			if (isUnitStateCancelled(states[unitIndex])) {
+				continue;
+			}
+			if (isItemUnitParcel(normalized, unitIndex)) {
+				parcelQty += 1;
+			} else {
+				regularQty += 1;
+			}
+		}
+
+		if (regularQty > 0) {
+			lines.push({ qty: regularQty, name: item.name, isParcel: false });
+		}
+		if (parcelQty > 0) {
+			lines.push({ qty: parcelQty, name: item.name, isParcel: true });
+		}
+	}
+
+	return lines;
+}
+
 function addCartLine(
 	itemMap: Map<string, TDish>,
 	name: string,
@@ -482,8 +521,7 @@ export function syncGroupWaterBottleCount(
 	orders: TOrder[],
 	group: OrderGroup,
 	targetQty: number,
-	waterPrice: number,
-	nextOrderNumber?: number
+	waterPrice: number
 ): TOrder[] {
 	if (targetQty < 0) {
 		return orders;
@@ -506,60 +544,39 @@ export function syncGroupWaterBottleCount(
 
 	if (targetQty > currentQty) {
 		const addQty = targetQty - currentQty;
-		const orderWithWater = groupOrders.find((order) =>
-			order.items.some((item) => item.name === WATER_DISH_NAME)
-		);
+		const targetOrder =
+			groupOrders.find((order) =>
+				order.items.some((item) => item.name === WATER_DISH_NAME)
+			) ?? groupOrders[0];
 
-		if (orderWithWater) {
-			return nextOrders.map((order) => {
-				if (order.id !== orderWithWater.id) {
-					return order;
-				}
-				const items = order.items.map((item) => ({ ...item }));
-				const waterIndex = items.findIndex(
-					(item) => item.name === WATER_DISH_NAME
+		if (!targetOrder) {
+			return orders;
+		}
+
+		return nextOrders.map((order) => {
+			if (order.id !== targetOrder.id) {
+				return order;
+			}
+			const items = order.items.map((item) => ({ ...item }));
+			const waterIndex = items.findIndex(
+				(item) => item.name === WATER_DISH_NAME
+			);
+			if (waterIndex === -1) {
+				items.push(
+					normalizeOrderItem({
+						name: WATER_DISH_NAME,
+						price: waterPrice,
+						qty: addQty,
+					})
 				);
-				if (waterIndex === -1) {
-					return order;
-				}
+			} else {
 				items[waterIndex] = {
 					...items[waterIndex],
 					qty: items[waterIndex].qty + addQty,
 				};
-				return normalizeOrderItemsAfterEdit(order, items);
-			});
-		}
-
-		const template = groupOrders[0];
-		if (!template) {
-			return orders;
-		}
-
-		const tableNumbers = template.tableNumbers ?? group.tableNumbers ?? [];
-		const tableServiceFlags = getTableServiceFlagsForTables(
-			nextOrders,
-			tableNumbers
-		);
-		const pax = template.pax ?? getGroupPax(group) ?? undefined;
-		const newOrder: TOrder = {
-			id: generateOrderId(),
-			createdAt: Date.now(),
-			kind: 'table',
-			tableNumbers,
-			items: [
-				normalizeOrderItem({
-					name: WATER_DISH_NAME,
-					price: waterPrice,
-					qty: addQty,
-				}),
-			],
-			...(nextOrderNumber != null ? { orderNumber: nextOrderNumber } : {}),
-			...(pax != null ? { pax } : {}),
-			...tableServiceFlags,
-		};
-
-		nextOrders.push(newOrder);
-		return nextOrders;
+			}
+			return normalizeOrderItemsAfterEdit(order, items);
+		});
 	}
 
 	let toRemove = currentQty - targetQty;

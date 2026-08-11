@@ -75,7 +75,7 @@ import {
 } from "@/src/constants/day_checklists";
 import { getDayChecklistForDate } from "@/src/utils/day_checklist_utils";
 import { itemCancelReasonLabel } from "@/src/utils/item_cancel_reasons";
-import { allocateNextDailyOrderNumber, formatDailyOrderNumber } from "@/src/utils/daily_order_number";
+import { formatDailyOrderNumber } from "@/src/utils/daily_order_number";
 import { EditOrderModal } from "@/components/feature/order/edit-order-modal";
 import { CancelItemModal } from "@/components/feature/order/cancel-item-modal";
 import { OrderOpsSyncIndicator } from "@/components/feature/order/order-ops-sync-indicator";
@@ -3094,14 +3094,11 @@ export default function OrderPage() {
 
 			if (targetQty !== currentQty) {
 				const delta = targetQty - currentQty;
-				const nextOrderNumber =
-					delta > 0 ? await allocateNextDailyOrderNumber(orders) : undefined;
 				const updatedOrders = syncGroupWaterBottleCount(
 					orders,
 					pendingBillGroup,
 					targetQty,
-					waterPrice,
-					nextOrderNumber
+					waterPrice
 				);
 				await persistOrders(updatedOrders);
 

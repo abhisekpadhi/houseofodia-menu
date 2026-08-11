@@ -574,7 +574,11 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 	}, [setupRealtime]);
 
 	const updateDeviceName = useCallback(async (name: string) => {
-		setDeviceDisplayName(name);
+		const trimmed = name.trim();
+		if (!trimmed) {
+			throw new Error('Device name is required');
+		}
+		setDeviceDisplayName(trimmed);
 		setDeviceName(getDeviceDisplayName());
 
 		const channel = channelRef.current;

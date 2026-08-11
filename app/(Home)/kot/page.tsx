@@ -3,7 +3,13 @@
 import { TMenuApiItem, TOrder } from "@/src/models/common";
 import { buildDishInternalNameMap, getKotDisplayName } from "@/src/utils/menu_utils";
 import { formatDailyOrderNumber } from "@/src/utils/daily_order_number";
-import { formatCustomerContact, formatOrderLabel, formatOrderTime, getOrdersStore } from "@/src/utils/order_utils";
+import {
+	formatCustomerContact,
+	formatOrderLabel,
+	formatOrderTime,
+	getOrderKotLines,
+	getOrdersStore,
+} from "@/src/utils/order_utils";
 import axios from "axios";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -170,14 +176,20 @@ function KotContent() {
 				) : null}
 				<Divider />
 				<div>
-					{order.items.map((item, index) => (
-						<div key={`${item.name}-${index}`}>
-							<span>
-								{item.qty}x{" "}
-								{getKotDisplayName(item.name, internalNameByBillName)}
-							</span>
-						</div>
-					))}
+					{getOrderKotLines(order).map((line, index) => {
+						const displayName = getKotDisplayName(
+							line.name,
+							internalNameByBillName
+						);
+						return (
+							<div key={`${line.name}-${line.isParcel}-${index}`}>
+								<span>
+									{line.qty}x {displayName}
+									{line.isParcel ? " (parcel)" : ""}
+								</span>
+							</div>
+						);
+					})}
 				</div>
 				{order.notes?.trim() ? (
 					<>

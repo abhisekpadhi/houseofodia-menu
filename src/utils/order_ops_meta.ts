@@ -59,6 +59,14 @@ export function getDeviceDisplayName(): string {
 	return `Device ${id.slice(-4)}`;
 }
 
+/** True when the user has set a custom device name (not the auto fallback). */
+export function hasDeviceDisplayName(): boolean {
+	if (typeof window === 'undefined') {
+		return true;
+	}
+	return Boolean(localStorage.getItem(ORDER_OPS_DEVICE_NAME_KEY)?.trim());
+}
+
 export function setDeviceDisplayName(name: string): void {
 	if (typeof window === 'undefined') {
 		return;

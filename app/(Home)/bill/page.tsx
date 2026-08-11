@@ -4,7 +4,12 @@ import {
 	BILLING_CONTEXT_KEY,
 	TBill,
 } from "@/src/models/common";
-import { closeTableFromBilling } from "@/src/utils/order_utils";
+import {
+  closeTableFromBilling,
+  CUSTOMER_PHONE_DIGITS,
+  formatTableGroupLabel,
+  isValidCustomerPhone,
+} from "@/src/utils/order_utils";
 import {
   getBillingSession,
   removeBillingSession,
@@ -13,10 +18,6 @@ import {
 import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
 import { notifyOrderOpsChange } from "@/src/utils/order_ops_sync";
 import { saveBillToBackend } from "@/src/utils/tangify_api";
-import {
-  CUSTOMER_PHONE_DIGITS,
-  isValidCustomerPhone,
-} from "@/src/utils/order_utils";
 import localforage from "localforage";
 import { ConfirmModalActions, LoadingSpinner } from "@/components/ui/touch-controls";
 import { toPng } from "html-to-image";
@@ -294,7 +295,7 @@ const Receipt = () => {
   );
   const upiAmount = Math.max(0, bill.payable);
   // const upiId = "q030249494@ybl"; // phonepe business
-  const upiId = "tangify@kotak"; // kotak
+  const upiId = "tangify@slc"; // slice
   const upiPayload = `upi://pay?pa=${upiId}&pn=Tangify&am=${upiAmount}&cu=INR`;
   const upiQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${fullSize ? "300x300" : "225x225"}&data=${encodeURIComponent(
     upiPayload
@@ -808,6 +809,17 @@ const Receipt = () => {
           <span>Time</span>
           <span>{bill.time}</span>
         </div>
+        {billingContext?.kind === "table" ? (
+          <div className="flex justify-between">
+            <span>Table</span>
+            <span>
+              {billingContext.label?.trim() ||
+                (billingContext.tableNumbers.length > 0
+                  ? formatTableGroupLabel(billingContext.tableNumbers)
+                  : "Table order")}
+            </span>
+          </div>
+        ) : null}
         <Divider />
         <div>
           {bill.cart.items.map((item, index) => (
@@ -856,6 +868,7 @@ const Receipt = () => {
           <span>₹{formatCurrency(bill.payable)}</span>
         </div>
         <p className="text-center mt-2">Thank you. Please visit again.</p>
+        <p className="text-center mt-1">UPI: {upiId}</p>
         {showPaymentQr && bill.method === "CASH/UPI" ? (
           <div className="mt-3 flex flex-col items-center">
             <p className="text-center font-semibold">Scan & Pay (UPI)</p>
