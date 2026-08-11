@@ -70,9 +70,43 @@ export async function saveBillToBackend(
 	bill: TBill,
 	context: BillingContext
 ): Promise<BackendBill> {
-	const membershipRate =
-		bill.membership === 'monthly' ? 0.1 : bill.membership === 'yearly' ? 0.2 : 0;
-	const membershipDiscount = toPaise(bill.subtotal * membershipRate);
+	const discountAmount = (() => {
+		if (bill.membership === 'monthly') {
+			return toPaise(bill.subtotal * 0.1);
+		}
+		if (bill.membership === 'yearly') {
+			return toPaise(bill.subtotal * 0.2);
+		}
+		if (bill.membership === 'custom') {
+			const value = Math.max(0, bill.customDiscountValue ?? 0);
+			if (bill.customDiscountUnit === 'percent') {
+				const percent = Math.min(100, value);
+				return toPaise(bill.subtotal * (percent / 100));
+			}
+			const undiscountedTaxable = bill.subtotal;
+			const undiscountedCgst = Math.round(undiscountedTaxable * 0.025 * 100) / 100;
+			const undiscountedSgst = Math.round(undiscountedTaxable * 0.025 * 100) / 100;
+			const undiscountedPayable = Math.ceil(
+				Math.round(
+					(undiscountedTaxable +
+						undiscountedCgst +
+						undiscountedSgst +
+						(bill.staffWelfare ?? 0)) *
+						100
+				) / 100
+			);
+			const rupeeCap = Math.min(bill.subtotal, undiscountedPayable);
+			return toPaise(Math.min(rupeeCap, value));
+		}
+		return 0;
+	})();
+
+	const discountDescription =
+		bill.membership === 'custom'
+			? bill.customDiscountReason?.trim() || 'Custom discount'
+			: bill.membership === 'monthly' || bill.membership === 'yearly'
+				? `${bill.membership} membership`
+				: '';
 
 	const response = await fetch('/api/bills', {
 		method: 'PUT',
@@ -92,13 +126,14 @@ export async function saveBillToBackend(
 				price: toPaise(item.price),
 			})),
 			discounts:
-				membershipDiscount > 0
+				discountAmount > 0
 					? [
 							{
-								id: `membership-${bill.membership}`,
-								type: 'membership',
-								amount: membershipDiscount,
-								description: `${bill.membership} membership`,
+								id: `discount-${bill.membership ?? 'none'}`,
+								type:
+									bill.membership === 'custom' ? 'custom' : 'membership',
+								amount: discountAmount,
+								description: discountDescription,
 							},
 						]
 					: [],

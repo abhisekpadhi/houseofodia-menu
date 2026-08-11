@@ -8,6 +8,9 @@ import {
   closeTableFromBilling,
   CUSTOMER_PHONE_DIGITS,
   formatTableGroupLabel,
+  getGroupCustomerDetails,
+  getOrdersStore,
+  groupOrdersByTable,
   isValidCustomerPhone,
 } from "@/src/utils/order_utils";
 import {
@@ -26,12 +29,13 @@ import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { FaCheck, FaDownload, FaPrint, FaShareAlt } from "react-icons/fa";
 
-type Membership = "none" | "monthly" | "yearly";
+type Membership = "none" | "monthly" | "yearly" | "custom";
+type CustomDiscountUnit = "rs" | "percent";
 
-const PAYMENT_METHODS = [
-  { value: "CASH/UPI", label: "💵 CASH / 📱 UPI" },
-  { value: "CARD", label: "💳 CARD" },
-] as const;
+type CustomDiscountInput = {
+  value: number;
+  unit: CustomDiscountUnit;
+};
 
 const roundCurrency = (amount: number) => Math.round(amount * 100) / 100;
 const formatCurrency = (amount: number) => roundCurrency(amount).toFixed(2);
@@ -60,15 +64,72 @@ async function saveWithRetry<T>(
   throw lastError;
 }
 
+const calculateDiscountAmount = (
+  subtotal: number,
+  membership: Membership,
+  custom?: CustomDiscountInput | null,
+  maxRupeeDiscount?: number
+) => {
+  if (membership === "monthly") {
+    return roundCurrency(subtotal * 0.1);
+  }
+  if (membership === "yearly") {
+    return roundCurrency(subtotal * 0.2);
+  }
+  if (membership === "custom" && custom) {
+    const value = Math.max(0, custom.value);
+    if (custom.unit === "percent") {
+      const percent = Math.min(100, value);
+      return roundCurrency((subtotal * percent) / 100);
+    }
+    const rupeeCap = Math.min(
+      subtotal,
+      maxRupeeDiscount != null && Number.isFinite(maxRupeeDiscount)
+        ? Math.max(0, maxRupeeDiscount)
+        : subtotal
+    );
+    return roundCurrency(Math.min(rupeeCap, value));
+  }
+  return 0;
+};
+
+const customDiscountFromBill = (
+  bill: Pick<
+    TBill,
+    "customDiscountValue" | "customDiscountUnit" | "membership"
+  >
+): CustomDiscountInput | null => {
+  if (bill.membership !== "custom") {
+    return null;
+  }
+  return {
+    value: bill.customDiscountValue ?? 0,
+    unit: bill.customDiscountUnit === "percent" ? "percent" : "rs",
+  };
+};
+
 const calculateBillAmounts = (
   subtotal: number,
   membership: Membership,
-  staffWelfare = 0
+  staffWelfare = 0,
+  custom?: CustomDiscountInput | null
 ) => {
-  const discountRate =
-    membership === "monthly" ? 0.1 : membership === "yearly" ? 0.2 : 0;
-  const discount = roundCurrency(subtotal * discountRate);
-  const taxableAmount = subtotal - discount;
+  const undiscountedPayable = (() => {
+    const taxableAmount = subtotal;
+    const cgst = roundCurrency(taxableAmount * 0.025);
+    const sgst = roundCurrency(taxableAmount * 0.025);
+    const preRoundPayable = roundCurrency(
+      taxableAmount + cgst + sgst + staffWelfare
+    );
+    return Math.ceil(preRoundPayable);
+  })();
+  const discount = calculateDiscountAmount(
+    subtotal,
+    membership,
+    custom,
+    undiscountedPayable
+  );
+  const taxableAmount = Math.max(0, subtotal - discount);
   const cgst = roundCurrency(taxableAmount * 0.025);
   const sgst = roundCurrency(taxableAmount * 0.025);
   const preRoundPayable = roundCurrency(
@@ -194,6 +255,215 @@ function CustomerPhoneModal({
   );
 }
 
+function CustomDiscountModal({
+  amount,
+  unit,
+  reason,
+  subtotal,
+  maxPayable,
+  canRemove,
+  onAmountChange,
+  onUnitChange,
+  onReasonChange,
+  onConfirm,
+  onRemove,
+  onCancel,
+}: {
+  amount: string;
+  unit: CustomDiscountUnit;
+  reason: string;
+  subtotal: number;
+  maxPayable: number;
+  canRemove: boolean;
+  onAmountChange: (value: string) => void;
+  onUnitChange: (unit: CustomDiscountUnit) => void;
+  onReasonChange: (value: string) => void;
+  onConfirm: () => void;
+  onRemove: () => void;
+  onCancel: () => void;
+}) {
+  const [visibleViewport, setVisibleViewport] = useState<{
+    top: number;
+    height: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) {
+      return;
+    }
+
+    const updateVisibleViewport = () => {
+      setVisibleViewport({
+        top: viewport.offsetTop,
+        height: viewport.height,
+      });
+    };
+
+    updateVisibleViewport();
+    viewport.addEventListener("resize", updateVisibleViewport);
+    viewport.addEventListener("scroll", updateVisibleViewport);
+    return () => {
+      viewport.removeEventListener("resize", updateVisibleViewport);
+      viewport.removeEventListener("scroll", updateVisibleViewport);
+    };
+  }, []);
+
+  const maxRupees = Math.min(subtotal, Math.max(0, maxPayable));
+  const parsedAmount = amount.trim() === "" ? 0 : Number(amount);
+  const amountValid =
+    amount.trim() !== "" &&
+    Number.isFinite(parsedAmount) &&
+    parsedAmount > 0 &&
+    (unit === "percent"
+      ? parsedAmount <= 100
+      : parsedAmount <= maxRupees);
+  const reasonValid = reason.trim().length > 0;
+  const preview = amountValid
+    ? calculateDiscountAmount(
+        subtotal,
+        "custom",
+        {
+          value: parsedAmount,
+          unit,
+        },
+        maxRupees
+      )
+    : 0;
+
+  return (
+    <div
+      className="fixed left-0 right-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 px-4 py-4 transition-[top,height] duration-150 print:hidden"
+      style={
+        visibleViewport
+          ? {
+              top: `${visibleViewport.top}px`,
+              height: `${visibleViewport.height}px`,
+            }
+          : { top: 0, bottom: 0 }
+      }
+      onClick={onCancel}
+    >
+      <div
+        className="max-h-full w-full max-w-sm overflow-y-auto rounded-xl bg-white shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b space-y-4">
+          <div>
+            <h2 className="text-lg font-bold">Custom discount</h2>
+            <p className="text-sm text-gray-600 mt-2">
+              Applied on subtotal ₹{formatCurrency(subtotal)}. Max{" "}
+              {unit === "percent"
+                ? "100%"
+                : `₹${formatCurrency(maxRupees)}`}
+              .
+            </p>
+          </div>
+          <div>
+            <label
+              htmlFor="custom-discount-amount"
+              className="block text-xs font-medium text-gray-600 mb-1"
+            >
+              Amount
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="custom-discount-amount"
+                type="text"
+                inputMode="decimal"
+                autoFocus
+                value={amount}
+                onChange={(event) => {
+                  const next = event.target.value.replace(/[^\d.]/g, "");
+                  const parts = next.split(".");
+                  const normalized =
+                    parts.length <= 1
+                      ? next
+                      : `${parts[0]}.${parts.slice(1).join("").slice(0, 2)}`;
+                  onAmountChange(normalized.slice(0, 8));
+                }}
+                placeholder="0"
+                className="min-w-0 flex-1 border border-gray-300 rounded-lg px-3 py-2.5 text-base text-center touch-manipulation"
+              />
+              <div className="flex shrink-0 rounded-lg border border-gray-300 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => onUnitChange("rs")}
+                  className={`min-h-[44px] px-3 text-sm font-bold touch-manipulation ${
+                    unit === "rs"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
+                  }`}
+                >
+                  Rs
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onUnitChange("percent")}
+                  className={`min-h-[44px] px-3 text-sm font-bold touch-manipulation border-l border-gray-300 ${
+                    unit === "percent"
+                      ? "bg-black text-white"
+                      : "bg-white text-gray-700"
+                  }`}
+                >
+                  %
+                </button>
+              </div>
+            </div>
+            {amount.trim() !== "" && !amountValid ? (
+              <p className="text-xs text-red-600 mt-2">
+                {unit === "percent"
+                  ? "Enter a percent from 0.01 to 100."
+                  : `Enter an amount up to ₹${formatCurrency(maxRupees)} (payable).`}
+              </p>
+            ) : preview > 0 ? (
+              <p className="text-xs text-red-600 mt-2">
+                Discount: ₹{formatCurrency(preview)}
+              </p>
+            ) : null}
+          </div>
+          <div>
+            <label
+              htmlFor="custom-discount-reason"
+              className="block text-xs font-medium text-gray-600 mb-1"
+            >
+              Discount reason
+            </label>
+            <input
+              id="custom-discount-reason"
+              type="text"
+              value={reason}
+              onChange={(event) => onReasonChange(event.target.value.slice(0, 80))}
+              placeholder="e.g. Manager comp"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm touch-manipulation"
+            />
+            {!reasonValid ? (
+              <p className="text-xs text-gray-500 mt-2">Required for custom discount.</p>
+            ) : null}
+          </div>
+        </div>
+        {canRemove ? (
+          <div className="px-4 pt-4">
+            <button
+              type="button"
+              onClick={onRemove}
+              className="w-full min-h-[44px] rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm font-semibold touch-manipulation active:bg-red-100"
+            >
+              Remove discount
+            </button>
+          </div>
+        ) : null}
+        <ConfirmModalActions
+          onCancel={onCancel}
+          onConfirm={onConfirm}
+          confirmLabel="Apply discount"
+          confirmDisabled={!amountValid || !reasonValid}
+        />
+      </div>
+    </div>
+  );
+}
+
 const Receipt = () => {
   const router = useRouter();
   const [bill, setBill] = useState<TBill | null>(null);
@@ -210,6 +480,11 @@ const Receipt = () => {
   const [showPaymentQr, setShowPaymentQr] = useState(false);
   const [phoneModalOpen, setPhoneModalOpen] = useState(false);
   const [phoneDraft, setPhoneDraft] = useState("");
+  const [customDiscountModalOpen, setCustomDiscountModalOpen] = useState(false);
+  const [customAmountDraft, setCustomAmountDraft] = useState("");
+  const [customUnitDraft, setCustomUnitDraft] =
+    useState<CustomDiscountUnit>("rs");
+  const [customReasonDraft, setCustomReasonDraft] = useState("");
   const [downloadingImage, setDownloadingImage] = useState(false);
   const [supportsShareImage, setSupportsShareImage] = useState(false);
   const billReceiptRef = useRef<HTMLDivElement>(null);
@@ -249,22 +524,44 @@ const Receipt = () => {
       const data = synced?.bill ?? (await localforage.getItem<TBill>("bill"));
       if (data) {
         const membership = data.membership ?? "none";
+        const custom = customDiscountFromBill({ ...data, membership });
         const totals = calculateBillAmounts(
           data.subtotal,
           membership,
-          data.staffWelfare
+          data.staffWelfare,
+          custom
         );
         const sessionId = data.sessionId || context?.sessionId || `legacy:${crypto.randomUUID()}`;
+
+        let customerPhone = data.customerPhone?.trim() || undefined;
+        if (
+          !customerPhone &&
+          context?.source === "orders" &&
+          (context.kind === "takeaway" || context.kind === "delivery")
+        ) {
+          const store = await getOrdersStore();
+          const group = groupOrdersByTable(store.orders).find(
+            (entry) => entry.key === context.groupKey
+          );
+          customerPhone = group
+            ? getGroupCustomerDetails(group).phone
+            : undefined;
+        }
+
         const updatedBill = {
           ...data,
           ...totals,
           membership,
           sessionId,
           stateKey: data.stateKey || `${sessionId}::checkout`,
+          ...(customerPhone ? { customerPhone } : {}),
           updatedAt: data.updatedAt ?? Date.now(),
         };
         setBill(updatedBill);
         await localforage.setItem<TBill>("bill", updatedBill);
+        if (context && customerPhone && !data.customerPhone) {
+          await saveBillingSession(context, updatedBill.cart, updatedBill);
+        }
       }
     };
     const handleSyncedUpdate = () => void loadBill();
@@ -288,11 +585,21 @@ const Receipt = () => {
 
   const staffWelfare = bill.staffWelfare ?? 0;
   const membership = bill.membership ?? "none";
+  const customDiscount = customDiscountFromBill(bill);
   const { discount } = calculateBillAmounts(
     bill.subtotal,
     membership,
-    staffWelfare
+    staffWelfare,
+    customDiscount
   );
+  const discountLabel =
+    membership === "custom" && bill.customDiscountReason?.trim()
+      ? `Discount (${bill.customDiscountReason.trim()})`
+      : membership === "monthly"
+        ? "Discount (Monthly 10%)"
+        : membership === "yearly"
+          ? "Discount (Yearly 20%)"
+          : "Discount";
   const upiAmount = Math.max(0, bill.payable);
   // const upiId = "q030249494@ybl"; // phonepe business
   const upiId = "tangify@slc"; // slice
@@ -310,7 +617,7 @@ const Receipt = () => {
     }
   };
 
-  const handleMembershipSelect = (value: Exclude<Membership, "none">) => {
+  const handleMembershipSelect = (value: "monthly" | "yearly") => {
     if (isBusy) {
       return;
     }
@@ -318,27 +625,94 @@ const Receipt = () => {
     const totals = calculateBillAmounts(
       bill.subtotal,
       nextMembership,
-      staffWelfare
+      staffWelfare,
+      null
     );
     void updateBill({
       ...bill,
       ...totals,
       membership: nextMembership,
+      customDiscountValue: undefined,
+      customDiscountUnit: undefined,
+      customDiscountReason: undefined,
       backendStatus: "idle",
       updatedAt: Date.now(),
     });
   };
 
-  const handlePaymentMethod = (method: string) => {
+  const openCustomDiscountModal = () => {
     if (isBusy) {
       return;
     }
+    const existing = customDiscountFromBill(bill);
+    setCustomAmountDraft(
+      existing && existing.value > 0 ? String(existing.value) : ""
+    );
+    setCustomUnitDraft(existing?.unit ?? "rs");
+    setCustomReasonDraft(bill.customDiscountReason ?? "");
+    setCustomDiscountModalOpen(true);
+  };
+
+  const handleApplyCustomDiscount = () => {
+    const parsed = Number(customAmountDraft);
+    const reason = customReasonDraft.trim();
+    const maxRupees = Math.min(
+      bill.subtotal,
+      calculateBillAmounts(bill.subtotal, "none", staffWelfare, null).payable
+    );
+    if (
+      !Number.isFinite(parsed) ||
+      parsed <= 0 ||
+      (customUnitDraft === "percent" && parsed > 100) ||
+      (customUnitDraft === "rs" && parsed > maxRupees) ||
+      !reason
+    ) {
+      return;
+    }
+    const custom: CustomDiscountInput = {
+      value: roundCurrency(parsed),
+      unit: customUnitDraft,
+    };
+    const totals = calculateBillAmounts(
+      bill.subtotal,
+      "custom",
+      staffWelfare,
+      custom
+    );
     void updateBill({
       ...bill,
-      method,
+      ...totals,
+      membership: "custom",
+      customDiscountValue: custom.value,
+      customDiscountUnit: custom.unit,
+      customDiscountReason: reason,
       backendStatus: "idle",
       updatedAt: Date.now(),
     });
+    setCustomDiscountModalOpen(false);
+  };
+
+  const handleRemoveCustomDiscount = () => {
+    if (isBusy) {
+      return;
+    }
+    const totals = calculateBillAmounts(
+      bill.subtotal,
+      "none",
+      staffWelfare,
+      null
+    );
+    void updateBill({
+      ...bill,
+      ...totals,
+      membership: "none",
+      customDiscountValue: undefined,
+      customDiscountUnit: undefined,
+      customDiscountReason: undefined,
+      backendStatus: "idle",
+      updatedAt: Date.now(),
+    });
+    setCustomDiscountModalOpen(false);
   };
 
   const openPhoneModal = () => {
@@ -714,7 +1088,7 @@ const Receipt = () => {
       <div className="bg-white border-b px-6 py-4 space-y-4 print:hidden">
         <div>
           <p className="text-xs font-medium text-gray-600 mb-2">
-            Membership (optional)
+            Discount (optional)
           </p>
           <div className="flex gap-2">
             <button
@@ -723,7 +1097,7 @@ const Receipt = () => {
               className={tabClass(membership === "monthly")}
               onClick={() => handleMembershipSelect("monthly")}
             >
-              Monthly (10% off)
+              Monthly (10%)
             </button>
             <button
               type="button"
@@ -731,31 +1105,32 @@ const Receipt = () => {
               className={tabClass(membership === "yearly")}
               onClick={() => handleMembershipSelect("yearly")}
             >
-              Yearly (20% off)
+              Yearly (20%)
+            </button>
+            <button
+              type="button"
+              disabled={controlsDisabled}
+              className={tabClass(membership === "custom")}
+              onClick={openCustomDiscountModal}
+            >
+              Custom
             </button>
           </div>
-        </div>
-        <div>
-          <p className="text-xs font-medium text-gray-600 mb-2">
-            Payment method
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {PAYMENT_METHODS.map((method) => (
-              <button
-                type="button"
-                key={method.value}
-                disabled={controlsDisabled}
-                onClick={() => handlePaymentMethod(method.value)}
-                className={`rounded-xl border-2 px-3 py-3 text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                  bill.method === method.value
-                    ? "border-green-500 bg-green-100 text-green-900"
-                    : "border-gray-200 bg-white hover:bg-gray-50"
-                }`}
-              >
-                {method.label}
-              </button>
-            ))}
-          </div>
+          {membership === "custom" && discount > 0 ? (
+            <p className="text-xs text-red-600 mt-2">
+              {bill.customDiscountUnit === "percent"
+                ? `${bill.customDiscountValue}%`
+                : `₹${formatCurrency(bill.customDiscountValue ?? 0)}`}
+              {bill.customDiscountReason?.trim()
+                ? ` · ${bill.customDiscountReason.trim()}`
+                : ""}
+              {` · −₹${formatCurrency(discount)}`}
+            </p>
+          ) : discount > 0 ? (
+            <p className="text-xs text-red-600 mt-2">
+              −₹{formatCurrency(discount)}
+            </p>
+          ) : null}
         </div>
         <div>
           <p className="text-xs font-medium text-gray-600 mb-2">
@@ -819,6 +1194,21 @@ const Receipt = () => {
                   : "Table order")}
             </span>
           </div>
+        ) : billingContext?.kind === "takeaway" ||
+          billingContext?.kind === "delivery" ? (
+          <div className="flex justify-between">
+            <span>Order</span>
+            <span>
+              {billingContext.label?.trim() ||
+                (billingContext.kind === "takeaway" ? "Takeaway" : "Delivery")}
+            </span>
+          </div>
+        ) : null}
+        {bill.customerPhone?.trim() ? (
+          <div className="flex justify-between">
+            <span>Phone</span>
+            <span>+91 {bill.customerPhone.trim()}</span>
+          </div>
         ) : null}
         <Divider />
         <div>
@@ -837,8 +1227,8 @@ const Receipt = () => {
           <span>{formatCurrency(bill.subtotal)}</span>
         </div>
         {discount > 0 && (
-          <div className="flex justify-between">
-            <span>Membership savings</span>
+          <div className="flex justify-between text-red-600">
+            <span className="pr-2">{discountLabel}</span>
             <span>-{formatCurrency(discount)}</span>
           </div>
         )}
@@ -864,12 +1254,12 @@ const Receipt = () => {
         )}
         <Divider />
         <div className="flex justify-between">
-          <span>Payable ({bill.method})</span>
+          <span>Payable</span>
           <span>₹{formatCurrency(bill.payable)}</span>
         </div>
         <p className="text-center mt-2">Thank you. Please visit again.</p>
         <p className="text-center mt-1">UPI: {upiId}</p>
-        {showPaymentQr && bill.method === "CASH/UPI" ? (
+        {showPaymentQr ? (
           <div className="mt-3 flex flex-col items-center">
             <p className="text-center font-semibold">Scan & Pay (UPI)</p>
             <img
@@ -935,16 +1325,14 @@ const Receipt = () => {
           {fullSize ? "Receipt size (58mm)" : "Full size"}
         </button>
 
-        {bill.method === "CASH/UPI" ? (
-          <button
-            type="button"
-            disabled={controlsDisabled}
-            className="w-full py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={() => setShowPaymentQr((value) => !value)}
-          >
-            {showPaymentQr ? "Hide payment QR" : "Show payment QR"}
-          </button>
-        ) : null}
+        <button
+          type="button"
+          disabled={controlsDisabled}
+          className="w-full py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={() => setShowPaymentQr((value) => !value)}
+        >
+          {showPaymentQr ? "Hide payment QR" : "Show payment QR"}
+        </button>
 
         <button
           type="button"
@@ -962,6 +1350,25 @@ const Receipt = () => {
           onChange={setPhoneDraft}
           onCancel={() => setPhoneModalOpen(false)}
           onConfirm={handleSaveCustomerPhone}
+        />
+      ) : null}
+      {customDiscountModalOpen ? (
+        <CustomDiscountModal
+          amount={customAmountDraft}
+          unit={customUnitDraft}
+          reason={customReasonDraft}
+          subtotal={bill.subtotal}
+          maxPayable={
+            calculateBillAmounts(bill.subtotal, "none", staffWelfare, null)
+              .payable
+          }
+          canRemove={membership === "custom"}
+          onAmountChange={setCustomAmountDraft}
+          onUnitChange={setCustomUnitDraft}
+          onReasonChange={setCustomReasonDraft}
+          onCancel={() => setCustomDiscountModalOpen(false)}
+          onConfirm={handleApplyCustomDiscount}
+          onRemove={handleRemoveCustomDiscount}
         />
       ) : null}
       {isBusy ? (

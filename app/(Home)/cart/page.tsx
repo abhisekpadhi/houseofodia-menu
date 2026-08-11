@@ -13,6 +13,11 @@ import {
 	removeBillingSession,
 	saveBillingSession,
 } from "@/src/utils/billing_state";
+import {
+	getGroupCustomerDetails,
+	getOrdersStore,
+	groupOrdersByTable,
+} from "@/src/utils/order_utils";
 import { notifyOrderOpsChange } from "@/src/utils/order_ops_sync";
 import localforage from "localforage";
 import { useRouter } from "next/navigation";
@@ -116,6 +121,21 @@ const Cart = () => {
 			const payable = Math.ceil(preRoundPayable);
 			const roundOff = Math.round((payable - preRoundPayable) * 100) / 100;
 
+			let customerPhone = existingBill?.customerPhone?.trim() || undefined;
+			if (
+				!customerPhone &&
+				context.source === "orders" &&
+				(context.kind === "takeaway" || context.kind === "delivery")
+			) {
+				const store = await getOrdersStore();
+				const group = groupOrdersByTable(store.orders).find(
+					(entry) => entry.key === context.groupKey
+				);
+				customerPhone = group
+					? getGroupCustomerDetails(group).phone
+					: undefined;
+			}
+
 			const bill: TBill = {
 				method: "CASH/UPI",
 				billNumber: existingBill?.billNumber ?? "Pending",
@@ -138,6 +158,7 @@ const Cart = () => {
 				roundOff,
 				payable,
 				membership: "none",
+				...(customerPhone ? { customerPhone } : {}),
 				backendBillId: existingBill?.backendBillId,
 				backendStatus: existingBill?.backendBillId ? "saved" : "idle",
 				backendSavedAt: existingBill?.backendSavedAt,

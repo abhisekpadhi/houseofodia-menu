@@ -58,7 +58,11 @@ export type TBill = {
 	/** Amount added so payable rounds up to a whole rupee */
 	roundOff?: number;
 	method: string;
-	membership?: 'none' | 'monthly' | 'yearly';
+	membership?: 'none' | 'monthly' | 'yearly' | 'custom';
+	/** Custom discount amount entered by staff (rupees or percent, per customDiscountUnit) */
+	customDiscountValue?: number;
+	customDiscountUnit?: 'rs' | 'percent';
+	customDiscountReason?: string;
 	/** 10-digit Indian mobile; sent to backend as customer_id */
 	customerPhone?: string;
 	backendBillId?: string;
