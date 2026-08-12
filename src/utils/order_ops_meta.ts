@@ -30,6 +30,13 @@ import localforage from 'localforage';
 const DEVICE_ID_PATTERN =
 	/^device-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+/** Reserved presence name for tangify-billing-server-hub — clients must not use it. */
+export const SYNC_HUB_DEVICE_NAME = 'Tangify Sync Hub';
+
+export function isReservedDeviceDisplayName(name: string): boolean {
+	return name.trim().toLowerCase() === SYNC_HUB_DEVICE_NAME.toLowerCase();
+}
+
 export function getStableDeviceId(): string {
 	if (typeof window === 'undefined') {
 		return 'device-server';
@@ -52,7 +59,11 @@ export function getDeviceDisplayName(): string {
 
 	const custom = localStorage.getItem(ORDER_OPS_DEVICE_NAME_KEY)?.trim();
 	if (custom) {
-		return custom;
+		if (isReservedDeviceDisplayName(custom)) {
+			localStorage.removeItem(ORDER_OPS_DEVICE_NAME_KEY);
+		} else {
+			return custom;
+		}
 	}
 
 	const id = getStableDeviceId();
@@ -64,7 +75,15 @@ export function hasDeviceDisplayName(): boolean {
 	if (typeof window === 'undefined') {
 		return true;
 	}
-	return Boolean(localStorage.getItem(ORDER_OPS_DEVICE_NAME_KEY)?.trim());
+	const custom = localStorage.getItem(ORDER_OPS_DEVICE_NAME_KEY)?.trim();
+	if (!custom) {
+		return false;
+	}
+	if (isReservedDeviceDisplayName(custom)) {
+		localStorage.removeItem(ORDER_OPS_DEVICE_NAME_KEY);
+		return false;
+	}
+	return true;
 }
 
 export function setDeviceDisplayName(name: string): void {
@@ -73,12 +92,18 @@ export function setDeviceDisplayName(name: string): void {
 	}
 
 	const trimmed = name.trim();
-	if (trimmed) {
-		localStorage.setItem(ORDER_OPS_DEVICE_NAME_KEY, trimmed);
+	if (!trimmed) {
+		localStorage.removeItem(ORDER_OPS_DEVICE_NAME_KEY);
 		return;
 	}
 
-	localStorage.removeItem(ORDER_OPS_DEVICE_NAME_KEY);
+	if (isReservedDeviceDisplayName(trimmed)) {
+		throw new Error(
+			`“${SYNC_HUB_DEVICE_NAME}” is reserved for the sync hub. Choose another name.`
+		);
+	}
+
+	localStorage.setItem(ORDER_OPS_DEVICE_NAME_KEY, trimmed);
 }
 
 function nextDomainVersion(current: number): number {

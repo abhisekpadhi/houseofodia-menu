@@ -33,8 +33,12 @@ export function DeviceNameRequiredModal() {
 			await sync.updateDeviceName(trimmed);
 			setNeedsName(!hasDeviceDisplayName());
 			setDraft('');
-		} catch {
-			setError('Could not save device name. Please try again.');
+		} catch (err) {
+			setError(
+				err instanceof Error
+					? err.message
+					: 'Could not save device name. Please try again.'
+			);
 		} finally {
 			setSaving(false);
 		}

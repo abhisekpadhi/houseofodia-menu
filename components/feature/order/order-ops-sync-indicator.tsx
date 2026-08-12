@@ -112,6 +112,12 @@ export function OrderOpsSyncIndicator({
 		try {
 			await sync.updateDeviceName(trimmed);
 			setNameDraft(trimmed);
+		} catch (error) {
+			alert(
+				error instanceof Error
+					? error.message
+					: 'Could not save device name.'
+			);
 		} finally {
 			setSavingName(false);
 		}
