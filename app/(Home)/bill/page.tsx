@@ -3,6 +3,7 @@ import {
 	BillingContext,
 	BILLING_CONTEXT_KEY,
 	TBill,
+	TMenuApiItem,
 } from "@/src/models/common";
 import {
   closeTableFromBilling,
@@ -12,6 +13,7 @@ import {
   getOrdersStore,
   groupOrdersByTable,
   isValidCustomerPhone,
+  orderBelongsToBillingGroup,
 } from "@/src/utils/order_utils";
 import {
   getBillingSession,
@@ -19,7 +21,14 @@ import {
   saveBillingSession,
 } from "@/src/utils/billing_state";
 import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
-import { notifyOrderOpsChange } from "@/src/utils/order_ops_sync";
+import {
+  buildKotOrderFromBill,
+  isKotPrinterOnline,
+  notifyOrderOpsChange,
+  requestKotPrint,
+} from "@/src/utils/order_ops_sync";
+import { useOrderOpsSync } from "@/context/order-ops-sync";
+import { buildDishInternalNameMap } from "@/src/utils/menu_utils";
 import { saveBillToBackend } from "@/src/utils/tangify_api";
 import localforage from "localforage";
 import { ConfirmModalActions, LoadingSpinner } from "@/components/ui/touch-controls";
@@ -27,7 +36,17 @@ import { toPng } from "html-to-image";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { FaCheck, FaDownload, FaPrint, FaShareAlt } from "react-icons/fa";
+import {
+  FaCheck,
+  FaCompress,
+  FaDownload,
+  FaExpand,
+  FaPrint,
+  FaQrcode,
+  FaSave,
+  FaShareAlt,
+} from "react-icons/fa";
+import axios from "axios";
 
 type Membership = "none" | "monthly" | "yearly" | "custom";
 type CustomDiscountUnit = "rs" | "percent";
@@ -466,6 +485,8 @@ function CustomDiscountModal({
 
 const Receipt = () => {
   const router = useRouter();
+  const sync = useOrderOpsSync();
+  const kotPrinterOnline = isKotPrinterOnline(sync.memberDeviceNames);
   const [bill, setBill] = useState<TBill | null>(null);
   const [billingContext, setBillingContext] = useState<BillingContext | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -477,7 +498,7 @@ const Receipt = () => {
     "print"
   );
   const [fullSize, setFullSize] = useState(false);
-  const [showPaymentQr, setShowPaymentQr] = useState(false);
+  const [showPaymentQr, setShowPaymentQr] = useState(true);
   const [phoneModalOpen, setPhoneModalOpen] = useState(false);
   const [phoneDraft, setPhoneDraft] = useState("");
   const [customDiscountModalOpen, setCustomDiscountModalOpen] = useState(false);
@@ -487,6 +508,13 @@ const Receipt = () => {
   const [customReasonDraft, setCustomReasonDraft] = useState("");
   const [downloadingImage, setDownloadingImage] = useState(false);
   const [supportsShareImage, setSupportsShareImage] = useState(false);
+  const [printServerState, setPrintServerState] = useState<
+    "idle" | "sending" | "sent" | "error"
+  >("idle");
+  const [printServerError, setPrintServerError] = useState<string | null>(null);
+  const [internalNameByBillName, setInternalNameByBillName] = useState<
+    Record<string, string>
+  >({});
   const billReceiptRef = useRef<HTMLDivElement>(null);
   const isBusy = saving || processing;
   const controlsDisabled = isBusy || downloadingImage;
@@ -505,6 +533,21 @@ const Receipt = () => {
     } catch {
       setSupportsShareImage(false);
     }
+  }, []);
+  useEffect(() => {
+    axios
+      .get<TMenuApiItem[]>("/api/menu", {
+        headers: {
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+      })
+      .then((response) => {
+        setInternalNameByBillName(buildDishInternalNameMap(response.data));
+      })
+      .catch(() => {
+        setInternalNameByBillName({});
+      });
   }, []);
   useEffect(() => {
     const loadBill = async () => {
@@ -839,6 +882,49 @@ const Receipt = () => {
     }
   };
 
+  const sendKotToPrintServer = async () => {
+    if (!billingContext || controlsDisabled || printServerState === "sending") {
+      return;
+    }
+    if (bill.cart.items.length === 0) {
+      setPrintServerState("error");
+      setPrintServerError("No items to print");
+      return;
+    }
+
+    setPrintServerState("sending");
+    setPrintServerError(null);
+    try {
+      let orderNumber: number | undefined;
+      if (billingContext.source === "orders") {
+        const store = await getOrdersStore();
+        const groupOrders = store.orders.filter((order) =>
+          orderBelongsToBillingGroup(order, billingContext)
+        );
+        const numbers = groupOrders
+          .map((order) => order.orderNumber)
+          .filter((value): value is number => value != null && value >= 1);
+        if (numbers.length > 0) {
+          orderNumber = Math.min(...numbers);
+        }
+      }
+
+      const kotOrder = buildKotOrderFromBill(bill, billingContext, orderNumber);
+      await requestKotPrint(kotOrder, {
+        mode: "new",
+        nameByBillName: internalNameByBillName,
+      });
+      setPrintServerState("sent");
+    } catch (error) {
+      setPrintServerState("error");
+      setPrintServerError(
+        error instanceof Error
+          ? error.message
+          : "Could not reach print server"
+      );
+    }
+  };
+
   const tabClass = (active: boolean) =>
     `flex-1 py-2.5 px-3 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
       active
@@ -1050,7 +1136,7 @@ const Receipt = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="ops-app-screen">
       {!fullSize ? (
         <style
           dangerouslySetInnerHTML={{
@@ -1071,18 +1157,25 @@ const Receipt = () => {
           }}
         />
       ) : null}
-      <div className="ops-sticky-header bg-white border-b px-6 pb-4 print:hidden">
-        <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-20 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2 bg-transparent pointer-events-none print:hidden">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 pointer-events-auto">
           <button
             type="button"
             onClick={handleBack}
             disabled={controlsDisabled}
-            className="text-sm font-semibold text-gray-600 hover:text-black disabled:opacity-40 disabled:cursor-not-allowed"
+            aria-label="Back"
+            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white text-gray-700 hover:bg-gray-50 border border-gray-200/80 shadow-md touch-manipulation shrink-0 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            ← Back
+            ←
           </button>
-          <h1 className="text-xl font-bold">Bill</h1>
-          <div className="w-12" />
+          <div className="flex justify-center min-w-0 px-1">
+            <div className="rounded-full bg-white border border-gray-200/80 shadow-md px-4 py-2 min-h-[44px] max-w-full flex flex-col justify-center">
+              <h1 className="text-sm font-bold text-gray-900 truncate text-center">
+                Bill
+              </h1>
+            </div>
+          </div>
+          <div className="min-w-[44px]" aria-hidden />
         </div>
       </div>
       <div className="bg-white border-b px-6 py-4 space-y-4 print:hidden">
@@ -1276,73 +1369,113 @@ const Receipt = () => {
         <br />
         <br />
       </div>
-      <div className="px-6 py-4 space-y-3 print:hidden">
-        <div className="flex gap-2">
+      <div className="h-48 print:hidden" aria-hidden />
+      <div className="fixed right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] z-20 flex flex-col-reverse items-end gap-2 print:hidden">
+        {kotPrinterOnline ? (
           <button
             type="button"
-            disabled={controlsDisabled}
-            className="basis-[70%] py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={() => void handleSave()}
+            disabled={controlsDisabled || printServerState === "sending"}
+            aria-label="Send to print server"
+            onClick={() => void sendKotToPrintServer()}
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-orange-500 px-4 text-sm font-semibold text-white shadow-lg hover:bg-orange-600 touch-manipulation disabled:opacity-60"
           >
-            {saving ? "Saving…" : "Save"}
+            <FaPrint className="h-4 w-4 shrink-0" />
+            {printServerState === "sending"
+              ? "Sending…"
+              : printServerState === "sent"
+                ? "Sent"
+                : "Print server"}
           </button>
-          <button
-            type="button"
-            disabled={controlsDisabled}
-            className="basis-[30%] py-3 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={() => void handlePrint()}
-          >
-            <FaPrint className="mr-2" /> Print
-          </button>
-        </div>
-
+        ) : null}
         <button
           type="button"
           disabled={controlsDisabled}
-          className="w-full py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          aria-label={processing ? "Closing table" : "Close table"}
+          title={processing ? "Closing…" : "Close table"}
+          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-green-500 text-white shadow-lg hover:bg-green-600 touch-manipulation transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={() => void onClickCloseTable()}
+        >
+          <FaCheck className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          disabled={controlsDisabled}
+          aria-label={
+            showPaymentQr ? "Hide payment QR" : "Show payment QR"
+          }
+          title={showPaymentQr ? "Hide payment QR" : "Show payment QR"}
+          className={`inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border shadow-lg touch-manipulation transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+            showPaymentQr
+              ? "border-black bg-black text-white hover:bg-gray-800"
+              : "border-gray-300 bg-white text-gray-800 hover:bg-gray-50"
+          }`}
+          onClick={() => setShowPaymentQr((value) => !value)}
+        >
+          <FaQrcode className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          disabled={controlsDisabled}
+          aria-label={fullSize ? "Receipt size (58mm)" : "Full size"}
+          title={fullSize ? "Receipt size (58mm)" : "Full size"}
+          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-gray-300 bg-white text-gray-800 shadow-lg hover:bg-gray-50 touch-manipulation transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={() => setFullSize((value) => !value)}
+        >
+          {fullSize ? (
+            <FaCompress className="h-4 w-4" />
+          ) : (
+            <FaExpand className="h-4 w-4" />
+          )}
+        </button>
+        <button
+          type="button"
+          disabled={controlsDisabled}
+          aria-label={
+            supportsShareImage ? "Share image" : "Download image"
+          }
+          title={
+            downloadingImage
+              ? supportsShareImage
+                ? "Preparing…"
+                : "Downloading…"
+              : supportsShareImage
+                ? "Share image"
+                : "Download image"
+          }
+          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-gray-300 bg-white text-gray-800 shadow-lg hover:bg-gray-50 touch-manipulation transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={() => void handleDownloadBillImage()}
         >
           {supportsShareImage ? (
-            <FaShareAlt className="mr-2" />
+            <FaShareAlt className="h-4 w-4" />
           ) : (
-            <FaDownload className="mr-2" />
+            <FaDownload className="h-4 w-4" />
           )}
-          {downloadingImage
-            ? supportsShareImage
-              ? "Preparing…"
-              : "Downloading…"
-            : supportsShareImage
-              ? "Share image"
-              : "Download image"}
         </button>
-
         <button
           type="button"
           disabled={controlsDisabled}
-          className="w-full py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          onClick={() => setFullSize((value) => !value)}
+          aria-label="Print"
+          title="Print"
+          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-black text-white shadow-lg hover:bg-gray-800 touch-manipulation transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={() => void handlePrint()}
         >
-          {fullSize ? "Receipt size (58mm)" : "Full size"}
+          <FaPrint className="h-4 w-4" />
         </button>
-
         <button
           type="button"
           disabled={controlsDisabled}
-          className="w-full py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          onClick={() => setShowPaymentQr((value) => !value)}
+          aria-label={saving ? "Saving" : "Save"}
+          title={saving ? "Saving…" : "Save"}
+          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-gray-300 bg-white text-gray-800 shadow-lg hover:bg-gray-50 touch-manipulation transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={() => void handleSave()}
         >
-          {showPaymentQr ? "Hide payment QR" : "Show payment QR"}
+          <FaSave className="h-4 w-4" />
         </button>
-
-        <button
-          type="button"
-          disabled={controlsDisabled}
-          className="w-full py-3 rounded-lg bg-black hover:bg-gray-800 text-white text-sm font-bold flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          onClick={() => void onClickCloseTable()}
-        >
-          <FaCheck className="mr-2" />{" "}
-          {processing ? "Closing…" : "Close table"}
-        </button>
+        {printServerState === "error" && printServerError ? (
+          <p className="max-w-[10rem] rounded-lg bg-white/95 px-2 py-1 text-xs text-red-600 shadow-md text-right">
+            {printServerError}
+          </p>
+        ) : null}
       </div>
       {phoneModalOpen ? (
         <CustomerPhoneModal

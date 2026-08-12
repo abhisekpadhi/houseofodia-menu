@@ -272,6 +272,14 @@ export function OrderOpsSyncIndicator({
 							<SyncStatusRow label="Channel" value={sync.channelName} />
 							<SyncStatusRow label="Clients online" value={sync.memberCount} />
 							<SyncStatusRow
+								label="Devices"
+								value={
+									sync.memberDeviceNames.length > 0
+										? sync.memberDeviceNames.join(', ')
+										: '—'
+								}
+							/>
+							<SyncStatusRow
 								label="Last updated"
 								value={formatStateVersionDisplay(sync.stateVersion)}
 							/>

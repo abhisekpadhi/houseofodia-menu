@@ -185,6 +185,10 @@ export type OrderOpsPresenceData = {
 	stateVersion: number;
 	businessDate: string;
 	initializedForToday: boolean;
+	/** True when this member is the always-on sync hub and ready to serve snapshots. */
+	isSyncHub?: boolean;
+	/** Hub member marker (even while bootstrapping). */
+	role?: 'syncHub';
 };
 
 export type SyncConflictPeer = {
@@ -194,6 +198,7 @@ export type SyncConflictPeer = {
 	/** Max domain version — display / legacy */
 	stateVersion: number;
 	initializedForToday: boolean;
+	isSyncHub?: boolean;
 };
 
 export type SyncConflict = {

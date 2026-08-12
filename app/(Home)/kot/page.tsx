@@ -10,10 +10,12 @@ import {
 	getOrderKotLines,
 	getOrdersStore,
 } from "@/src/utils/order_utils";
+import { isKotPrinterOnline, requestKotPrint } from "@/src/utils/order_ops_sync";
+import { useOrderOpsSync } from "@/context/order-ops-sync";
 import axios from "axios";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { FaPrint } from "react-icons/fa";
+import { FaCompress, FaExpand, FaPrint } from "react-icons/fa";
 
 const Divider = () => {
 	return <div className="my-2 border-t border-solid border-black" />;
@@ -33,12 +35,18 @@ function KotContent() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const orderId = searchParams.get("orderId");
+	const sync = useOrderOpsSync();
+	const kotPrinterOnline = isKotPrinterOnline(sync.memberDeviceNames);
 	const [order, setOrder] = useState<TOrder | null>(null);
 	const [internalNameByBillName, setInternalNameByBillName] = useState<
 		Record<string, string>
 	>({});
 	const [loading, setLoading] = useState(true);
 	const [fullSize, setFullSize] = useState(false);
+	const [printServerState, setPrintServerState] = useState<
+		"idle" | "sending" | "sent" | "error"
+	>("idle");
+	const [printServerError, setPrintServerError] = useState<string | null>(null);
 
 	useEffect(() => {
 		if (!orderId) {
@@ -64,6 +72,26 @@ function KotContent() {
 				setLoading(false);
 			});
 	}, [orderId]);
+
+	const sendToPrintServer = async () => {
+		if (!order) return;
+		setPrintServerState("sending");
+		setPrintServerError(null);
+		try {
+			await requestKotPrint(order, {
+				mode: "new",
+				nameByBillName: internalNameByBillName,
+			});
+			setPrintServerState("sent");
+		} catch (error) {
+			setPrintServerState("error");
+			setPrintServerError(
+				error instanceof Error
+					? error.message
+					: "Could not reach print server"
+			);
+		}
+	};
 
 	if (loading) {
 		return <div className="p-4">Loading...</div>;
@@ -93,7 +121,7 @@ function KotContent() {
 	const orderNumberLabel = formatDailyOrderNumber(order.orderNumber);
 
 	return (
-		<div className="min-h-screen bg-gray-50">
+		<div className="ops-app-screen">
 			{!fullSize ? (
 				<style
 					dangerouslySetInnerHTML={{
@@ -114,17 +142,24 @@ function KotContent() {
 					}}
 				/>
 			) : null}
-			<div className="ops-sticky-header bg-white border-b px-6 pb-4 print:hidden">
-				<div className="flex items-center justify-between">
+			<div className="sticky top-0 z-20 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2 bg-transparent pointer-events-none print:hidden">
+				<div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 pointer-events-auto">
 					<button
 						type="button"
 						onClick={() => router.push("/order")}
-						className="text-sm font-semibold text-gray-600 hover:text-black"
+						aria-label="Back"
+						className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white text-gray-700 hover:bg-gray-50 border border-gray-200/80 shadow-md touch-manipulation shrink-0 text-sm font-semibold"
 					>
-						← Back
+						←
 					</button>
-					<h1 className="text-xl font-bold">KOT</h1>
-					<div className="w-12" />
+					<div className="flex justify-center min-w-0 px-1">
+						<div className="rounded-full bg-white border border-gray-200/80 shadow-md px-4 py-2 min-h-[44px] max-w-full flex flex-col justify-center">
+							<h1 className="text-sm font-bold text-gray-900 truncate text-center">
+								KOT
+							</h1>
+						</div>
+					</div>
+					<div className="min-w-[44px]" aria-hidden />
 				</div>
 			</div>
 			<div
@@ -200,21 +235,51 @@ function KotContent() {
 				) : null}
 				<BlankRows count={3} />
 			</div>
-			<div className="px-6 py-4 space-y-3 print:hidden">
+			<div className="h-36 print:hidden" aria-hidden />
+			<div className="fixed right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] z-20 flex flex-col-reverse items-end gap-2 print:hidden">
+				{kotPrinterOnline ? (
+					<button
+						type="button"
+						disabled={printServerState === "sending"}
+						aria-label="Send to print server"
+						onClick={() => void sendToPrintServer()}
+						className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-orange-500 px-4 text-sm font-semibold text-white shadow-lg hover:bg-orange-600 touch-manipulation disabled:opacity-60"
+					>
+						<FaPrint className="h-4 w-4 shrink-0" />
+						{printServerState === "sending"
+							? "Sending…"
+							: printServerState === "sent"
+								? "Sent"
+								: "Print server"}
+					</button>
+				) : null}
 				<button
 					type="button"
-					className="w-full py-3 rounded-lg bg-green-500 hover:bg-green-600 text-white text-sm font-bold flex items-center justify-center transition-colors"
+					aria-label="Print KOT"
+					title="Print KOT"
+					className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-black text-white shadow-lg hover:bg-gray-800 touch-manipulation transition-colors"
 					onClick={() => window.print()}
 				>
-					<FaPrint className="mr-2" /> Print KOT
+					<FaPrint className="h-4 w-4" />
 				</button>
 				<button
 					type="button"
-					className="w-full py-3 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-sm font-bold flex items-center justify-center transition-colors"
+					aria-label={fullSize ? "Receipt size (58mm)" : "Full size"}
+					title={fullSize ? "Receipt size (58mm)" : "Full size"}
+					className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full border border-gray-300 bg-white text-gray-800 shadow-lg hover:bg-gray-50 touch-manipulation transition-colors"
 					onClick={() => setFullSize((value) => !value)}
 				>
-					{fullSize ? "Receipt size (58mm)" : "Full size"}
+					{fullSize ? (
+						<FaCompress className="h-4 w-4" />
+					) : (
+						<FaExpand className="h-4 w-4" />
+					)}
 				</button>
+				{printServerState === "error" && printServerError ? (
+					<p className="max-w-[10rem] rounded-lg bg-white/95 px-2 py-1 text-xs text-red-600 shadow-md text-right">
+						{printServerError}
+					</p>
+				) : null}
 			</div>
 		</div>
 	);

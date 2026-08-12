@@ -25,12 +25,15 @@ import {
 	maybeRequestSyncFromPeers,
 	registerOrderOpsPresenceUpdater,
 	registerOrderOpsPublisher,
+	registerKotPrintPublisher,
 	requestSyncFromPeer,
 	resetSyncRequestCooldown,
 	resolveSyncKeepLocal,
 	setSyncConflictBlocking,
 	unregisterOrderOpsPresenceUpdater,
 	unregisterOrderOpsPublisher,
+	unregisterKotPrintPublisher,
+	getPeerDeviceName,
 	type PresenceMember,
 } from '@/src/utils/order_ops_sync';
 import Ably, { PresenceMessage, Realtime, RealtimeChannel } from 'ably';
@@ -56,6 +59,8 @@ type OrderOpsSyncContextValue = {
 	connectionState: OrderOpsConnectionState;
 	syncing: boolean;
 	memberCount: number;
+	/** Presence device names currently on the channel (including this device). */
+	memberDeviceNames: string[];
 	deviceId: string;
 	deviceName: string;
 	channelName: string;
@@ -76,6 +81,7 @@ const OrderOpsSyncContext = createContext<OrderOpsSyncContextValue>({
 	connectionState: 'idle',
 	syncing: false,
 	memberCount: 0,
+	memberDeviceNames: [],
 	deviceId: '',
 	deviceName: '',
 	channelName: getOrderOpsChannel(),
@@ -123,6 +129,7 @@ async function updateChannelPresence(channel: RealtimeChannel) {
 		stateVersion: maxOrderOpsVersion(meta.versions),
 		businessDate: meta.businessDate,
 		initializedForToday: meta.initializedForToday ?? false,
+		isSyncHub: false,
 	};
 
 	try {
@@ -222,6 +229,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 		useState<OrderOpsConnectionState>('idle');
 	const [syncing, setSyncing] = useState(false);
 	const [memberCount, setMemberCount] = useState(0);
+	const [memberDeviceNames, setMemberDeviceNames] = useState<string[]>([]);
 	const [stateVersion, setStateVersion] = useState<number | null>(null);
 	const [businessDate, setBusinessDate] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -277,6 +285,9 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				}
 				const mapped = mapPresenceMembers(members);
 				setMemberCount(mapped.length);
+				setMemberDeviceNames(
+					mapped.map((member) => getPeerDeviceName(member))
+				);
 
 				if (checkConflict) {
 					const conflict = await detectSyncConflict(mapped, selfClientId);
@@ -351,6 +362,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 						stateVersion: maxOrderOpsVersion(meta.versions),
 						businessDate: meta.businessDate,
 						initializedForToday: meta.initializedForToday ?? false,
+						isSyncHub: false,
 					};
 
 					if (channel.state !== 'attached' && channel.state !== 'attaching') {
@@ -396,6 +408,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				}
 				setConnectionState('idle');
 				setMemberCount(0);
+				setMemberDeviceNames([]);
 				setSyncConflict(null);
 				setSyncConflictBlocking(false);
 				conflictResolvedRef.current = false;
@@ -408,6 +421,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				}
 				setConnectionState('failed');
 				setMemberCount(0);
+				setMemberDeviceNames([]);
 				setSyncConflict(null);
 				setSyncConflictBlocking(false);
 				conflictResolvedRef.current = false;
@@ -479,6 +493,14 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				await runWithSyncIndicator(async () => {
 					await activeChannel.publish('state:delta', snapshot);
 				});
+			});
+
+			registerKotPrintPublisher(async (payload) => {
+				const activeChannel = channelRef.current;
+				if (!activeChannel) {
+					throw new Error('Sync channel is not ready');
+				}
+				await activeChannel.publish('kot:print', payload);
 			});
 
 			registerOrderOpsPresenceUpdater(async () => {
@@ -673,6 +695,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			window.removeEventListener('focus', onWindowFocus);
 			document.removeEventListener('visibilitychange', onVisibilityChange);
 			unregisterOrderOpsPublisher();
+			unregisterKotPrintPublisher();
 			unregisterOrderOpsPresenceUpdater();
 			void teardownAbly(
 				realtimeRef.current,
@@ -702,6 +725,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				connectionState,
 				syncing,
 				memberCount,
+				memberDeviceNames,
 				deviceId,
 				deviceName,
 				channelName: getOrderOpsChannel(),

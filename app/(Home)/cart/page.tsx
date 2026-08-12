@@ -264,29 +264,36 @@ const Cart = () => {
 	};
 
 	return (
-		<div className="min-h-screen bg-gray-50 flex flex-col">
-			<div className="ops-sticky-header bg-white border-b px-6 pb-4">
-				<div className="flex items-center justify-between">
+		<div className="ops-app-screen flex flex-col">
+			<div className="sticky top-0 z-20 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2 bg-transparent pointer-events-none">
+				<div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 pointer-events-auto">
 					<button
 						type="button"
 						onClick={handleBack}
-						className="text-sm font-semibold text-gray-600 hover:text-black"
+						aria-label="Back"
+						className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white text-gray-700 hover:bg-gray-50 border border-gray-200/80 shadow-md touch-manipulation shrink-0 text-sm font-semibold"
 					>
-						← Back
+						←
 					</button>
-					<h1 className="text-xl font-bold">Cart</h1>
+					<div className="flex justify-center min-w-0 px-1">
+						<div className="rounded-full bg-white border border-gray-200/80 shadow-md px-4 py-2 min-h-[44px] max-w-full flex flex-col justify-center">
+							<h1 className="text-sm font-bold text-gray-900 truncate text-center">
+								Cart
+							</h1>
+						</div>
+					</div>
 					<button
 						type="button"
 						onClick={requestClear}
 						disabled={cart.items.length === 0}
-						className="text-sm font-semibold text-red-600 hover:text-red-800 px-2 py-1 rounded-lg hover:bg-red-50 disabled:opacity-40 disabled:hover:bg-transparent"
+						className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-white text-red-600 hover:bg-red-50 border border-gray-200/80 shadow-md touch-manipulation shrink-0 px-3 text-sm font-semibold disabled:opacity-40 disabled:hover:bg-white"
 					>
 						Clear
 					</button>
 				</div>
 			</div>
 
-			<div className="flex-1 overflow-auto">
+			<div className="flex-1 overflow-auto px-4 sm:px-6">
 				{cart.items.length === 0 ? (
 					<div className="text-center py-16 text-gray-500 text-sm">
 						Cart is empty

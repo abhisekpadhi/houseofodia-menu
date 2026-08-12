@@ -1,4 +1,12 @@
-import { INVENTORY_KEY, TOrdersStore } from '@/src/models/common';
+import {
+	BillingContext,
+	INVENTORY_KEY,
+	TBill,
+	TCart,
+	TOrder,
+	TOrderItem,
+	TOrdersStore,
+} from '@/src/models/common';
 import {
 	OrderOpsDomain,
 	OrderOpsSnapshot,
@@ -21,6 +29,7 @@ import {
 	dispatchOrderOpsUpdated,
 	getDeviceDisplayName,
 	getOrderOpsMeta,
+	getStableDeviceId,
 	setOrderOpsMetaVersions,
 } from '@/src/utils/order_ops_meta';
 import { getTodayDateKey } from '@/src/utils/inventory_utils';
@@ -51,8 +60,20 @@ let publishStateDelta: ((snapshot: OrderOpsSnapshot) => Promise<void>) | null =
 let updatePresenceData:
 	| ((snapshot: OrderOpsSnapshot) => Promise<void>)
 	| null = null;
+let publishKotPrintMessage:
+	| ((payload: KotPrintRequestMessage) => Promise<void>)
+	| null = null;
 let lastSyncRequestAt = 0;
 let syncConflictBlocking = false;
+
+/** Manual KOT print request published on the order_ops Ably channel. */
+export type KotPrintRequestMessage = {
+	order: TOrder;
+	mode: 'new' | 'update';
+	nameByBillName?: Record<string, string>;
+	requestedAt: number;
+	requesterId: string;
+};
 
 export function setSyncConflictBlocking(blocking: boolean): void {
 	syncConflictBlocking = blocking;
@@ -80,6 +101,93 @@ export function registerOrderOpsPresenceUpdater(
 
 export function unregisterOrderOpsPresenceUpdater(): void {
 	updatePresenceData = null;
+}
+
+export function registerKotPrintPublisher(
+	publisher: (payload: KotPrintRequestMessage) => Promise<void>
+): void {
+	publishKotPrintMessage = publisher;
+}
+
+export function unregisterKotPrintPublisher(): void {
+	publishKotPrintMessage = null;
+}
+
+/** Publish a one-shot KOT print request for the local print server. */
+export async function requestKotPrint(
+	order: TOrder,
+	options?: {
+		mode?: 'new' | 'update';
+		nameByBillName?: Record<string, string>;
+	}
+): Promise<void> {
+	if (typeof window === 'undefined') {
+		return;
+	}
+	if (!publishKotPrintMessage) {
+		throw new Error('Not connected to order sync — cannot reach print server');
+	}
+
+	const meta = await getOrderOpsMeta();
+	await publishKotPrintMessage({
+		order,
+		mode: options?.mode ?? 'new',
+		nameByBillName: options?.nameByBillName,
+		requestedAt: Date.now(),
+		requesterId: meta.deviceId || getStableDeviceId(),
+	});
+}
+
+/** Default presence name used by tangify_pos_printer. */
+export const KOT_PRINTER_DEVICE_NAME = 'KOT Printer';
+
+/** True when a presence member is named like the KOT print server. */
+export function isKotPrinterOnline(memberDeviceNames: string[]): boolean {
+	const target = KOT_PRINTER_DEVICE_NAME.trim().toLowerCase();
+	return memberDeviceNames.some((name) => name.trim().toLowerCase() === target);
+}
+
+const PARCEL_CART_SUFFIX = ' (parcel)';
+
+function cartItemsToOrderItems(cart: TCart): TOrderItem[] {
+	return cart.items
+		.filter((item) => item.qty > 0)
+		.map((item) => {
+			const isParcel = item.name.endsWith(PARCEL_CART_SUFFIX);
+			const name = isParcel
+				? item.name.slice(0, -PARCEL_CART_SUFFIX.length)
+				: item.name;
+			return {
+				name,
+				price: item.price,
+				qty: item.qty,
+				unitStates: Array.from({ length: item.qty }, () => 'pending' as const),
+				parcelUnits: Array.from({ length: item.qty }, () => isParcel),
+			};
+		});
+}
+
+/**
+ * Build a printable TOrder from the current bill (works for freeflow and order checkout).
+ */
+export function buildKotOrderFromBill(
+	bill: TBill,
+	context: BillingContext,
+	orderNumber?: number
+): TOrder {
+	return {
+		id: `bill-kot:${bill.sessionId || context.sessionId}`,
+		createdAt: bill.updatedAt || Date.now(),
+		kind: context.kind,
+		tableNumbers: context.tableNumbers ?? [],
+		items: cartItemsToOrderItems(bill.cart),
+		...(orderNumber != null && Number.isFinite(orderNumber)
+			? { orderNumber: Math.floor(orderNumber) }
+			: {}),
+		...(bill.customerPhone?.trim()
+			? { customerPhone: bill.customerPhone.trim() }
+			: {}),
+	};
 }
 
 export function isSyncNotifySuppressed(): boolean {
@@ -357,6 +465,78 @@ export function getPeerDeviceName(member: PresenceMember): string {
 	return `Device ${member.clientId.slice(-4)}`;
 }
 
+export function peerIsSyncHub(member: PresenceMember): boolean {
+	return (
+		member.data?.isSyncHub === true &&
+		(getPeerInitialized(member) || getPeerStateVersion(member) > 0)
+	);
+}
+
+/** True if a sync-hub process is on the channel (ready or still booting). */
+export function hasSyncHubMember(
+	members: PresenceMember[],
+	selfClientId: string,
+	today: string
+): boolean {
+	return peersForToday(members, selfClientId, today).some(
+		(member) =>
+			member.data?.role === 'syncHub' || member.data?.isSyncHub === true
+	);
+}
+
+/**
+ * If a hub is present: sync only from a ready hub (never other peers).
+ * If no hub: highest-version peer (current P2P behaviour).
+ */
+export function pickSyncSourcePeer(
+	members: PresenceMember[],
+	selfClientId: string,
+	today: string
+): PresenceMember | null {
+	const todayPeers = peersForToday(members, selfClientId, today);
+	if (todayPeers.length === 0) {
+		return null;
+	}
+
+	const hubsReady = todayPeers.filter(peerIsSyncHub);
+	if (hubsReady.length > 0) {
+		return hubsReady.reduce((best, member) => {
+			const version = getPeerStateVersion(member);
+			const bestVersion = getPeerStateVersion(best);
+			if (version > bestVersion) {
+				return member;
+			}
+			if (version === bestVersion && member.timestamp < best.timestamp) {
+				return member;
+			}
+			return best;
+		});
+	}
+
+	// Hub is online but not ready yet — wait; do not fall back to P2P.
+	if (hasSyncHubMember(members, selfClientId, today)) {
+		return null;
+	}
+
+	const pool = todayPeers.filter(
+		(member) =>
+			getPeerInitialized(member) || getPeerStateVersion(member) > 0
+	);
+	const candidates = pool.length > 0 ? pool : todayPeers;
+
+	return candidates.reduce((best, member) => {
+		const version = getPeerStateVersion(member);
+		const bestVersion = getPeerStateVersion(best);
+		if (version > bestVersion) {
+			return member;
+		}
+		if (version === bestVersion && member.timestamp < best.timestamp) {
+			return member;
+		}
+		return best;
+	});
+}
+
 function peersForToday(
 	members: PresenceMember[],
 	selfClientId: string,
@@ -393,6 +573,7 @@ export async function detectSyncConflict(
 			versions,
 			stateVersion: maxOrderOpsVersion(versions),
 			initializedForToday: getPeerInitialized(member),
+			isSyncHub: peerIsSyncHub(member),
 		};
 	});
 
@@ -405,9 +586,12 @@ export async function detectSyncConflict(
 		return null;
 	}
 
-	const recommendedPeer = peers.reduce((best, peer) =>
-		peer.stateVersion > best.stateVersion ? peer : best
-	);
+	const hubPeer = peers.find((peer) => peer.isSyncHub);
+	const recommendedPeer =
+		hubPeer ??
+		peers.reduce((best, peer) =>
+			peer.stateVersion > best.stateVersion ? peer : best
+		);
 
 	return {
 		businessDate: today,
@@ -500,22 +684,10 @@ export async function maybeRequestSyncFromPeers(
 		return;
 	}
 
-	const todayPeers = peersForToday(members, selfClientId, today);
-	if (todayPeers.length === 0) {
+	const source = pickSyncSourcePeer(members, selfClientId, today);
+	if (!source) {
 		return;
 	}
-
-	const source = todayPeers.reduce((best, member) => {
-		const version = getPeerStateVersion(member);
-		const bestVersion = getPeerStateVersion(best);
-		if (version > bestVersion) {
-			return member;
-		}
-		if (version === bestVersion && member.timestamp < best.timestamp) {
-			return member;
-		}
-		return best;
-	});
 
 	const sourceVersions = getPeerVersions(source);
 	const needsInitialSync = !meta.initializedForToday;
