@@ -25,6 +25,10 @@ import { getSupplyInventorySnapshotForDate } from '@/src/utils/supply_inventory_
 import { getWaitlistSnapshotForDate } from '@/src/utils/waitlist_utils';
 import { getServiceRequestsSnapshotForDate } from '@/src/utils/service_requests_utils';
 import { getBillingSessions } from '@/src/utils/billing_state';
+import {
+	BILL_PRINTER_DEVICE_NAME,
+	KOT_PRINTER_DEVICE_NAME,
+} from '@/src/utils/print_servers';
 import localforage from 'localforage';
 
 const DEVICE_ID_PATTERN =
@@ -32,9 +36,16 @@ const DEVICE_ID_PATTERN =
 
 /** Reserved presence name for tangify-billing-server-hub — clients must not use it. */
 export const SYNC_HUB_DEVICE_NAME = 'Tangify Sync Hub';
+export const KOT_PRINTER_RESERVED_NAME = KOT_PRINTER_DEVICE_NAME;
+export const BILL_PRINTER_RESERVED_NAME = BILL_PRINTER_DEVICE_NAME;
 
 export function isReservedDeviceDisplayName(name: string): boolean {
-	return name.trim().toLowerCase() === SYNC_HUB_DEVICE_NAME.toLowerCase();
+	const normalized = name.trim().toLowerCase();
+	return (
+		normalized === SYNC_HUB_DEVICE_NAME.toLowerCase() ||
+		normalized === KOT_PRINTER_RESERVED_NAME.toLowerCase() ||
+		normalized === BILL_PRINTER_RESERVED_NAME.toLowerCase()
+	);
 }
 
 export function getStableDeviceId(): string {
@@ -99,7 +110,7 @@ export function setDeviceDisplayName(name: string): void {
 
 	if (isReservedDeviceDisplayName(trimmed)) {
 		throw new Error(
-			`“${SYNC_HUB_DEVICE_NAME}” is reserved for the sync hub. Choose another name.`
+			`“${trimmed}” is reserved (sync hub / KOT Printer / Bill Printer). Choose another name.`
 		);
 	}
 

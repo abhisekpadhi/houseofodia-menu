@@ -10,7 +10,8 @@ import {
 	getOrderKotLines,
 	getOrdersStore,
 } from "@/src/utils/order_utils";
-import { isKotPrinterOnline, requestKotPrint } from "@/src/utils/order_ops_sync";
+import { requestKotPrint } from "@/src/utils/order_ops_sync";
+import { isKotPrinterOnline } from "@/src/utils/print_servers";
 import { useOrderOpsSync } from "@/context/order-ops-sync";
 import axios from "axios";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -88,7 +89,7 @@ function KotContent() {
 			setPrintServerError(
 				error instanceof Error
 					? error.message
-					: "Could not reach print server"
+					: "Could not reach KOT Printer"
 			);
 		}
 	};
@@ -241,7 +242,7 @@ function KotContent() {
 					<button
 						type="button"
 						disabled={printServerState === "sending"}
-						aria-label="Send to print server"
+						aria-label="Send to KOT Printer"
 						onClick={() => void sendToPrintServer()}
 						className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-orange-500 px-4 text-sm font-semibold text-white shadow-lg hover:bg-orange-600 touch-manipulation disabled:opacity-60"
 					>
@@ -250,7 +251,7 @@ function KotContent() {
 							? "Sending…"
 							: printServerState === "sent"
 								? "Sent"
-								: "Print server"}
+								: "KOT Printer"}
 					</button>
 				) : null}
 				<button

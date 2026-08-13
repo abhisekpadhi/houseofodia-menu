@@ -26,6 +26,7 @@ import {
 	registerOrderOpsPresenceUpdater,
 	registerOrderOpsPublisher,
 	registerKotPrintPublisher,
+	registerBillPrintPublisher,
 	requestSyncFromPeer,
 	resetSyncRequestCooldown,
 	resolveSyncKeepLocal,
@@ -33,6 +34,7 @@ import {
 	unregisterOrderOpsPresenceUpdater,
 	unregisterOrderOpsPublisher,
 	unregisterKotPrintPublisher,
+	unregisterBillPrintPublisher,
 	getPeerDeviceName,
 	type PresenceMember,
 } from '@/src/utils/order_ops_sync';
@@ -503,6 +505,14 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				await activeChannel.publish('kot:print', payload);
 			});
 
+			registerBillPrintPublisher(async (payload) => {
+				const activeChannel = channelRef.current;
+				if (!activeChannel) {
+					throw new Error('Sync channel is not ready');
+				}
+				await activeChannel.publish('bill:print', payload);
+			});
+
 			registerOrderOpsPresenceUpdater(async () => {
 				const activeChannel = channelRef.current;
 				if (!activeChannel || cancelledRef.current) {
@@ -696,6 +706,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			document.removeEventListener('visibilitychange', onVisibilityChange);
 			unregisterOrderOpsPublisher();
 			unregisterKotPrintPublisher();
+			unregisterBillPrintPublisher();
 			unregisterOrderOpsPresenceUpdater();
 			void teardownAbly(
 				realtimeRef.current,

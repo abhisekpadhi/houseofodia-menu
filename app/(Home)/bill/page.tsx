@@ -22,11 +22,10 @@ import {
 } from "@/src/utils/billing_state";
 import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
 import {
-  buildKotOrderFromBill,
-  isKotPrinterOnline,
   notifyOrderOpsChange,
-  requestKotPrint,
+  requestBillPrint,
 } from "@/src/utils/order_ops_sync";
+import { isBillPrinterOnline } from "@/src/utils/print_servers";
 import { useOrderOpsSync } from "@/context/order-ops-sync";
 import { buildDishInternalNameMap } from "@/src/utils/menu_utils";
 import { saveBillToBackend } from "@/src/utils/tangify_api";
@@ -486,7 +485,7 @@ function CustomDiscountModal({
 const Receipt = () => {
   const router = useRouter();
   const sync = useOrderOpsSync();
-  const kotPrinterOnline = isKotPrinterOnline(sync.memberDeviceNames);
+  const billPrinterOnline = isBillPrinterOnline(sync.memberDeviceNames);
   const [bill, setBill] = useState<TBill | null>(null);
   const [billingContext, setBillingContext] = useState<BillingContext | null>(null);
   const [processing, setProcessing] = useState(false);
@@ -882,7 +881,7 @@ const Receipt = () => {
     }
   };
 
-  const sendKotToPrintServer = async () => {
+  const sendBillToPrintServer = async () => {
     if (!billingContext || controlsDisabled || printServerState === "sending") {
       return;
     }
@@ -895,24 +894,41 @@ const Receipt = () => {
     setPrintServerState("sending");
     setPrintServerError(null);
     try {
-      let orderNumber: number | undefined;
-      if (billingContext.source === "orders") {
-        const store = await getOrdersStore();
-        const groupOrders = store.orders.filter((order) =>
-          orderBelongsToBillingGroup(order, billingContext)
-        );
-        const numbers = groupOrders
-          .map((order) => order.orderNumber)
-          .filter((value): value is number => value != null && value >= 1);
-        if (numbers.length > 0) {
-          orderNumber = Math.min(...numbers);
+      let billToPrint = bill;
+      if (!bill.backendBillId || bill.backendSavedAt !== bill.updatedAt) {
+        setBusyMessage("Saving bill…");
+        setSaveAttempt(1);
+        setSaving(true);
+        try {
+          billToPrint = await persistBillToBackend(bill, billingContext);
+        } catch {
+          const failedBill: TBill = {
+            ...bill,
+            billNumber: bill.backendBillId
+              ? bill.billNumber
+              : `UNSAVED-${Date.now().toString().slice(-6)}`,
+            backendStatus: "failed",
+            updatedAt: Date.now(),
+          };
+          await updateBill(failedBill);
+          setPrintServerState("error");
+          setPrintServerError("Could not generate bill number");
+          setFallbackAction("print");
+          setSaveFailureOpen(true);
+          return;
+        } finally {
+          setSaving(false);
         }
       }
 
-      const kotOrder = buildKotOrderFromBill(bill, billingContext, orderNumber);
-      await requestKotPrint(kotOrder, {
-        mode: "new",
-        nameByBillName: internalNameByBillName,
+      const printUpiAmount = Math.max(0, billToPrint.payable);
+      const printUpiPayload = `upi://pay?pa=${upiId}&pn=Tangify&am=${printUpiAmount}&cu=INR`;
+      await requestBillPrint(billToPrint, billingContext, {
+        discount,
+        discountLabel,
+        includePaymentQr: showPaymentQr,
+        upiId,
+        upiPayload: printUpiPayload,
       });
       setPrintServerState("sent");
     } catch (error) {
@@ -920,7 +936,7 @@ const Receipt = () => {
       setPrintServerError(
         error instanceof Error
           ? error.message
-          : "Could not reach print server"
+          : "Could not reach Bill Printer"
       );
     }
   };
@@ -1245,12 +1261,13 @@ const Receipt = () => {
           </button>
         </div>
       </div>
+      <div className="flex w-full justify-center px-4 print:contents print:px-0">
       <div
         ref={billReceiptRef}
         className={
           fullSize
-            ? "w-full px-6 py-4 text-base print:px-0 bg-white"
-            : "text-xs bg-white"
+            ? "w-full max-w-3xl px-6 py-4 text-base print:max-w-none print:px-0 bg-white"
+            : "w-full text-xs bg-white"
         }
         style={{
           maxWidth: fullSize ? undefined : "58mm",
@@ -1369,14 +1386,15 @@ const Receipt = () => {
         <br />
         <br />
       </div>
+      </div>
       <div className="h-48 print:hidden" aria-hidden />
       <div className="fixed right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] z-20 flex flex-col-reverse items-end gap-2 print:hidden">
-        {kotPrinterOnline ? (
+        {billPrinterOnline ? (
           <button
             type="button"
             disabled={controlsDisabled || printServerState === "sending"}
-            aria-label="Send to print server"
-            onClick={() => void sendKotToPrintServer()}
+            aria-label="Send bill to Bill Printer"
+            onClick={() => void sendBillToPrintServer()}
             className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-orange-500 px-4 text-sm font-semibold text-white shadow-lg hover:bg-orange-600 touch-manipulation disabled:opacity-60"
           >
             <FaPrint className="h-4 w-4 shrink-0" />
@@ -1384,7 +1402,7 @@ const Receipt = () => {
               ? "Sending…"
               : printServerState === "sent"
                 ? "Sent"
-                : "Print server"}
+                : "Bill Printer"}
           </button>
         ) : null}
         <button

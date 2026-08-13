@@ -113,7 +113,38 @@ export function unregisterKotPrintPublisher(): void {
 	publishKotPrintMessage = null;
 }
 
-/** Publish a one-shot KOT print request for the local print server. */
+export type BillPrintRequestMessage = {
+	bill: TBill;
+	context: {
+		kind: BillingContext['kind'];
+		label: string;
+		tableNumbers?: number[];
+	};
+	discount?: number;
+	discountLabel?: string;
+	/** When true, printer should emit native ESC/POS UPI QR. */
+	includePaymentQr?: boolean;
+	upiId?: string;
+	upiPayload?: string;
+	requestedAt: number;
+	requesterId: string;
+};
+
+let publishBillPrintMessage:
+	| ((payload: BillPrintRequestMessage) => Promise<void>)
+	| null = null;
+
+export function registerBillPrintPublisher(
+	publisher: (payload: BillPrintRequestMessage) => Promise<void>
+): void {
+	publishBillPrintMessage = publisher;
+}
+
+export function unregisterBillPrintPublisher(): void {
+	publishBillPrintMessage = null;
+}
+
+/** Publish a one-shot KOT print request for KOT Printer. */
 export async function requestKotPrint(
 	order: TOrder,
 	options?: {
@@ -125,7 +156,7 @@ export async function requestKotPrint(
 		return;
 	}
 	if (!publishKotPrintMessage) {
-		throw new Error('Not connected to order sync — cannot reach print server');
+		throw new Error('Not connected to order sync — cannot reach KOT Printer');
 	}
 
 	const meta = await getOrderOpsMeta();
@@ -138,14 +169,59 @@ export async function requestKotPrint(
 	});
 }
 
-/** Default presence name used by tangify_pos_printer. */
-export const KOT_PRINTER_DEVICE_NAME = 'KOT Printer';
+/** Publish a customer bill print request for Bill Printer. */
+export async function requestBillPrint(
+	bill: TBill,
+	context: BillingContext,
+	options?: {
+		discount?: number;
+		discountLabel?: string;
+		includePaymentQr?: boolean;
+		upiId?: string;
+		upiPayload?: string;
+	}
+): Promise<void> {
+	if (typeof window === 'undefined') {
+		return;
+	}
+	if (!publishBillPrintMessage) {
+		throw new Error('Not connected to order sync — cannot reach Bill Printer');
+	}
 
-/** True when a presence member is named like the KOT print server. */
-export function isKotPrinterOnline(memberDeviceNames: string[]): boolean {
-	const target = KOT_PRINTER_DEVICE_NAME.trim().toLowerCase();
-	return memberDeviceNames.some((name) => name.trim().toLowerCase() === target);
+	const meta = await getOrderOpsMeta();
+	const label =
+		context.label?.trim() ||
+		(context.kind === 'table' && context.tableNumbers.length > 0
+			? `Table ${context.tableNumbers.join('+')}`
+			: context.kind === 'takeaway'
+				? 'Takeaway'
+				: context.kind === 'delivery'
+					? 'Delivery'
+					: 'Bill');
+
+	await publishBillPrintMessage({
+		bill,
+		context: {
+			kind: context.kind,
+			label,
+			tableNumbers: context.tableNumbers,
+		},
+		discount: options?.discount,
+		discountLabel: options?.discountLabel,
+		includePaymentQr: options?.includePaymentQr === true,
+		upiId: options?.upiId,
+		upiPayload: options?.upiPayload,
+		requestedAt: Date.now(),
+		requesterId: meta.deviceId || getStableDeviceId(),
+	});
 }
+
+export {
+	BILL_PRINTER_DEVICE_NAME,
+	KOT_PRINTER_DEVICE_NAME,
+	isBillPrinterOnline,
+	isKotPrinterOnline,
+} from '@/src/utils/print_servers';
 
 const PARCEL_CART_SUFFIX = ' (parcel)';
 
