@@ -1398,11 +1398,7 @@ const Receipt = () => {
             className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-orange-500 px-4 text-sm font-semibold text-white shadow-lg hover:bg-orange-600 touch-manipulation disabled:opacity-60"
           >
             <FaPrint className="h-4 w-4 shrink-0" />
-            {printServerState === "sending"
-              ? "Sending…"
-              : printServerState === "sent"
-                ? "Sent"
-                : "Bill Printer"}
+            {printServerState === "sending" ? "Sending…" : "Bill Printer"}
           </button>
         ) : null}
         <button
