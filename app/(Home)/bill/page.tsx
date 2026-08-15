@@ -497,7 +497,7 @@ const Receipt = () => {
     "print"
   );
   const [fullSize, setFullSize] = useState(false);
-  const [showPaymentQr, setShowPaymentQr] = useState(true);
+  const [showPaymentQr, setShowPaymentQr] = useState(false);
   const [phoneModalOpen, setPhoneModalOpen] = useState(false);
   const [phoneDraft, setPhoneDraft] = useState("");
   const [customDiscountModalOpen, setCustomDiscountModalOpen] = useState(false);
