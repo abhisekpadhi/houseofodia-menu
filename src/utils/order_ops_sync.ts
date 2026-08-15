@@ -66,10 +66,12 @@ let publishKotPrintMessage:
 let lastSyncRequestAt = 0;
 let syncConflictBlocking = false;
 
-/** Manual KOT print request published on the order_ops Ably channel. */
+/** KOT print request published on the order_ops Ably channel (auto or manual). */
 export type KotPrintRequestMessage = {
 	order: TOrder;
 	mode: 'new' | 'update';
+	/** Stable id so printers can ignore duplicate deliveries of the same job. */
+	printJobId: string;
 	nameByBillName?: Record<string, string>;
 	requestedAt: number;
 	requesterId: string;
@@ -150,23 +152,72 @@ export async function requestKotPrint(
 	options?: {
 		mode?: 'new' | 'update';
 		nameByBillName?: Record<string, string>;
+		/** Defaults to a unique manual id so staff can force a reprint. */
+		printJobId?: string;
+		/** When true, skip quietly if sync/print channel is not ready. */
+		soft?: boolean;
 	}
 ): Promise<void> {
 	if (typeof window === 'undefined') {
 		return;
 	}
 	if (!publishKotPrintMessage) {
+		if (options?.soft) {
+			console.warn('[kot] print skipped — not connected to order sync');
+			return;
+		}
 		throw new Error('Not connected to order sync — cannot reach KOT Printer');
 	}
 
+	const mode = options?.mode ?? 'new';
+	const requestedAt = Date.now();
 	const meta = await getOrderOpsMeta();
-	await publishKotPrintMessage({
-		order,
-		mode: options?.mode ?? 'new',
-		nameByBillName: options?.nameByBillName,
-		requestedAt: Date.now(),
-		requesterId: meta.deviceId || getStableDeviceId(),
-	});
+	const printJobId =
+		options?.printJobId?.trim() ||
+		`manual:${order.id}:${mode}:${requestedAt}`;
+
+	try {
+		await publishKotPrintMessage({
+			order,
+			mode,
+			printJobId,
+			nameByBillName: options?.nameByBillName,
+			requestedAt,
+			requesterId: meta.deviceId || getStableDeviceId(),
+		});
+	} catch (error) {
+		if (options?.soft) {
+			console.warn('[kot] print publish failed:', error);
+			return;
+		}
+		throw error;
+	}
+}
+
+/**
+ * After a local orders save, publish explicit kot:print for kitchen-relevant
+ * new/updated orders. No-op when sync notify is suppressed (remote apply).
+ */
+export async function emitKotPrintsForLocalOrderChanges(
+	prevOrders: TOrder[],
+	nextOrders: TOrder[]
+): Promise<void> {
+	if (suppressSyncNotify || typeof window === 'undefined') {
+		return;
+	}
+	if (!publishKotPrintMessage) {
+		return;
+	}
+
+	const { collectKotPrintIntents } = await import('@/src/utils/kot_print_diff');
+	const intents = collectKotPrintIntents(prevOrders, nextOrders);
+	for (const intent of intents) {
+		await requestKotPrint(intent.order, {
+			mode: intent.mode,
+			printJobId: intent.printJobId,
+			soft: true,
+		});
+	}
 }
 
 /** Publish a customer bill print request for Bill Printer. */

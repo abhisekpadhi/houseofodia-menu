@@ -23,7 +23,7 @@ import {
 	PACKAGING_CHARGE_DISH_NAME,
 } from '@/src/utils/inventory_utils';
 import { getCachedMenuItems, fetchAndCacheMenuItems } from '@/src/utils/menu_cache';
-import { notifyOrderOpsChange, isSyncNotifySuppressed } from '@/src/utils/order_ops_sync';
+import { notifyOrderOpsChange, isSyncNotifySuppressed, emitKotPrintsForLocalOrderChanges } from '@/src/utils/order_ops_sync';
 import { upsertOrdersInHistory } from '@/src/utils/order_history';
 import localforage from 'localforage';
 
@@ -192,10 +192,17 @@ export async function saveOrdersStore(store: TOrdersStore): Promise<void> {
 	}
 
 	try {
+		const previous = isSyncNotifySuppressed()
+			? null
+			: await localforage.getItem<TOrdersStore>(ORDERS_KEY);
 		await localforage.setItem(ORDERS_KEY, store);
 		await upsertOrdersInHistory(store.orders);
 		if (!isSyncNotifySuppressed()) {
 			await notifyOrderOpsChange('orders');
+			await emitKotPrintsForLocalOrderChanges(
+				previous?.orders ?? [],
+				store.orders
+			);
 		}
 	} catch (error) {
 		console.error('Failed to save orders to storage:', error);
