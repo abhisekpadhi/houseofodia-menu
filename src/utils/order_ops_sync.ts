@@ -6,6 +6,7 @@ import {
 	TOrder,
 	TOrderItem,
 	TOrdersStore,
+	formatOrderKindLabel,
 } from '@/src/models/common';
 import {
 	OrderOpsDomain,
@@ -39,11 +40,6 @@ import {
 } from '@/src/utils/order_history';
 import { maintainOrders } from '@/src/utils/order_utils';
 import { applyDailyOrderNumberSnapshot } from '@/src/utils/daily_order_number';
-import {
-	addOrderNotifications,
-	buildOrderSignatures,
-	diffOrderSignatures,
-} from '@/src/utils/order_notifications';
 import { applyDayChecklistSnapshot } from '@/src/utils/day_checklist_utils';
 import { applySupplyInventorySnapshot } from '@/src/utils/supply_inventory_utils';
 import { applyWaitlistSnapshot } from '@/src/utils/waitlist_utils';
@@ -244,11 +240,7 @@ export async function requestBillPrint(
 		context.label?.trim() ||
 		(context.kind === 'table' && context.tableNumbers.length > 0
 			? `Table ${context.tableNumbers.join('+')}`
-			: context.kind === 'takeaway'
-				? 'Takeaway'
-				: context.kind === 'delivery'
-					? 'Delivery'
-					: 'Bill');
+			: formatOrderKindLabel(context.kind));
 
 	await publishBillPrintMessage({
 		bill,
@@ -417,14 +409,6 @@ export async function applyOrderOpsSnapshot(
 			newOrderIds = maintained
 				.filter((order) => !beforeIds.has(order.id))
 				.map((order) => order.id);
-
-			const notificationDrafts = diffOrderSignatures(
-				buildOrderSignatures(beforeOrders),
-				buildOrderSignatures(maintained)
-			);
-			if (notificationDrafts.length > 0) {
-				await addOrderNotifications(notificationDrafts);
-			}
 
 			await localforage.setItem<TOrdersStore>(ORDERS_KEY, {
 				orders: maintained,

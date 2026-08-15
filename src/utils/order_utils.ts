@@ -7,6 +7,9 @@ import {
 	OrderGroup,
 	OrderItemUnitState,
 	OrderKind,
+	formatOrderKindLabel,
+	isCounterOrderKind,
+	isTakeawayKind,
 	TABLE_COUNT,
 	TCart,
 	TDish,
@@ -411,7 +414,7 @@ export function groupHasBillableItems(group: OrderGroup): boolean {
 export function getPackagingUnitCount(group: OrderGroup): number {
 	if (
 		group.kind !== 'table' &&
-		group.kind !== 'takeaway' &&
+		!isTakeawayKind(group.kind) &&
 		group.kind !== 'delivery'
 	) {
 		return 0;
@@ -658,7 +661,7 @@ export function orderBelongsToBillingGroup(
 		return false;
 	}
 
-	if (context.kind === 'takeaway' || context.kind === 'delivery') {
+	if (isCounterOrderKind(context.kind)) {
 		return getOrderGroupKey(order) === context.groupKey;
 	}
 
@@ -758,7 +761,7 @@ export function getCustomerContactFlagsForGroupKey(
 	groupKey: string,
 	kind: OrderKind
 ): Pick<TOrder, 'customerName' | 'customerPhone' | 'groupNotes' | 'pax' | 'sessionKey'> {
-	if (kind !== 'takeaway' && kind !== 'delivery') {
+	if (!isCounterOrderKind(kind)) {
 		return {};
 	}
 
@@ -862,9 +865,9 @@ export function groupOrdersByTable(orders: TOrder[]): OrderGroup[] {
 	};
 
 	for (const order of orders) {
-		if (order.kind === 'takeaway' || order.kind === 'delivery') {
+		if (isCounterOrderKind(order.kind)) {
 			const key = getOrderGroupKey(order);
-			const label = order.kind === 'takeaway' ? 'Takeaway' : 'Delivery';
+			const label = formatOrderKindLabel(order.kind);
 			const group = ensureGroup(key, label, order.kind);
 			group.orders.push(order);
 			group.oldestOrderAt = Math.min(group.oldestOrderAt, order.createdAt);
@@ -1171,11 +1174,8 @@ export function formatLateDuration(ms: number): string {
 }
 
 export function formatOrderLabel(order: TOrder): string {
-	if (order.kind === 'takeaway') {
-		return 'Takeaway';
-	}
-	if (order.kind === 'delivery') {
-		return 'Delivery';
+	if (isCounterOrderKind(order.kind)) {
+		return formatOrderKindLabel(order.kind);
 	}
 	const tables = (order.tableNumbers ?? [])
 		.filter((n) => n >= 1 && n <= TABLE_COUNT)

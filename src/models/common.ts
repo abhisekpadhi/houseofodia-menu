@@ -78,7 +78,43 @@ export type TBillNoUpdateResp = {success: boolean}
 
 export const TABLE_COUNT = 11;
 
-export type OrderKind = 'table' | 'takeaway' | 'delivery';
+export type OrderKind =
+	| 'table'
+	| 'takeaway_no_parcel'
+	| 'takeaway'
+	| 'delivery';
+
+/** New-order picker order: Table → Takeaway without parcel → Takeaway → Delivery */
+export const ORDER_KIND_OPTIONS: OrderKind[] = [
+	'table',
+	'takeaway_no_parcel',
+	'takeaway',
+	'delivery',
+];
+
+export function formatOrderKindLabel(kind: OrderKind): string {
+	switch (kind) {
+		case 'takeaway_no_parcel':
+			return 'Takeaway without parcel';
+		case 'takeaway':
+			return 'Takeaway';
+		case 'delivery':
+			return 'Delivery';
+		case 'table':
+		default:
+			return 'Table';
+	}
+}
+
+/** Classic takeaway or takeaway without default parcel packing. */
+export function isTakeawayKind(kind: OrderKind): boolean {
+	return kind === 'takeaway' || kind === 'takeaway_no_parcel';
+}
+
+/** Counter orders (no table): takeaway variants + delivery. */
+export function isCounterOrderKind(kind: OrderKind): boolean {
+	return isTakeawayKind(kind) || kind === 'delivery';
+}
 
 export type TOrder = {
 	id: string;

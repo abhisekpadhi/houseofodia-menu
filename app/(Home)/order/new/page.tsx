@@ -8,10 +8,13 @@ import {
 import { OrderOpsSyncIndicator } from "@/components/feature/order/order-ops-sync-indicator";
 import { Button } from "@/components/ui/button";
 import {
+	ORDER_KIND_OPTIONS,
 	OrderKind,
 	TABLE_COUNT,
 	TDish,
 	TOrder,
+	formatOrderKindLabel,
+	isCounterOrderKind,
 } from "@/src/models/common";
 import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
 import {
@@ -243,7 +246,11 @@ function AddOrderContent() {
 		const tablesParam = searchParams.get("tables");
 		const groupKeyParam = searchParams.get("groupKey");
 
-		if (typeParam === "takeaway" || typeParam === "delivery") {
+		if (
+			typeParam === "takeaway" ||
+			typeParam === "takeaway_no_parcel" ||
+			typeParam === "delivery"
+		) {
 			setOrderKind(typeParam);
 			setSelectedTables([]);
 			setPreselectedTables([]);
@@ -305,10 +312,7 @@ function AddOrderContent() {
 	}, [orderKind, selectedTables]);
 
 	useEffect(() => {
-		if (
-			(orderKind !== "takeaway" && orderKind !== "delivery") ||
-			!preselectedGroupKey
-		) {
+		if (!isCounterOrderKind(orderKind) || !preselectedGroupKey) {
 			return;
 		}
 		void getOrdersStore().then((store) => {
@@ -351,8 +355,7 @@ function AddOrderContent() {
 	const needsTableSelection =
 		orderKind === "table" && selectedTables.length === 0;
 	const needsCustomerDetails =
-		(orderKind === "takeaway" || orderKind === "delivery") &&
-		!isFromExistingGroup;
+		isCounterOrderKind(orderKind) && !isFromExistingGroup;
 	const trimmedCustomerPhone = customerPhone.trim();
 	const hasValidCustomerPhone =
 		trimmedCustomerPhone.length === 0 ||
@@ -378,10 +381,7 @@ function AddOrderContent() {
 		!isOutOfStock(inventory, name, quantities[name] ?? 0);
 
 	const parcelDefaultOn = isParcelDefaultOnForOrderKind(orderKind);
-	const showParcelToggle =
-		orderKind === "table" ||
-		orderKind === "takeaway" ||
-		orderKind === "delivery";
+	const showParcelToggle = true;
 
 	const remapParcelUnitsForKind = useCallback(
 		(kind: OrderKind, qtyByName: Record<string, number>) => {
@@ -454,7 +454,7 @@ function AddOrderContent() {
 		if (orderKind === "table") {
 			parts.push(formatTableGroupLabel(selectedTables));
 		} else {
-			parts.push(orderKind.charAt(0).toUpperCase() + orderKind.slice(1));
+			parts.push(formatOrderKindLabel(orderKind));
 			if (existingCustomerContact) {
 				parts.push(existingCustomerContact);
 			} else {
@@ -607,8 +607,7 @@ function AddOrderContent() {
 					: {};
 			const orderId = generateOrderId();
 			const orderNumber = await allocateNextDailyOrderNumber(store.orders);
-			const customerFlags =
-				orderKind === "takeaway" || orderKind === "delivery"
+			const customerFlags = isCounterOrderKind(orderKind)
 					? isFromExistingGroup && preselectedGroupKey
 						? (() => {
 								const flags = getCustomerContactFlagsForGroupKey(
@@ -701,8 +700,8 @@ function AddOrderContent() {
 				) : (
 					<div className="space-y-4">
 						{!isFromTableCard && !isFromExistingGroup && (
-							<div className="flex gap-2">
-								{(["table", "takeaway", "delivery"] as OrderKind[]).map((kind) => (
+							<div className="grid grid-cols-2 gap-2">
+								{ORDER_KIND_OPTIONS.map((kind) => (
 									<button
 										key={kind}
 										type="button"
@@ -714,13 +713,13 @@ function AddOrderContent() {
 											setPax("");
 											setParcelUnitsByName(remapParcelUnitsForKind(kind, quantities));
 										}}
-										className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold capitalize transition-colors touch-manipulation ${
+										className={`min-h-[44px] px-2 py-2 rounded-lg text-xs font-semibold leading-snug transition-colors touch-manipulation ${
 											orderKind === kind
 												? "bg-black text-white"
 												: "bg-gray-100 text-gray-700 hover:bg-gray-200"
 										}`}
 									>
-										{kind}
+										{formatOrderKindLabel(kind)}
 									</button>
 								))}
 							</div>
@@ -742,7 +741,7 @@ function AddOrderContent() {
 								<p className="text-xs font-medium text-gray-500 mb-1">
 									Adding order for
 								</p>
-								<p className="text-lg font-bold capitalize">{orderKind}</p>
+								<p className="text-lg font-bold">{formatOrderKindLabel(orderKind)}</p>
 								<p className="text-sm font-medium text-gray-700 mt-1">
 									{existingCustomerContact}
 								</p>

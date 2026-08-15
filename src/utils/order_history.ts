@@ -1,4 +1,9 @@
-import { TOrder } from '@/src/models/common';
+import {
+	formatOrderKindLabel,
+	isCounterOrderKind,
+	isTakeawayKind,
+	TOrder,
+} from '@/src/models/common';
 import { getTodayDateKey } from '@/src/utils/inventory_utils';
 import {
 	formatTableGroupLabel,
@@ -155,11 +160,8 @@ export function getOrderHistoryStatus(order: TOrder): string {
 }
 
 export function getOrderHistoryTableLabel(order: TOrder): string {
-	if (order.kind === 'takeaway') {
-		return 'Takeaway';
-	}
-	if (order.kind === 'delivery') {
-		return 'Delivery';
+	if (isCounterOrderKind(order.kind)) {
+		return formatOrderKindLabel(order.kind);
 	}
 
 	const tables = [...(order.tableNumbers ?? [])].sort((a, b) => a - b);
@@ -174,7 +176,8 @@ export function getOrderHistoryTableLabel(order: TOrder): string {
 
 export function getOrderHistorySortKey(order: TOrder): number {
 	if (order.kind !== 'table') {
-		return order.kind === 'takeaway' ? 1000 : 1001;
+		if (isTakeawayKind(order.kind)) return 1000;
+		return 1001;
 	}
 
 	const tables = order.tableNumbers ?? [];
@@ -190,7 +193,7 @@ export function filterOrderHistory(
 	}
 
 	if (tableFilter === 'takeaway') {
-		return orders.filter((order) => order.kind === 'takeaway');
+		return orders.filter((order) => isTakeawayKind(order.kind));
 	}
 
 	if (tableFilter === 'delivery') {

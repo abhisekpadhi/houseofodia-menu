@@ -1,6 +1,6 @@
 "use client";
 
-import { ItemGroup, OrderGroup, TCart, TMenuApiItem, TOrder, TOrdersStore, BillingContext, BILLING_CONTEXT_KEY, ItemCancelReason, TABLE_COUNT } from "@/src/models/common";
+import { ItemGroup, OrderGroup, TCart, TMenuApiItem, TOrder, TOrdersStore, BillingContext, BILLING_CONTEXT_KEY, ItemCancelReason, TABLE_COUNT, isCounterOrderKind } from "@/src/models/common";
 import {
 	formatOrderLabel,
 	formatOrderTime,
@@ -79,7 +79,6 @@ import { formatDailyOrderNumber } from "@/src/utils/daily_order_number";
 import { EditOrderModal } from "@/components/feature/order/edit-order-modal";
 import { CancelItemModal } from "@/components/feature/order/cancel-item-modal";
 import { OrderOpsSyncIndicator } from "@/components/feature/order/order-ops-sync-indicator";
-import { OrderNotificationsBell } from "@/components/feature/order/order-notifications";
 import { OpsMenuButton } from "@/components/feature/layout/ops-drawer";
 import {
 	ConfirmModalActions,
@@ -482,10 +481,12 @@ function TableStatusDot({
 	label,
 	children,
 	done = true,
+	className = "",
 }: {
 	label: string;
 	children: ReactNode;
 	done?: boolean;
+	className?: string;
 }) {
 	return (
 		<span
@@ -493,7 +494,7 @@ function TableStatusDot({
 				done
 					? "bg-green-100 border-green-600 text-green-800"
 					: "bg-amber-50 border-amber-400 text-amber-900"
-			}`}
+			} ${className}`}
 			title={label}
 			aria-label={label}
 		>
@@ -800,82 +801,87 @@ function OrderRow({
 				markedDone ? "border-green-200 bg-green-50/40" : "border-gray-100"
 			}`}
 		>
-			<div className="mb-2 flex items-center gap-2">
-				{orderSerial ? (
-					<span
-						className="inline-flex h-9 min-w-[2.25rem] shrink-0 items-center justify-center rounded-lg bg-black px-2.5 text-sm font-black text-white tabular-nums"
-						aria-label={`Order ${orderSerial}`}
+			<div className="mb-2 space-y-2">
+				<div className="flex items-center gap-2">
+					{orderSerial ? (
+						<span
+							className="inline-flex h-9 min-w-[2.25rem] shrink-0 items-center justify-center rounded-lg bg-black px-2.5 text-sm font-black text-white tabular-nums"
+							aria-label={`Order ${orderSerial}`}
+						>
+							{orderSerial}
+						</span>
+					) : null}
+					<button
+						type="button"
+						onClick={() => onKotPrint(order)}
+						className="inline-flex h-9 min-w-[2.25rem] shrink-0 items-center justify-center rounded-full border border-yellow-400 bg-yellow-100 px-3 text-xs font-semibold text-yellow-900 touch-manipulation active:bg-yellow-200"
 					>
-						{orderSerial}
-					</span>
-				) : null}
-				<button
-					type="button"
-					onClick={() => onKotPrint(order)}
-					className="inline-flex h-9 min-w-[2.25rem] shrink-0 items-center justify-center rounded-full border border-yellow-400 bg-yellow-100 px-3 text-xs font-semibold text-yellow-900 touch-manipulation active:bg-yellow-200"
-				>
-					KOT
-				</button>
-				<button
-					type="button"
-					role="checkbox"
-					aria-checked={markedDone}
-					disabled={!canMarkDone && !markedDone}
-					title={
-						!markedDone && !kitchenReady
-							? "Mark each item ready or cancelled on the By item tab, or cancel from here"
-							: undefined
-					}
-					onClick={() => {
-						if (canMarkDone) {
-							onRequestMarkDone(order);
+						KOT
+					</button>
+					<span className="min-w-0 flex-1" aria-hidden />
+					{editable ? (
+						<TouchIconButton
+							onClick={() => onEdit(order)}
+							ariaLabel={`Edit order from ${formatOrderTime(order.createdAt)}`}
+							className="bg-white text-gray-600 hover:bg-gray-100 border border-gray-200 shrink-0 -mr-1"
+						>
+							<PencilIcon className="w-4 h-4" />
+						</TouchIconButton>
+					) : null}
+				</div>
+				<div className="flex items-center gap-2">
+					<button
+						type="button"
+						role="checkbox"
+						aria-checked={markedDone}
+						disabled={!canMarkDone && !markedDone}
+						title={
+							!markedDone && !kitchenReady
+								? "Mark each item ready or cancelled on the By item tab, or cancel from here"
+								: undefined
 						}
-					}}
-					className={`inline-flex min-h-[36px] items-center gap-1.5 rounded-full border px-2.5 text-xs font-semibold touch-manipulation shrink-0 transition-colors ${
-						!canMarkDone && !markedDone
-							? "cursor-not-allowed opacity-50 border-gray-200 bg-white text-gray-400"
-							: markedDone
-								? "border-green-600 bg-green-100 text-green-800"
-								: "border-gray-300 bg-white text-gray-700 active:bg-gray-100"
-					}`}
-				>
-					<span
-						className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-							markedDone
-								? "border-green-600 bg-green-600 text-white"
-								: "border-gray-300 bg-white"
+						onClick={() => {
+							if (canMarkDone) {
+								onRequestMarkDone(order);
+							}
+						}}
+						className={`inline-flex min-h-[36px] items-center gap-1.5 rounded-full border px-2.5 text-xs font-semibold touch-manipulation shrink-0 transition-colors ${
+							!canMarkDone && !markedDone
+								? "cursor-not-allowed opacity-50 border-gray-200 bg-white text-gray-400"
+								: markedDone
+									? "border-green-600 bg-green-100 text-green-800"
+									: "border-gray-300 bg-white text-gray-700 active:bg-gray-100"
 						}`}
 					>
-						{markedDone ? (
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="3"
-								strokeLinecap="round"
-								strokeLinejoin="round"
-								className="h-2.5 w-2.5"
-								aria-hidden
-							>
-								<path d="M20 6 9 17l-5-5" />
-							</svg>
-						) : null}
+						<span
+							className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+								markedDone
+									? "border-green-600 bg-green-600 text-white"
+									: "border-gray-300 bg-white"
+							}`}
+						>
+							{markedDone ? (
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="3"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+									className="h-2.5 w-2.5"
+									aria-hidden
+								>
+									<path d="M20 6 9 17l-5-5" />
+								</svg>
+							) : null}
+						</span>
+						Done
+					</button>
+					<span className="text-xs font-semibold text-gray-600 truncate min-w-0">
+						{formatOrderTime(order.createdAt)}
 					</span>
-					Done
-				</button>
-				<span className="text-xs font-semibold text-gray-600 truncate min-w-0 flex-1">
-					{formatOrderTime(order.createdAt)}
-				</span>
-				{editable ? (
-					<TouchIconButton
-						onClick={() => onEdit(order)}
-						ariaLabel={`Edit order from ${formatOrderTime(order.createdAt)}`}
-						className="bg-white text-gray-600 hover:bg-gray-100 border border-gray-200 shrink-0 -mr-1"
-					>
-						<PencilIcon className="w-4 h-4" />
-					</TouchIconButton>
-				) : null}
+				</div>
 			</div>
 			{order.notes?.trim() ? (
 				<p className="text-xs text-gray-500 mb-1.5 italic">
@@ -1409,8 +1415,7 @@ function TableOrderCard({
 	const kidEnabled = isTableKidMenuEnabled(group);
 	const showTableService = group.kind === "table";
 	const groupCustomer = getGroupCustomerDetails(group);
-	const showCustomerRow =
-		group.kind === "takeaway" || group.kind === "delivery";
+	const showCustomerRow = isCounterOrderKind(group.kind);
 	const groupNotes = getGroupNotes(group);
 	const groupPax = getGroupPax(group);
 	const notesPending = isActionPending(`notes:${group.key}`);
@@ -1436,13 +1441,6 @@ function TableOrderCard({
 			</TableStatusDot>
 		);
 	}
-	if (groupPax != null) {
-		statusDots.push(
-			<TableStatusDot key="pax" label={`${groupPax} pax`} done={false}>
-				{groupPax}
-			</TableStatusDot>
-		);
-	}
 	if (kidEnabled) {
 		statusDots.push(
 			<TableStatusDot
@@ -1455,8 +1453,25 @@ function TableOrderCard({
 		);
 	}
 
+	const paxDot =
+		groupPax != null ? (
+			<TableStatusDot
+				key="pax"
+				label={`${groupPax} pax`}
+				done={false}
+				className="h-7 min-w-[1.75rem] px-1.5 text-xs"
+			>
+				{groupPax}
+			</TableStatusDot>
+		) : null;
+
 	return (
 		<div className="relative">
+			{paxDot ? (
+				<div className="absolute -top-2 -left-2 z-0 pointer-events-none">
+					{paxDot}
+				</div>
+			) : null}
 			{statusDots.length > 0 ? (
 				<div className="absolute -top-2 -right-2 z-0 flex flex-wrap justify-end gap-1 max-w-[60%] pointer-events-none">
 					{statusDots}
@@ -1820,7 +1835,6 @@ function WaterBottlesModal({
 								onChange(event.target.value.replace(/\D/g, "").slice(0, 3))
 							}
 							className="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm text-center touch-manipulation"
-							autoFocus
 						/>
 						<button
 							type="button"
@@ -2498,6 +2512,11 @@ export default function OrderPage() {
 	const occupiedTables = useMemo(
 		() => getOccupiedTableNumbers(orders),
 		[orders]
+	);
+
+	const activeTableNumbers = useMemo(
+		() => Array.from(occupiedTables).sort((a, b) => a - b),
+		[occupiedTables]
 	);
 
 	const selectedTableFilterSet = useMemo(
@@ -3219,7 +3238,6 @@ export default function OrderPage() {
 						</div>
 					</div>
 					<div className="flex items-center gap-2 shrink-0 justify-end">
-						<OrderNotificationsBell />
 						<OrderOpsSyncIndicator />
 						{readyOrders.length > 0 && (
 							<button
@@ -3366,6 +3384,36 @@ export default function OrderPage() {
 					) : null}
 				</button>
 			</div>
+
+			{activeTableNumbers.length > 0 ? (
+				<div
+					className="fixed right-3 top-1/2 z-20 -translate-y-1/2 max-h-[min(60vh,24rem)] overflow-y-auto rounded-full border border-gray-200/90 bg-white/95 shadow-lg backdrop-blur-sm px-1.5 py-2"
+					role="toolbar"
+					aria-label="Active table filters"
+				>
+					<div className="flex flex-col items-center gap-1.5">
+						{activeTableNumbers.map((tableNumber) => {
+							const isSelected = selectedTableFilters.includes(tableNumber);
+							return (
+								<button
+									key={tableNumber}
+									type="button"
+									onClick={() => toggleTableFilter(tableNumber)}
+									aria-pressed={isSelected}
+									aria-label={`Filter table ${tableNumber}`}
+									className={`shrink-0 h-9 w-9 rounded-full text-sm font-semibold touch-manipulation transition-colors ${
+										isSelected
+											? "bg-green-500 text-white"
+											: "bg-gray-100 text-gray-800 hover:bg-gray-200"
+									}`}
+								>
+									{tableNumber}
+								</button>
+							);
+						})}
+					</div>
+				</div>
+			) : null}
 
 			<button
 				type="button"

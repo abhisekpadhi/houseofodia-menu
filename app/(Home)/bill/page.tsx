@@ -4,6 +4,8 @@ import {
 	BILLING_CONTEXT_KEY,
 	TBill,
 	TMenuApiItem,
+	formatOrderKindLabel,
+	isCounterOrderKind,
 } from "@/src/models/common";
 import {
   closeTableFromBilling,
@@ -33,7 +35,7 @@ import localforage from "localforage";
 import { ConfirmModalActions, LoadingSpinner } from "@/components/ui/touch-controls";
 import { toPng } from "html-to-image";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type FocusEvent } from "react";
 import { flushSync } from "react-dom";
 import {
   FaCheck,
@@ -300,6 +302,7 @@ function CustomDiscountModal({
   onRemove: () => void;
   onCancel: () => void;
 }) {
+  const panelRef = useRef<HTMLDivElement>(null);
   const [visibleViewport, setVisibleViewport] = useState<{
     top: number;
     height: number;
@@ -328,6 +331,7 @@ function CustomDiscountModal({
   }, []);
 
   const maxRupees = Math.min(subtotal, Math.max(0, maxPayable));
+  const maxAmount = unit === "percent" ? 100 : maxRupees;
   const parsedAmount = amount.trim() === "" ? 0 : Number(amount);
   const amountValid =
     amount.trim() !== "" &&
@@ -349,9 +353,36 @@ function CustomDiscountModal({
       )
     : 0;
 
+  const currentAmount = Number.isFinite(parsedAmount) ? parsedAmount : 0;
+
+  const stepAmount = (delta: number) => {
+    const next = Math.min(
+      maxAmount,
+      Math.max(0, Math.round((currentAmount + delta) * 100) / 100)
+    );
+    onAmountChange(next === 0 ? "" : String(next));
+  };
+
+  const scrollFieldIntoView = (
+    event: FocusEvent<HTMLInputElement>
+  ) => {
+    const target = event.currentTarget;
+    window.setTimeout(() => {
+      target.scrollIntoView({
+        block: "center",
+        inline: "nearest",
+        behavior: "smooth",
+      });
+      panelRef.current?.scrollTo({
+        top: panelRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }, 250);
+  };
+
   return (
     <div
-      className="fixed left-0 right-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 px-4 py-4 transition-[top,height] duration-150 print:hidden"
+      className="fixed left-0 right-0 z-50 flex items-end sm:items-center justify-center overflow-y-auto bg-black/40 px-0 sm:px-4 py-0 sm:py-4 transition-[top,height] duration-150 print:hidden"
       style={
         visibleViewport
           ? {
@@ -363,7 +394,8 @@ function CustomDiscountModal({
       onClick={onCancel}
     >
       <div
-        className="max-h-full w-full max-w-sm overflow-y-auto rounded-xl bg-white shadow-xl"
+        ref={panelRef}
+        className="max-h-full w-full max-w-sm overflow-y-auto rounded-t-xl sm:rounded-xl bg-white shadow-xl pb-[env(safe-area-inset-bottom)]"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="px-5 py-4 border-b space-y-4">
@@ -385,12 +417,22 @@ function CustomDiscountModal({
               Amount
             </label>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => stepAmount(-1)}
+                disabled={currentAmount <= 0}
+                className="w-11 h-11 flex shrink-0 items-center justify-center rounded-full bg-red-100 text-red-700 text-xl leading-none touch-manipulation disabled:opacity-40"
+                aria-label="Decrease discount amount"
+              >
+                −
+              </button>
               <input
                 id="custom-discount-amount"
                 type="text"
                 inputMode="decimal"
                 autoFocus
                 value={amount}
+                onFocus={scrollFieldIntoView}
                 onChange={(event) => {
                   const next = event.target.value.replace(/[^\d.]/g, "");
                   const parts = next.split(".");
@@ -403,30 +445,39 @@ function CustomDiscountModal({
                 placeholder="0"
                 className="min-w-0 flex-1 border border-gray-300 rounded-lg px-3 py-2.5 text-base text-center touch-manipulation"
               />
-              <div className="flex shrink-0 rounded-lg border border-gray-300 overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => onUnitChange("rs")}
-                  className={`min-h-[44px] px-3 text-sm font-bold touch-manipulation ${
-                    unit === "rs"
-                      ? "bg-black text-white"
-                      : "bg-white text-gray-700"
-                  }`}
-                >
-                  Rs
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onUnitChange("percent")}
-                  className={`min-h-[44px] px-3 text-sm font-bold touch-manipulation border-l border-gray-300 ${
-                    unit === "percent"
-                      ? "bg-black text-white"
-                      : "bg-white text-gray-700"
-                  }`}
-                >
-                  %
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => stepAmount(1)}
+                disabled={currentAmount >= maxAmount}
+                className="w-11 h-11 flex shrink-0 items-center justify-center rounded-full bg-green-100 text-green-700 text-xl leading-none touch-manipulation disabled:opacity-40"
+                aria-label="Increase discount amount"
+              >
+                +
+              </button>
+            </div>
+            <div className="mt-2 flex rounded-lg border border-gray-300 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => onUnitChange("rs")}
+                className={`min-h-[44px] flex-1 px-3 text-sm font-bold touch-manipulation ${
+                  unit === "rs"
+                    ? "bg-black text-white"
+                    : "bg-white text-gray-700"
+                }`}
+              >
+                Rs
+              </button>
+              <button
+                type="button"
+                onClick={() => onUnitChange("percent")}
+                className={`min-h-[44px] flex-1 px-3 text-sm font-bold touch-manipulation border-l border-gray-300 ${
+                  unit === "percent"
+                    ? "bg-black text-white"
+                    : "bg-white text-gray-700"
+                }`}
+              >
+                %
+              </button>
             </div>
             {amount.trim() !== "" && !amountValid ? (
               <p className="text-xs text-red-600 mt-2">
@@ -451,6 +502,7 @@ function CustomDiscountModal({
               id="custom-discount-reason"
               type="text"
               value={reason}
+              onFocus={scrollFieldIntoView}
               onChange={(event) => onReasonChange(event.target.value.slice(0, 80))}
               placeholder="e.g. Manager comp"
               className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm touch-manipulation"
@@ -579,7 +631,7 @@ const Receipt = () => {
         if (
           !customerPhone &&
           context?.source === "orders" &&
-          (context.kind === "takeaway" || context.kind === "delivery")
+          isCounterOrderKind(context.kind)
         ) {
           const store = await getOrdersStore();
           const group = groupOrdersByTable(store.orders).find(
@@ -645,7 +697,8 @@ const Receipt = () => {
   const upiAmount = Math.max(0, bill.payable);
   // const upiId = "q030249494@ybl"; // phonepe business
   const upiId = "tangify@slc"; // slice
-  const upiPayload = `upi://pay?pa=${upiId}&pn=Tangify&am=${upiAmount}&cu=INR`;
+  const upiAmountFixed = Number(upiAmount).toFixed(2);
+  const upiPayload = `upi://pay?pa=${upiId}&pn=Tangify&am=${upiAmountFixed}&cu=INR`;
   const upiQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${fullSize ? "300x300" : "225x225"}&data=${encodeURIComponent(
     upiPayload
   )}`;
@@ -921,7 +974,7 @@ const Receipt = () => {
         }
       }
 
-      const printUpiAmount = Math.max(0, billToPrint.payable);
+      const printUpiAmount = Math.max(0, billToPrint.payable).toFixed(2);
       const printUpiPayload = `upi://pay?pa=${upiId}&pn=Tangify&am=${printUpiAmount}&cu=INR`;
       await requestBillPrint(billToPrint, billingContext, {
         discount,
@@ -1304,13 +1357,12 @@ const Receipt = () => {
                   : "Table order")}
             </span>
           </div>
-        ) : billingContext?.kind === "takeaway" ||
-          billingContext?.kind === "delivery" ? (
+        ) : billingContext && isCounterOrderKind(billingContext.kind) ? (
           <div className="flex justify-between">
             <span>Order</span>
             <span>
               {billingContext.label?.trim() ||
-                (billingContext.kind === "takeaway" ? "Takeaway" : "Delivery")}
+                formatOrderKindLabel(billingContext.kind)}
             </span>
           </div>
         ) : null}

@@ -6,6 +6,7 @@ import {
 	TBill,
 	TCart,
 	TDish,
+	isCounterOrderKind,
 } from "@/src/models/common";
 import { ConfirmModalActions } from "@/components/ui/touch-controls";
 import {
@@ -125,7 +126,7 @@ const Cart = () => {
 			if (
 				!customerPhone &&
 				context.source === "orders" &&
-				(context.kind === "takeaway" || context.kind === "delivery")
+				isCounterOrderKind(context.kind)
 			) {
 				const store = await getOrdersStore();
 				const group = groupOrdersByTable(store.orders).find(
@@ -264,8 +265,8 @@ const Cart = () => {
 	};
 
 	return (
-		<div className="ops-app-screen flex flex-col">
-			<div className="sticky top-0 z-20 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2 bg-transparent pointer-events-none">
+		<div className="ops-app-screen flex h-dvh max-h-dvh flex-col overflow-hidden pb-0">
+			<div className="sticky top-0 z-20 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2 bg-transparent pointer-events-none shrink-0">
 				<div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 pointer-events-auto">
 					<button
 						type="button"
@@ -293,7 +294,7 @@ const Cart = () => {
 				</div>
 			</div>
 
-			<div className="flex-1 overflow-auto px-4 sm:px-6">
+			<div className="min-h-0 flex-1 overflow-auto px-4 sm:px-6">
 				{cart.items.length === 0 ? (
 					<div className="text-center py-16 text-gray-500 text-sm">
 						Cart is empty
@@ -322,7 +323,7 @@ const Cart = () => {
 				)}
 			</div>
 
-			<div className="flex-none bg-white border-t px-6 py-4 shadow-lg">
+			<div className="shrink-0 bg-white border-t px-6 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-lg">
 				<button
 					type="button"
 					disabled={attribute === ""}

@@ -1,8 +1,13 @@
 import type { TOrder } from '@/src/models/common';
-import { getOrderKotLines } from '@/src/utils/order_utils';
+import { getOrderKotLines, WATER_DISH_NAME } from '@/src/utils/order_utils';
 
 function kotLineKey(line: { name: string; isParcel: boolean }): string {
 	return `${line.name}|${line.isParcel ? '1' : '0'}`;
+}
+
+/** Kitchen-facing KOT lines — excludes water bottles (not cooked). */
+function getKitchenKotLines(order: TOrder) {
+	return getOrderKotLines(order).filter((line) => line.name !== WATER_DISH_NAME);
 }
 
 function linesMap(
@@ -16,10 +21,10 @@ function linesMap(
 	return map;
 }
 
-/** True when KOT lines or notes differ in a kitchen-visible way. */
+/** True when kitchen KOT lines or notes differ (water changes ignored). */
 export function hasKitchenRelevantChange(prev: TOrder, next: TOrder): boolean {
-	const before = linesMap(getOrderKotLines(prev));
-	const after = linesMap(getOrderKotLines(next));
+	const before = linesMap(getKitchenKotLines(prev));
+	const after = linesMap(getKitchenKotLines(next));
 	const keys = Array.from(
 		new Set([...Array.from(before.keys()), ...Array.from(after.keys())])
 	);
@@ -33,7 +38,7 @@ export function hasKitchenRelevantChange(prev: TOrder, next: TOrder): boolean {
 
 /** Stable fingerprint of what the kitchen ticket would show. */
 export function kotContentFingerprint(order: TOrder): string {
-	const lines = getOrderKotLines(order)
+	const lines = getKitchenKotLines(order)
 		.map((line) => `${line.qty}|${kotLineKey(line)}`)
 		.sort()
 		.join(';');
@@ -49,7 +54,7 @@ export type KotPrintIntent = {
 
 /**
  * Diff active order lists and return explicit KOT print intents.
- * Skips orders with nothing kitchen-printable (no lines and no notes).
+ * Skips water-only orders and anything with no kitchen-printable lines.
  */
 export function collectKotPrintIntents(
 	prevOrders: TOrder[],
@@ -59,6 +64,9 @@ export function collectKotPrintIntents(
 	const intents: KotPrintIntent[] = [];
 
 	for (const next of nextOrders) {
+		const kitchenLines = getKitchenKotLines(next);
+		if (kitchenLines.length === 0) continue;
+
 		const prev = prevById.get(next.id);
 		let mode: 'new' | 'update' | null = null;
 		if (!prev) {
@@ -67,10 +75,6 @@ export function collectKotPrintIntents(
 			mode = 'update';
 		}
 		if (!mode) continue;
-
-		const lines = getOrderKotLines(next);
-		const notes = next.notes?.trim() || '';
-		if (lines.length === 0 && !notes) continue;
 
 		const fingerprint = kotContentFingerprint(next);
 		intents.push({
