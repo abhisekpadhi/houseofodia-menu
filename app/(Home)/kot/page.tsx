@@ -7,6 +7,7 @@ import {
 	formatCustomerContact,
 	formatOrderLabel,
 	formatOrderTime,
+	formatTableSessionFooter,
 	getOrderKotLines,
 	getOrdersStore,
 } from "@/src/utils/order_utils";
@@ -39,6 +40,7 @@ function KotContent() {
 	const sync = useOrderOpsSync();
 	const kotPrinterOnline = isKotPrinterOnline(sync.memberDeviceNames);
 	const [order, setOrder] = useState<TOrder | null>(null);
+	const [activeOrders, setActiveOrders] = useState<TOrder[]>([]);
 	const [internalNameByBillName, setInternalNameByBillName] = useState<
 		Record<string, string>
 	>({});
@@ -67,6 +69,7 @@ function KotContent() {
 			.then(([store, menuResponse]) => {
 				const found = store.orders.find((entry) => entry.id === orderId) ?? null;
 				setOrder(found);
+				setActiveOrders(store.orders);
 				setInternalNameByBillName(buildDishInternalNameMap(menuResponse.data));
 			})
 			.finally(() => {
@@ -82,6 +85,8 @@ function KotContent() {
 			await requestKotPrint(order, {
 				mode: "new",
 				nameByBillName: internalNameByBillName,
+				tableSessionLabel:
+					formatTableSessionFooter(order, activeOrders) ?? undefined,
 			});
 			setPrintServerState("sent");
 		} catch (error) {

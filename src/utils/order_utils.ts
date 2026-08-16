@@ -26,7 +26,7 @@ import {
 	PACKAGING_CHARGE_DISH_NAME,
 } from '@/src/utils/inventory_utils';
 import { getCachedMenuItems, fetchAndCacheMenuItems } from '@/src/utils/menu_cache';
-import { notifyOrderOpsChange, isSyncNotifySuppressed, emitKotPrintsForLocalOrderChanges } from '@/src/utils/order_ops_sync';
+import { notifyOrderOpsChange, isSyncNotifySuppressed } from '@/src/utils/order_ops_sync';
 import { upsertOrdersInHistory } from '@/src/utils/order_history';
 import localforage from 'localforage';
 
@@ -195,17 +195,19 @@ export async function saveOrdersStore(store: TOrdersStore): Promise<void> {
 	}
 
 	try {
-		const previous = isSyncNotifySuppressed()
-			? null
-			: await localforage.getItem<TOrdersStore>(ORDERS_KEY);
+		if (!isSyncNotifySuppressed()) {
+			const { canPublishOrderOps, SyncWriteBlockedError } = await import(
+				'@/src/utils/sync_write_gate'
+			);
+			if (!canPublishOrderOps()) {
+				throw new SyncWriteBlockedError();
+			}
+		}
 		await localforage.setItem(ORDERS_KEY, store);
 		await upsertOrdersInHistory(store.orders);
 		if (!isSyncNotifySuppressed()) {
+			// Auto KOT is hub-authoritative; clients only publish state.
 			await notifyOrderOpsChange('orders');
-			await emitKotPrintsForLocalOrderChanges(
-				previous?.orders ?? [],
-				store.orders
-			);
 		}
 	} catch (error) {
 		console.error('Failed to save orders to storage:', error);
@@ -315,6 +317,32 @@ export function orderTotal(items: TOrder['items']): number {
 }
 
 const PARCEL_LINE_SUFFIX = ' (parcel)';
+
+/** Table session footer for KOT: "1 - 3" (table — nth order in session). */
+export function formatTableSessionFooter(
+	order: TOrder,
+	allActive: TOrder[]
+): string | null {
+	if (order.kind !== 'table') return null;
+	const tables = [...(order.tableNumbers ?? [])]
+		.filter((n) => n >= 1)
+		.sort((a, b) => a - b);
+	if (tables.length === 0) return null;
+	const primary = tables[0]!;
+	const key = tables.join('-');
+	const siblings = allActive
+		.filter((o) => {
+			if (o.kind !== 'table') return false;
+			const t = [...(o.tableNumbers ?? [])]
+				.filter((n) => n >= 1)
+				.sort((a, b) => a - b);
+			return t.join('-') === key;
+		})
+		.sort((a, b) => a.createdAt - b.createdAt);
+	const index = siblings.findIndex((o) => o.id === order.id) + 1;
+	if (index < 1) return null;
+	return `${primary} - ${index}`;
+}
 
 export type KotLine = {
 	qty: number;
@@ -760,7 +788,17 @@ export function getCustomerContactFlagsForGroupKey(
 	orders: TOrder[],
 	groupKey: string,
 	kind: OrderKind
-): Pick<TOrder, 'customerName' | 'customerPhone' | 'groupNotes' | 'pax' | 'sessionKey'> {
+): Pick<
+	TOrder,
+	| 'customerName'
+	| 'customerPhone'
+	| 'groupNotes'
+	| 'pax'
+	| 'sessionKey'
+	| 'lockHolderDeviceId'
+	| 'lockHolderName'
+	| 'lockUpdatedAt'
+> {
 	if (!isCounterOrderKind(kind)) {
 		return {};
 	}
@@ -775,12 +813,14 @@ export function getCustomerContactFlagsForGroupKey(
 		const groupNotes = order.groupNotes?.trim();
 		const sessionKey = order.sessionKey?.trim();
 		const pax = order.pax;
+		const lockId = order.lockHolderDeviceId?.trim();
 		if (
 			name ||
 			phone ||
 			groupNotes ||
 			sessionKey ||
-			(pax != null && pax >= 1)
+			(pax != null && pax >= 1) ||
+			lockId
 		) {
 			return {
 				...(name ? { customerName: name } : {}),
@@ -788,6 +828,17 @@ export function getCustomerContactFlagsForGroupKey(
 				...(groupNotes ? { groupNotes } : {}),
 				...(sessionKey ? { sessionKey } : {}),
 				...(pax != null && pax >= 1 ? { pax } : {}),
+				...(lockId
+					? {
+							lockHolderDeviceId: lockId,
+							...(order.lockHolderName
+								? { lockHolderName: order.lockHolderName }
+								: {}),
+							...(order.lockUpdatedAt != null
+								? { lockUpdatedAt: order.lockUpdatedAt }
+								: {}),
+						}
+					: {}),
 			};
 		}
 	}
@@ -1092,6 +1143,10 @@ export function ordersStoreChanged(before: TOrder[], after: TOrder[]): boolean {
 			order.orderNumber !== next.orderNumber ||
 			order.pax !== next.pax ||
 			order.groupNotes !== next.groupNotes ||
+			order.lockHolderDeviceId !== next.lockHolderDeviceId ||
+			order.lockHolderName !== next.lockHolderName ||
+			order.lockUpdatedAt !== next.lockUpdatedAt ||
+			order.kotPrintedAt !== next.kotPrintedAt ||
 			order.items.length !== next.items.length
 		) {
 			return true;
@@ -1299,6 +1354,9 @@ export function getTableServiceFlagsForTables(
 	| 'kidMenuServed'
 	| 'groupNotes'
 	| 'pax'
+	| 'lockHolderDeviceId'
+	| 'lockHolderName'
+	| 'lockUpdatedAt'
 > {
 	const context: BillingContext = {
 		source: 'orders',
@@ -1318,6 +1376,9 @@ export function getTableServiceFlagsForTables(
 	const groupPax = tableOrders
 		.map((order) => order.pax)
 		.find((value) => value != null && value >= 1);
+	const lockOrder = [...tableOrders]
+		.sort((a, b) => (b.lockUpdatedAt ?? 0) - (a.lockUpdatedAt ?? 0))
+		.find((order) => order.lockHolderDeviceId?.trim());
 
 	return {
 		...(tableOrders.some((order) => order.welcomeDrinkServed)
@@ -1334,6 +1395,17 @@ export function getTableServiceFlagsForTables(
 			: {}),
 		...(groupNotes ? { groupNotes } : {}),
 		...(groupPax != null ? { pax: groupPax } : {}),
+		...(lockOrder?.lockHolderDeviceId
+			? {
+					lockHolderDeviceId: lockOrder.lockHolderDeviceId,
+					...(lockOrder.lockHolderName
+						? { lockHolderName: lockOrder.lockHolderName }
+						: {}),
+					...(lockOrder.lockUpdatedAt != null
+						? { lockUpdatedAt: lockOrder.lockUpdatedAt }
+						: {}),
+				}
+			: {}),
 	};
 }
 

@@ -89,6 +89,16 @@ import {
 import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
 import { saveBillingSession } from "@/src/utils/billing_state";
 import { notifyOrderOpsChange } from "@/src/utils/order_ops_sync";
+import {
+	canEditSession,
+	claimGroupSessionLock,
+	claimSessionLockForOrder,
+	findOrderGroupByKey,
+	findOrderGroupForOrder,
+	getGroupSessionLock,
+	isSessionLockedByOther,
+} from "@/src/utils/session_lock";
+import { useOrderOpsSync } from "@/context/order-ops-sync";
 import axios from "axios";
 import localforage from "localforage";
 import Link from "next/link";
@@ -550,6 +560,10 @@ function TableGroupMoreSheet({
 	notesPending,
 	paxPending,
 	closePending,
+	sessionEditable,
+	lockHolderName,
+	acquirePending,
+	onAcquireLock,
 	onBill,
 	onChangeTable,
 	onEditNotes,
@@ -577,6 +591,10 @@ function TableGroupMoreSheet({
 	notesPending: boolean;
 	paxPending: boolean;
 	closePending: boolean;
+	sessionEditable: boolean;
+	lockHolderName: string | null;
+	acquirePending: boolean;
+	onAcquireLock: (group: OrderGroup) => void;
 	onBill: (group: OrderGroup) => void;
 	onChangeTable: (group: OrderGroup) => void;
 	onEditNotes: (group: OrderGroup) => void;
@@ -587,6 +605,7 @@ function TableGroupMoreSheet({
 	onRequestKidMenu: (group: OrderGroup) => void;
 	onClose: () => void;
 }) {
+	const editsDisabled = !sessionEditable;
 	return (
 		<div
 			className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-0"
@@ -608,15 +627,33 @@ function TableGroupMoreSheet({
 							<CheckIcon checked className="w-5 h-5" />
 						</button>
 					</div>
+					{editsDisabled && lockHolderName ? (
+						<p className="text-sm text-amber-800 mt-2">
+							Locked by {lockHolderName}. Acquire the lock to edit.
+						</p>
+					) : null}
 				</div>
 				<div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
+					{editsDisabled && lockHolderName ? (
+						<TouchActionButton
+							onClick={() => {
+								onClose();
+								onAcquireLock(group);
+							}}
+							loading={acquirePending}
+							disabled={acquirePending}
+							className="w-full rounded-xl bg-amber-500 border border-amber-600 text-white active:bg-amber-600 disabled:opacity-40 min-h-[44px]"
+						>
+							Acquire lock from {lockHolderName}
+						</TouchActionButton>
+					) : null}
 					<TouchActionButton
 						onClick={() => {
 							onClose();
 							onBill(group);
 						}}
 						loading={billingPending}
-						disabled={!hasOrdersInGroup || billingPending}
+						disabled={!hasOrdersInGroup || billingPending || editsDisabled}
 						className="w-full rounded-xl bg-green-500 border border-green-600 text-white active:bg-green-600 disabled:opacity-40 min-h-[44px]"
 					>
 						₹ Bill
@@ -628,7 +665,9 @@ function TableGroupMoreSheet({
 								onChangeTable(group);
 							}}
 							loading={changeTablePending}
-							disabled={!hasOrdersInGroup || changeTablePending}
+							disabled={
+								!hasOrdersInGroup || changeTablePending || editsDisabled
+							}
 							className="w-full rounded-xl bg-white border border-gray-300 text-gray-700 active:bg-gray-100 disabled:opacity-40 min-h-[44px]"
 						>
 							Change table
@@ -640,7 +679,7 @@ function TableGroupMoreSheet({
 							onClose();
 							onEditNotes(group);
 						}}
-						disabled={notesPending}
+						disabled={notesPending || editsDisabled}
 						className={`w-full min-h-[44px] rounded-xl border text-sm font-semibold touch-manipulation disabled:opacity-50 ${
 							groupNotes
 								? "border-green-600 bg-green-50 text-green-800"
@@ -660,7 +699,7 @@ function TableGroupMoreSheet({
 									onClose();
 									onEditPax(group);
 								}}
-								disabled={paxPending}
+								disabled={paxPending || editsDisabled}
 								className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100 active:bg-gray-200 touch-manipulation disabled:opacity-50"
 								aria-label="Edit pax"
 							>
@@ -675,7 +714,7 @@ function TableGroupMoreSheet({
 								onClose();
 								onEditPax(group);
 							}}
-							disabled={paxPending}
+							disabled={paxPending || editsDisabled}
 							className="w-full min-h-[44px] rounded-xl border border-gray-300 bg-white text-sm font-semibold text-gray-700 active:bg-gray-100 touch-manipulation disabled:opacity-50"
 						>
 							{paxPending ? "Saving pax…" : "Add pax"}
@@ -687,20 +726,29 @@ function TableGroupMoreSheet({
 								label="🥤 Drink"
 								checked={drinkServed}
 								loading={drinkPending}
-								onClick={() => onRequestWelcomeDrink(group)}
+								onClick={() => {
+									if (editsDisabled) return;
+									onRequestWelcomeDrink(group);
+								}}
 							/>
 							<TableServicePill
 								label="🫓 Complementary"
 								checked={compServed}
 								loading={compPending}
-								onClick={() => onRequestComplementary(group)}
+								onClick={() => {
+									if (editsDisabled) return;
+									onRequestComplementary(group);
+								}}
 							/>
 							{kidEnabled ? (
 								<TableServicePill
 									label="👶 Kid"
 									checked={kidServed}
 									loading={kidPending}
-									onClick={() => onRequestKidMenu(group)}
+									onClick={() => {
+										if (editsDisabled) return;
+										onRequestKidMenu(group);
+									}}
 								/>
 							) : null}
 						</div>
@@ -711,7 +759,7 @@ function TableGroupMoreSheet({
 							onClose();
 							onCloseOrder(group);
 						}}
-						disabled={!hasOrdersInGroup || closePending}
+						disabled={!hasOrdersInGroup || closePending || editsDisabled}
 						className="w-full min-h-[44px] rounded-xl border border-red-600 bg-red-600 text-sm font-semibold text-white active:bg-red-700 touch-manipulation disabled:opacity-40"
 					>
 						{closePending ? "Closing…" : "Close order"}
@@ -762,6 +810,7 @@ function CrossIcon({ className }: { className?: string }) {
 
 function OrderRow({
 	order,
+	sessionEditable = true,
 	onEdit,
 	onKotPrint,
 	onRequestMarkDone,
@@ -770,6 +819,7 @@ function OrderRow({
 	onRequestToggleFulfill,
 }: {
 	order: TOrder;
+	sessionEditable?: boolean;
 	onEdit: (order: TOrder) => void;
 	onKotPrint: (order: TOrder) => void;
 	onRequestMarkDone: (order: TOrder) => void;
@@ -790,10 +840,11 @@ function OrderRow({
 	) => void;
 }) {
 	const markedDone = isOrderMarkedDone(order);
-	const editable = isOrderEditable(order);
+	const editable = isOrderEditable(order) && sessionEditable;
 	const kitchenReady = isOrderReady(order);
-	const canMarkDone = kitchenReady && !markedDone;
+	const canMarkDone = kitchenReady && !markedDone && sessionEditable;
 	const orderSerial = formatDailyOrderNumber(order.orderNumber);
+	const kotPrinted = order.kotPrintedAt != null;
 
 	return (
 		<div
@@ -814,9 +865,18 @@ function OrderRow({
 					<button
 						type="button"
 						onClick={() => onKotPrint(order)}
-						className="inline-flex h-9 min-w-[2.25rem] shrink-0 items-center justify-center rounded-full border border-yellow-400 bg-yellow-100 px-3 text-xs font-semibold text-yellow-900 touch-manipulation active:bg-yellow-200"
+						className="inline-flex h-9 min-w-[2.25rem] shrink-0 items-center justify-center gap-1 rounded-full border border-yellow-400 bg-yellow-100 px-3 text-xs font-semibold text-yellow-900 touch-manipulation active:bg-yellow-200"
 					>
 						KOT
+						{kotPrinted ? (
+							<span
+								className="text-green-700"
+								aria-label="KOT printed"
+								title="KOT printed"
+							>
+								✓
+							</span>
+						) : null}
 					</button>
 					<span className="min-w-0 flex-1" aria-hidden />
 					{editable ? (
@@ -938,7 +998,7 @@ function OrderRow({
 															: "text-gray-300"
 													}`}
 												/>
-											) : (
+											) : editable ? (
 												<button
 													type="button"
 													onClick={() =>
@@ -959,8 +1019,18 @@ function OrderRow({
 														className="w-5 h-5"
 													/>
 												</button>
+											) : (
+												<CheckIcon
+													checked={display === "fulfilled"}
+													className={`w-4 h-4 shrink-0 ${
+														display === "fulfilled"
+															? "text-green-600"
+															: "text-gray-300"
+													}`}
+												/>
 											)}
-											{(display === "pending" || display === "fulfilled") ? (
+											{(display === "pending" || display === "fulfilled") &&
+											editable ? (
 												<button
 													type="button"
 													onClick={() =>
@@ -978,7 +1048,8 @@ function OrderRow({
 														📦
 													</span>
 												</button>
-											) : isParcel ? (
+											) : (display === "pending" || display === "fulfilled") &&
+											  isParcel ? (
 												<span
 													className="inline-flex min-h-[28px] min-w-[28px] items-center justify-center rounded-full bg-amber-100 text-sm opacity-100"
 													aria-label="Parcel"
@@ -1014,6 +1085,7 @@ function OrderRow({
 function IndividualOrderCard({
 	order,
 	now,
+	sessionEditable = true,
 	onEdit,
 	onKotPrint,
 	onRequestMarkDone,
@@ -1023,6 +1095,7 @@ function IndividualOrderCard({
 }: {
 	order: TOrder;
 	now: number;
+	sessionEditable?: boolean;
 	onEdit: (order: TOrder) => void;
 	onKotPrint: (order: TOrder) => void;
 	onRequestMarkDone: (order: TOrder) => void;
@@ -1071,6 +1144,7 @@ function IndividualOrderCard({
 			<div className="p-3">
 				<OrderRow
 					order={order}
+					sessionEditable={sessionEditable}
 					onEdit={onEdit}
 					onKotPrint={onKotPrint}
 					onRequestMarkDone={onRequestMarkDone}
@@ -1348,6 +1422,7 @@ function GroupPhoneModal({
 function TableOrderCard({
 	group,
 	now,
+	deviceId,
 	isActionPending,
 	onBill,
 	onEditOrder,
@@ -1364,9 +1439,11 @@ function TableOrderCard({
 	onAddPhone,
 	onCloseOrder,
 	onChangeTable,
+	onAcquireLock,
 }: {
 	group: OrderGroup;
 	now: number;
+	deviceId: string;
 	isActionPending: (key: string) => boolean;
 	onBill: (group: OrderGroup) => void;
 	onEditOrder: (order: TOrder) => void;
@@ -1395,6 +1472,7 @@ function TableOrderCard({
 	onAddPhone: (group: OrderGroup) => void;
 	onCloseOrder: (group: OrderGroup) => void;
 	onChangeTable: (group: OrderGroup) => void;
+	onAcquireLock: (group: OrderGroup) => void;
 }) {
 	const addOrderHref =
 		group.kind === "table" && group.tableNumbers?.length
@@ -1423,6 +1501,10 @@ function TableOrderCard({
 	const phonePending = isActionPending(`phone:${group.key}`);
 	const closePending = isActionPending(`discard:${group.key}`);
 	const changeTablePending = isActionPending(`move-table:${group.key}`);
+	const acquirePending = isActionPending(`acquire-lock:${group.key}`);
+	const sessionLock = getGroupSessionLock(group);
+	const sessionEditable = canEditSession(group, deviceId);
+	const lockedByOther = isSessionLockedByOther(group, deviceId);
 	const [moreOpen, setMoreOpen] = useState(false);
 	const [namePopoverOpen, setNamePopoverOpen] = useState(false);
 
@@ -1515,13 +1597,29 @@ function TableOrderCard({
 						>
 							<MoreVerticalIcon className="w-5 h-5" />
 						</button>
-						<Link
-							href={addOrderHref}
-							className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center rounded-full bg-green-100 text-green-700 hover:bg-green-200 border border-green-300 touch-manipulation"
-							aria-label={`Add order to ${group.label}`}
-						>
-							<PlusIcon className="w-5 h-5 shrink-0" />
-						</Link>
+						{sessionEditable ? (
+							<Link
+								href={addOrderHref}
+								className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center rounded-full bg-green-100 text-green-700 hover:bg-green-200 border border-green-300 touch-manipulation"
+								aria-label={`Add order to ${group.label}`}
+							>
+								<PlusIcon className="w-5 h-5 shrink-0" />
+							</Link>
+						) : (
+							<button
+								type="button"
+								disabled
+								className="inline-flex min-h-[40px] min-w-[40px] items-center justify-center rounded-full bg-gray-100 text-gray-400 border border-gray-200 touch-manipulation opacity-60"
+								aria-label={`Add order locked by ${sessionLock?.deviceName ?? "another device"}`}
+								title={
+									sessionLock
+										? `Locked by ${sessionLock.deviceName}`
+										: "Session locked"
+								}
+							>
+								<PlusIcon className="w-5 h-5 shrink-0" />
+							</button>
+						)}
 					</div>
 				</div>
 				{showCustomerRow ? (
@@ -1545,7 +1643,7 @@ function TableOrderCard({
 							<button
 								type="button"
 								onClick={() => onAddPhone(group)}
-								disabled={phonePending}
+								disabled={phonePending || !sessionEditable}
 								className="inline-flex min-h-[32px] items-center gap-1 rounded-full border border-dashed border-gray-300 bg-white px-2.5 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50 active:bg-gray-100 touch-manipulation disabled:opacity-50"
 								aria-label="Add phone number"
 							>
@@ -1564,12 +1662,18 @@ function TableOrderCard({
 				<p className="text-xs text-gray-500">
 					{group.orders.length} order{group.orders.length === 1 ? "" : "s"}
 				</p>
+				{lockedByOther && sessionLock ? (
+					<p className="text-xs font-semibold text-amber-800">
+						Locked by {sessionLock.deviceName}
+					</p>
+				) : null}
 			</div>
 			<div className="px-4 pb-4 pt-0 space-y-2">
 				{group.orders.map((order) => (
 					<OrderRow
 						key={order.id}
 						order={order}
+						sessionEditable={sessionEditable}
 						onEdit={onEditOrder}
 						onKotPrint={onKotPrint}
 						onRequestMarkDone={onRequestMarkDone}
@@ -1605,6 +1709,10 @@ function TableOrderCard({
 					notesPending={notesPending}
 					paxPending={paxPending}
 					closePending={closePending}
+					sessionEditable={sessionEditable}
+					lockHolderName={sessionLock?.deviceName ?? null}
+					acquirePending={acquirePending}
+					onAcquireLock={onAcquireLock}
 					onBill={onBill}
 					onChangeTable={onChangeTable}
 					onEditNotes={onEditNotes}
@@ -2421,6 +2529,7 @@ function ChecklistProgressCard({
 export default function OrderPage() {
 	const router = useRouter();
 	const pathname = usePathname();
+	const { deviceId, deviceName } = useOrderOpsSync();
 	const [orders, setOrders] = useState<TOrder[]>([]);
 	const [groups, setGroups] = useState<OrderGroup[]>([]);
 	const [itemGroups, setItemGroups] = useState<ItemGroup[]>([]);
@@ -2455,6 +2564,8 @@ export default function OrderPage() {
 		null
 	);
 	const [pendingDiscardGroup, setPendingDiscardGroup] =
+		useState<OrderGroup | null>(null);
+	const [pendingAcquireLock, setPendingAcquireLock] =
 		useState<OrderGroup | null>(null);
 	const [editingNotesGroup, setEditingNotesGroup] = useState<OrderGroup | null>(
 		null
@@ -2647,10 +2758,15 @@ export default function OrderPage() {
 			.then(async ([store, menuResponse]) => {
 				const rawOrders = store?.orders ?? [];
 				const categoryMap = buildDishCategoryMap(menuResponse.data);
-				const maintained = maintainOrders(rawOrders, Date.now());
+		const maintained = maintainOrders(rawOrders, Date.now());
 				applyOrderState(maintained, categoryMap);
 				if (ordersStoreChanged(rawOrders, maintained)) {
-					await updateOrders(maintained);
+					const { canPublishOrderOps } = await import(
+						"@/src/utils/sync_write_gate"
+					);
+					if (canPublishOrderOps()) {
+						await updateOrders(maintained);
+					}
 				}
 			})
 			.catch((error) => {
@@ -2710,6 +2826,12 @@ export default function OrderPage() {
 		}
 
 		void (async () => {
+			const { canPublishOrderOps } = await import(
+				"@/src/utils/sync_write_gate"
+			);
+			if (!canPublishOrderOps()) {
+				return;
+			}
 			const saved = await updateOrders(maintained, now);
 			applyOrderState(saved);
 		})();
@@ -2726,6 +2848,40 @@ export default function OrderPage() {
 		applyOrderState(maintained);
 	};
 
+	const alertSessionLocked = (group: OrderGroup) => {
+		const lock = getGroupSessionLock(group);
+		alert(
+			lock
+				? `Locked by ${lock.deviceName}. Open ⋮ and acquire the lock to edit.`
+				: "This session is locked on another device."
+		);
+	};
+
+	const persistGroupEdit = async (group: OrderGroup, nextOrders: TOrder[]) => {
+		const latest =
+			groups.find((entry) => entry.key === group.key) ??
+			findOrderGroupByKey(nextOrders, group.key) ??
+			group;
+		if (!canEditSession(latest, deviceId)) {
+			alertSessionLocked(latest);
+			return;
+		}
+		await persistOrders(
+			claimGroupSessionLock(nextOrders, latest, deviceId, deviceName)
+		);
+	};
+
+	const persistOrderEdit = async (orderId: string, nextOrders: TOrder[]) => {
+		const group = findOrderGroupForOrder(nextOrders, orderId);
+		if (group) {
+			await persistGroupEdit(group, nextOrders);
+			return;
+		}
+		await persistOrders(
+			claimSessionLockForOrder(nextOrders, orderId, deviceId, deviceName)
+		);
+	};
+
 	const handleToggleDishUnit = async (
 		dishName: string,
 		wasFulfilled: boolean
@@ -2733,7 +2889,32 @@ export default function OrderPage() {
 		const nextOrders = wasFulfilled
 			? unfulfillLastUnitForDish(orders, dishName)
 			: fulfillNextUnitForDish(orders, dishName);
-		await persistOrders(nextOrders);
+		// Kitchen aggregate toggles may touch multiple sessions — claim per affected order.
+		let claimed = nextOrders;
+		const touchedIds = new Set<string>();
+		for (const before of orders) {
+			const after = nextOrders.find((entry) => entry.id === before.id);
+			if (!after) continue;
+			if (JSON.stringify(before.items) !== JSON.stringify(after.items)) {
+				touchedIds.add(before.id);
+			}
+		}
+		for (const orderId of Array.from(touchedIds)) {
+			const group = findOrderGroupForOrder(claimed, orderId);
+			if (group && !canEditSession(group, deviceId)) {
+				alertSessionLocked(group);
+				return;
+			}
+		}
+		for (const orderId of Array.from(touchedIds)) {
+			claimed = claimSessionLockForOrder(
+				claimed,
+				orderId,
+				deviceId,
+				deviceName
+			);
+		}
+		await persistOrders(claimed);
 	};
 
 	const handleRequestCancelItem = (
@@ -2772,7 +2953,8 @@ export default function OrderPage() {
 		}
 		const key = `cancel:${pendingCancelItem.orderId}:${pendingCancelItem.itemIndex}:${pendingCancelItem.unitIndex}`;
 		await runConfirmingAction(key, async () => {
-			await persistOrders(
+			await persistOrderEdit(
+				pendingCancelItem.orderId,
 				cancelItemUnit(
 					orders,
 					pendingCancelItem.orderId,
@@ -2791,28 +2973,34 @@ export default function OrderPage() {
 				setPendingMarkDone(null);
 				return;
 			}
-			await persistOrders(markOrderDone(orders, order.id));
+			await persistOrderEdit(order.id, markOrderDone(orders, order.id));
 			setPendingMarkDone(null);
 		});
 	};
 
 	const handleWelcomeDrink = async (group: OrderGroup) => {
 		await runConfirmingAction(`drink:${group.key}`, async () => {
-			await persistOrders(markTableWelcomeDrinkServed(orders, group));
+			await persistGroupEdit(
+				group,
+				markTableWelcomeDrinkServed(orders, group)
+			);
 			setPendingWelcomeDrink(null);
 		});
 	};
 
 	const handleComplementary = async (group: OrderGroup) => {
 		await runConfirmingAction(`comp:${group.key}`, async () => {
-			await persistOrders(markTableComplementaryServed(orders, group));
+			await persistGroupEdit(
+				group,
+				markTableComplementaryServed(orders, group)
+			);
 			setPendingComplementary(null);
 		});
 	};
 
 	const handleKidMenu = async (group: OrderGroup) => {
 		await runConfirmingAction(`kid:${group.key}`, async () => {
-			await persistOrders(markTableKidMenuServed(orders, group));
+			await persistGroupEdit(group, markTableKidMenuServed(orders, group));
 			setPendingKidMenu(null);
 		});
 	};
@@ -2859,7 +3047,8 @@ export default function OrderPage() {
 		}
 		const key = `parcel:${orderId}:${itemIndex}:${unitIndex}`;
 		await runConfirmingAction(key, async () => {
-			await persistOrders(
+			await persistOrderEdit(
+				orderId,
 				toggleItemUnitParcel(orders, orderId, itemIndex, unitIndex)
 			);
 			setPendingParcelItem(null);
@@ -2909,7 +3098,8 @@ export default function OrderPage() {
 		}
 		const key = `fulfill:${orderId}:${itemIndex}:${unitIndex}`;
 		await runConfirmingAction(key, async () => {
-			await persistOrders(
+			await persistOrderEdit(
+				orderId,
 				setItemUnitFulfilled(orders, orderId, itemIndex, unitIndex, !isFulfilled)
 			);
 			setPendingFulfillItem(null);
@@ -2934,7 +3124,8 @@ export default function OrderPage() {
 			return;
 		}
 		await runPendingAction(`notes:${editingNotesGroup.key}`, async () => {
-			await persistOrders(
+			await persistGroupEdit(
+				editingNotesGroup,
 				updateGroupNotes(orders, editingNotesGroup, notesDraft)
 			);
 			setEditingNotesGroup(null);
@@ -2958,7 +3149,10 @@ export default function OrderPage() {
 			return;
 		}
 		await runPendingAction(`pax:${editingPaxGroup.key}`, async () => {
-			await persistOrders(updateGroupPax(orders, editingPaxGroup, paxNumber));
+			await persistGroupEdit(
+				editingPaxGroup,
+				updateGroupPax(orders, editingPaxGroup, paxNumber)
+			);
 			setEditingPaxGroup(null);
 			setPaxDraft("");
 		});
@@ -2980,7 +3174,8 @@ export default function OrderPage() {
 			return;
 		}
 		await runPendingAction(`phone:${editingPhoneGroup.key}`, async () => {
-			await persistOrders(
+			await persistGroupEdit(
+				editingPhoneGroup,
 				updateGroupCustomerPhone(orders, editingPhoneGroup, trimmed)
 			);
 			setEditingPhoneGroup(null);
@@ -3043,7 +3238,8 @@ export default function OrderPage() {
 		const { group, newTables } = pendingChangeTableConfirm;
 		const key = `move-table:${group.key}`;
 		await runConfirmingAction(key, async () => {
-			await persistOrders(
+			await persistGroupEdit(
+				group,
 				moveTableGroupToTables(orders, group, newTables)
 			);
 			setPendingChangeTableConfirm(null);
@@ -3051,12 +3247,20 @@ export default function OrderPage() {
 	};
 
 	const proceedToBill = async (group: OrderGroup) => {
+		if (!canEditSession(group, deviceId)) {
+			alertSessionLocked(group);
+			return;
+		}
 		if (!groupHasBillableItems(group)) {
 			if (group.orders.length > 0) {
 				setPendingCloseTable(group);
 			}
 			return;
 		}
+		// Claim lock before leaving for cart so peers see ownership.
+		await persistOrders(
+			claimGroupSessionLock(orders, group, deviceId, deviceName)
+		);
 		const cart = await orderGroupToBillCart(group);
 		const oldestOrder = group.orders.reduce((oldest, order) =>
 			order.createdAt < oldest.createdAt ? order : oldest
@@ -3078,6 +3282,10 @@ export default function OrderPage() {
 	};
 
 	const handleBill = (group: OrderGroup) => {
+		if (!canEditSession(group, deviceId)) {
+			alertSessionLocked(group);
+			return;
+		}
 		if (!groupHasBillableItems(group)) {
 			if (group.orders.length > 0) {
 				setPendingCloseTable(group);
@@ -3119,7 +3327,7 @@ export default function OrderPage() {
 					targetQty,
 					waterPrice
 				);
-				await persistOrders(updatedOrders);
+				await persistGroupEdit(pendingBillGroup, updatedOrders);
 
 				const dateKey = getTodayDateKey();
 				const waterItem = {
@@ -3150,6 +3358,11 @@ export default function OrderPage() {
 
 	const handleCloseTable = async (group: OrderGroup) => {
 		await runConfirmingAction(`close:${group.key}`, async () => {
+			if (!canEditSession(group, deviceId)) {
+				alertSessionLocked(group);
+				setPendingCloseTable(null);
+				return;
+			}
 			const oldestOrder = group.orders.reduce((oldest, order) =>
 				order.createdAt < oldest.createdAt ? order : oldest
 			);
@@ -3169,11 +3382,38 @@ export default function OrderPage() {
 
 	const handleDiscardOrder = async (group: OrderGroup) => {
 		await runConfirmingAction(`discard:${group.key}`, async () => {
+			if (!canEditSession(group, deviceId)) {
+				alertSessionLocked(group);
+				setPendingDiscardGroup(null);
+				return;
+			}
 			const remaining = await discardOrderGroup(group);
 			applyOrderState(remaining);
 			setPendingDiscardGroup(null);
 		});
 	};
+
+	const handleAcquireLock = async (group: OrderGroup) => {
+		await runConfirmingAction(`acquire-lock:${group.key}`, async () => {
+			await persistOrders(
+				claimGroupSessionLock(orders, group, deviceId, deviceName)
+			);
+			setPendingAcquireLock(null);
+		});
+	};
+
+	const openAcquireLock = (group: OrderGroup) => {
+		setPendingAcquireLock(group);
+	};
+
+	const orderSessionEditable = useCallback(
+		(order: TOrder) => {
+			const group = findOrderGroupForOrder(orders, order.id);
+			if (!group) return true;
+			return canEditSession(group, deviceId);
+		},
+		[orders, deviceId]
+	);
 
 	const hasOrders = groups.length > 0;
 	const hasFilteredOrders = filteredGroups.length > 0;
@@ -3288,6 +3528,7 @@ export default function OrderPage() {
 										key={order.id}
 										order={order}
 										now={now}
+										sessionEditable={orderSessionEditable(order)}
 										onEdit={setEditingOrder}
 										onKotPrint={handleKotPrint}
 										onRequestMarkDone={setPendingMarkDone}
@@ -3316,6 +3557,7 @@ export default function OrderPage() {
 									key={group.key}
 									group={group}
 									now={now}
+									deviceId={deviceId}
 									isActionPending={isActionPending}
 									onBill={handleBill}
 									onEditOrder={setEditingOrder}
@@ -3332,6 +3574,7 @@ export default function OrderPage() {
 									onAddPhone={openPhoneModal}
 									onCloseOrder={setPendingDiscardGroup}
 									onChangeTable={openChangeTableModal}
+									onAcquireLock={openAcquireLock}
 								/>
 							))
 						)}
@@ -3586,6 +3829,19 @@ export default function OrderPage() {
 					confirming={confirmingAction === `discard:${pendingDiscardGroup.key}`}
 					onCancel={() => setPendingDiscardGroup(null)}
 					onConfirm={() => void handleDiscardOrder(pendingDiscardGroup)}
+				/>
+			)}
+
+			{pendingAcquireLock && (
+				<ConfirmOrderActionModal
+					title="Acquire session lock?"
+					message={`${getGroupSessionLock(pendingAcquireLock)?.deviceName ?? "Another device"} will lose edit access to ${pendingAcquireLock.label}. Any mid-edit changes on that device may be lost.`}
+					confirmLabel="Acquire lock"
+					confirming={
+						confirmingAction === `acquire-lock:${pendingAcquireLock.key}`
+					}
+					onCancel={() => setPendingAcquireLock(null)}
+					onConfirm={() => void handleAcquireLock(pendingAcquireLock)}
 				/>
 			)}
 

@@ -36,8 +36,20 @@ import {
 	unregisterKotPrintPublisher,
 	unregisterBillPrintPublisher,
 	getPeerDeviceName,
+	isSyncHubOnlineAmong,
+	applyKotPrintedAck,
 	type PresenceMember,
+	type KotPrintAckMessage,
 } from '@/src/utils/order_ops_sync';
+import {
+	getWriteGateState,
+	setWriteGateState,
+	subscribeWriteGate,
+	getPreferFullscreenCatchUp,
+	getCatchUpStartedAt,
+	type WriteGateState,
+} from '@/src/utils/sync_write_gate';
+import { getTodayDateKey } from '@/src/utils/inventory_utils';
 import Ably, { PresenceMessage, Realtime, RealtimeChannel } from 'ably';
 import {
 	createContext,
@@ -55,6 +67,8 @@ export type OrderOpsConnectionState =
 	| 'connected'
 	| 'failed';
 
+export type CatchUpUiMode = 'none' | 'banner' | 'fullscreen';
+
 type OrderOpsSyncContextValue = {
 	connected: boolean;
 	connectionState: OrderOpsConnectionState;
@@ -69,6 +83,12 @@ type OrderOpsSyncContextValue = {
 	businessDate: string | null;
 	error: string | null;
 	syncConflict: SyncConflict | null;
+	writeGate: WriteGateState;
+	canWrite: boolean;
+	catchUpUi: CatchUpUiMode;
+	syncHubOnline: boolean;
+	/** Short-lived KOT print failure message (auto-clears). */
+	kotPrintFailure: string | null;
 	connect: () => Promise<void>;
 	updateDeviceName: (name: string) => Promise<void>;
 	resolveSyncConflict: (
@@ -90,6 +110,11 @@ const OrderOpsSyncContext = createContext<OrderOpsSyncContextValue>({
 	businessDate: null,
 	error: null,
 	syncConflict: null,
+	writeGate: 'offline',
+	canWrite: false,
+	catchUpUi: 'none',
+	syncHubOnline: false,
+	kotPrintFailure: null,
 	connect: async () => undefined,
 	updateDeviceName: async () => undefined,
 	resolveSyncConflict: async () => undefined,
@@ -112,7 +137,7 @@ async function requestSyncFromPeers(
 	members: PresenceMember[],
 	selfClientId: string
 ) {
-	await maybeRequestSyncFromPeers(
+	return maybeRequestSyncFromPeers(
 		async (payload) => {
 			await channel.publish('sync:request', payload);
 		},
@@ -236,6 +261,12 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 	const [deviceId, setDeviceId] = useState('');
 	const [deviceName, setDeviceName] = useState('');
 	const [syncConflict, setSyncConflict] = useState<SyncConflict | null>(null);
+	const [writeGate, setWriteGate] = useState<WriteGateState>(() =>
+		getWriteGateState()
+	);
+	const [syncHubOnline, setSyncHubOnline] = useState(false);
+	const [kotPrintFailure, setKotPrintFailure] = useState<string | null>(null);
+	const [catchUpUi, setCatchUpUi] = useState<CatchUpUiMode>('none');
 
 	const realtimeRef = useRef<Realtime | null>(null);
 	const channelRef = useRef<RealtimeChannel | null>(null);
@@ -246,6 +277,39 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 	const connectionStateRef = useRef<OrderOpsConnectionState>('idle');
 	const syncActivityCountRef = useRef(0);
 	const conflictResolvedRef = useRef(false);
+	const pendingSyncRequestRef = useRef(false);
+	const everConnectedRef = useRef(false);
+
+	useEffect(() => {
+		return subscribeWriteGate(() => {
+			setWriteGate(getWriteGateState());
+		});
+	}, []);
+
+	useEffect(() => {
+		if (!kotPrintFailure) {
+			return;
+		}
+		const timer = window.setTimeout(() => setKotPrintFailure(null), 8000);
+		return () => window.clearTimeout(timer);
+	}, [kotPrintFailure]);
+
+	useEffect(() => {
+		if (writeGate !== 'catching_up') {
+			setCatchUpUi('none');
+			return;
+		}
+		const FULLSCREEN_AFTER_MS = 1500;
+		const tick = () => {
+			const preferFullscreen =
+				getPreferFullscreenCatchUp() ||
+				Date.now() - getCatchUpStartedAt() >= FULLSCREEN_AFTER_MS;
+			setCatchUpUi(preferFullscreen ? 'fullscreen' : 'banner');
+		};
+		tick();
+		const id = window.setInterval(tick, 400);
+		return () => window.clearInterval(id);
+	}, [writeGate]);
 
 	const runWithSyncIndicator = useCallback(
 		async (operation: () => Promise<void>) => {
@@ -274,7 +338,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 		async (
 			channel: RealtimeChannel,
 			selfClientId: string,
-			options?: { checkConflict?: boolean }
+			options?: { checkConflict?: boolean; fullscreenCatchUp?: boolean }
 		) => {
 			const checkConflict = options?.checkConflict ?? false;
 
@@ -284,9 +348,13 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 					return;
 				}
 				const mapped = mapPresenceMembers(members);
+				const today = getTodayDateKey();
 				setMemberCount(mapped.length);
 				setMemberDeviceNames(
 					mapped.map((member) => getPeerDeviceName(member))
+				);
+				setSyncHubOnline(
+					isSyncHubOnlineAmong(mapped, selfClientId, today)
 				);
 
 				if (checkConflict) {
@@ -294,6 +362,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 					if (conflict && !conflictResolvedRef.current) {
 						setSyncConflictBlocking(true);
 						setSyncConflict(conflict);
+						setWriteGateState('awaiting_choice');
 						return;
 					}
 
@@ -301,8 +370,34 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 					setSyncConflictBlocking(false);
 				}
 
+				setWriteGateState('catching_up', {
+					fullscreen: options?.fullscreenCatchUp === true,
+				});
+
 				await runWithSyncIndicator(async () => {
-					await requestSyncFromPeers(channel, mapped, selfClientId);
+					const result = await requestSyncFromPeers(
+						channel,
+						mapped,
+						selfClientId
+					);
+					if (cancelledRef.current) {
+						return;
+					}
+					if (result.requested) {
+						pendingSyncRequestRef.current = true;
+						return;
+					}
+					if (
+						result.reason === 'already_current' ||
+						result.reason === 'no_peers' ||
+						result.reason === 'initialized_local'
+					) {
+						pendingSyncRequestRef.current = false;
+						setWriteGateState('ready');
+						return;
+					}
+					// hub_not_ready / cooldown — stay catching_up
+					pendingSyncRequestRef.current = false;
 				});
 			} catch (presenceError) {
 				console.error('Failed to read order_ops presence:', presenceError);
@@ -390,6 +485,9 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 					return;
 				}
 				resetSyncRequestCooldown();
+				const fullscreen = everConnectedRef.current;
+				everConnectedRef.current = true;
+				setWriteGateState('catching_up', { fullscreen });
 				setConnectionState('connected');
 				setError(null);
 				void enterPresence();
@@ -409,9 +507,12 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				setConnectionState('idle');
 				setMemberCount(0);
 				setMemberDeviceNames([]);
+				setSyncHubOnline(false);
 				setSyncConflict(null);
 				setSyncConflictBlocking(false);
 				conflictResolvedRef.current = false;
+				pendingSyncRequestRef.current = false;
+				setWriteGateState('offline');
 				resetSyncRequestCooldown();
 			};
 
@@ -422,9 +523,12 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				setConnectionState('failed');
 				setMemberCount(0);
 				setMemberDeviceNames([]);
+				setSyncHubOnline(false);
 				setSyncConflict(null);
 				setSyncConflictBlocking(false);
 				conflictResolvedRef.current = false;
+				pendingSyncRequestRef.current = false;
+				setWriteGateState('offline');
 				resetSyncRequestCooldown();
 				setError(stateChange.reason?.message ?? 'Connection failed');
 			};
@@ -456,6 +560,10 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				await runWithSyncIndicator(async () => {
 					await handleSyncResponse(message.data as SyncResponseMessage);
 					await refreshMeta();
+					pendingSyncRequestRef.current = false;
+					if (getWriteGateState() === 'catching_up') {
+						setWriteGateState('ready');
+					}
 				});
 			});
 
@@ -464,6 +572,28 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 					await handleStateDelta(message.data as StateDeltaMessage);
 					await refreshMeta();
 				});
+			});
+
+			channel.subscribe('kot:printed', async (message) => {
+				const payload = message.data as KotPrintAckMessage;
+				const orderId = payload?.orderId?.trim();
+				if (!orderId) return;
+				try {
+					await applyKotPrintedAck(orderId, payload.printedAt ?? Date.now());
+				} catch (err) {
+					console.warn('[kot-ack] apply printed failed', err);
+				}
+			});
+
+			channel.subscribe('kot:failed', (message) => {
+				const payload = message.data as KotPrintAckMessage;
+				const orderId = payload?.orderId?.trim() || 'order';
+				const detail = payload?.error?.trim();
+				setKotPrintFailure(
+					detail
+						? `KOT print failed (${orderId}): ${detail}`
+						: `KOT print failed for ${orderId}`
+				);
 			});
 
 			channel.presence.subscribe('enter', () => {
@@ -628,6 +758,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			conflictResolvedRef.current = true;
 			setSyncConflictBlocking(false);
 			setSyncConflict(null);
+			setWriteGateState('catching_up');
 
 			await runWithSyncIndicator(async () => {
 				const publish = async (payload: SyncRequestMessage) =>
@@ -635,11 +766,22 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 
 				if (resolution === 'newest') {
 					const members = mapPresenceMembers(await channel.presence.get());
-					await maybeRequestSyncFromPeers(publish, members, selfClientId);
+					const result = await maybeRequestSyncFromPeers(
+						publish,
+						members,
+						selfClientId
+					);
+					if (!result.requested) {
+						setWriteGateState('ready');
+					} else {
+						pendingSyncRequestRef.current = true;
+					}
 				} else if (resolution === 'peer' && peerClientId) {
 					await requestSyncFromPeer(publish, selfClientId, peerClientId);
+					pendingSyncRequestRef.current = true;
 				} else if (resolution === 'local') {
 					await resolveSyncKeepLocal();
+					setWriteGateState('ready');
 				}
 			});
 
@@ -670,16 +812,9 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			}
 
 			resetSyncRequestCooldown();
-			void runWithSyncIndicator(async () => {
-				const members = await channel.presence.get();
-				const mapped = mapPresenceMembers(members);
-				const conflict = await detectSyncConflict(mapped, selfClientId);
-				if (conflict && !conflictResolvedRef.current) {
-					setSyncConflictBlocking(true);
-					setSyncConflict(conflict);
-					return;
-				}
-				await requestSyncFromPeers(channel, mapped, selfClientId);
+			void refreshMemberCount(channel, selfClientId, {
+				checkConflict: true,
+				fullscreenCatchUp: true,
 			}).catch((presenceError) => {
 				console.error('Failed to refresh sync on focus:', presenceError);
 			});
@@ -716,7 +851,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			connectionHandlersRef.current = null;
 			connectPromiseRef.current = null;
 		};
-	}, [connect, setupRealtime, runWithSyncIndicator]);
+	}, [connect, setupRealtime, refreshMemberCount]);
 
 	const connected = connectionState === 'connected';
 
@@ -737,6 +872,11 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				businessDate,
 				error,
 				syncConflict,
+				writeGate,
+				canWrite: writeGate === 'ready',
+				catchUpUi,
+				syncHubOnline,
+				kotPrintFailure,
 				connect,
 				updateDeviceName,
 				resolveSyncConflict,

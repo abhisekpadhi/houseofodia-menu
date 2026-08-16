@@ -24,7 +24,6 @@ import {
 	isOutOfStock,
 } from "@/src/utils/inventory_utils";
 import {
-	addOrder,
 	CUSTOMER_PHONE_DIGITS,
 	formatTableGroupLabel,
 	generateOrderId,
@@ -32,12 +31,21 @@ import {
 	getOccupiedTableNumbers,
 	getOrdersStore,
 	getTableServiceFlagsForTables,
+	groupOrdersByTable,
 	isValidCustomerPhone,
 	normalizeOrderItem,
 	parseTableParam,
 	formatCustomerContact,
 	isParcelDefaultOnForOrderKind,
+	updateOrders,
 } from "@/src/utils/order_utils";
+import {
+	canEditSession,
+	claimGroupSessionLock,
+	findOrderGroupByKey,
+	getGroupSessionLock,
+} from "@/src/utils/session_lock";
+import { useOrderOpsSync } from "@/context/order-ops-sync";
 import { allocateNextDailyOrderNumber } from "@/src/utils/daily_order_number";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -190,6 +198,7 @@ function appendOrderNoteShortcut(current: string, shortcut: string): string {
 function AddOrderContent() {
 	const router = useRouter();
 	const searchParams = useSearchParams();
+	const { deviceId, deviceName } = useOrderOpsSync();
 
 	const [orderKind, setOrderKind] = useState<OrderKind>("table");
 	const [selectedTables, setSelectedTables] = useState<number[]>([]);
@@ -628,9 +637,36 @@ function AddOrderContent() {
 								...(trimmedPhone ? { customerPhone: trimmedPhone } : {}),
 							}
 					: {};
+
+			// Block placing into a session locked by another device.
+			const liveGroup =
+				orderKind === "table"
+					? groupOrdersByTable(store.orders).find((group) => {
+							if (group.kind !== "table") return false;
+							const tables = [...(group.tableNumbers ?? [])].sort(
+								(a, b) => a - b
+							);
+							const selected = [...selectedTables].sort((a, b) => a - b);
+							return tables.join(",") === selected.join(",");
+						}) ?? null
+					: preselectedGroupKey
+						? findOrderGroupByKey(store.orders, preselectedGroupKey)
+						: null;
+			if (liveGroup && !canEditSession(liveGroup, deviceId)) {
+				const lock = getGroupSessionLock(liveGroup);
+				alert(
+					lock
+						? `Locked by ${lock.deviceName}. Acquire the lock from ⋮ on the orders screen first.`
+						: "This session is locked on another device."
+				);
+				setPlacing(false);
+				return;
+			}
+
+			const now = Date.now();
 			const order: TOrder = {
 				id: orderId,
-				createdAt: Date.now(),
+				createdAt: now,
 				kind: orderKind,
 				tableNumbers: orderKind === "table" ? selectedTables : [],
 				items: cartItems.map((item) =>
@@ -647,9 +683,27 @@ function AddOrderContent() {
 					: {}),
 				orderNumber,
 				pax: paxNumber,
+				lockHolderDeviceId: deviceId,
+				lockHolderName: deviceName.trim() || "This device",
+				lockUpdatedAt: now,
 			};
 
-			await addOrder(order);
+			const nextOrders = [...store.orders, order];
+			const groupAfter =
+				groupOrdersByTable(nextOrders).find((group) =>
+					group.orders.some((entry) => entry.id === orderId)
+				) ?? null;
+			await updateOrders(
+				groupAfter
+					? claimGroupSessionLock(
+							nextOrders,
+							groupAfter,
+							deviceId,
+							deviceName,
+							now
+						)
+					: nextOrders
+			);
 			await decrementInventoryForOrder(getTodayDateKey(), cartItems);
 			router.push("/order");
 		} catch (error) {

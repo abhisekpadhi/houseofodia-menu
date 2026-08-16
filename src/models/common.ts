@@ -155,6 +155,15 @@ export type TOrder = {
 	billedAt?: number;
 	/** Snapshot of bill totals written when the table is closed */
 	billSummary?: OrderBillSummary;
+	/**
+	 * Stealable session lock (advisory UX under LWW). Mirrored onto all orders
+	 * in the table / takeaway group like pax / groupNotes.
+	 */
+	lockHolderDeviceId?: string;
+	lockHolderName?: string;
+	lockUpdatedAt?: number;
+	/** Set when KOT printer ACKs a successful print for this order */
+	kotPrintedAt?: number;
 };
 
 export type OrderBillSummary = {

@@ -69,6 +69,8 @@ export type KotPrintRequestMessage = {
 	/** Stable id so printers can ignore duplicate deliveries of the same job. */
 	printJobId: string;
 	nameByBillName?: Record<string, string>;
+	/** Table session footer e.g. "1 - 3". */
+	tableSessionLabel?: string;
 	requestedAt: number;
 	requesterId: string;
 };
@@ -150,6 +152,7 @@ export async function requestKotPrint(
 		nameByBillName?: Record<string, string>;
 		/** Defaults to a unique manual id so staff can force a reprint. */
 		printJobId?: string;
+		tableSessionLabel?: string;
 		/** When true, skip quietly if sync/print channel is not ready. */
 		soft?: boolean;
 	}
@@ -178,6 +181,7 @@ export async function requestKotPrint(
 			mode,
 			printJobId,
 			nameByBillName: options?.nameByBillName,
+			tableSessionLabel: options?.tableSessionLabel,
 			requestedAt,
 			requesterId: meta.deviceId || getStableDeviceId(),
 		});
@@ -329,6 +333,12 @@ export async function notifyOrderOpsChange(
 		return;
 	}
 
+	const { canPublishOrderOps } = await import('@/src/utils/sync_write_gate');
+	if (!canPublishOrderOps()) {
+		console.warn(`[sync-gate] block notifyOrderOpsChange(${domain})`);
+		return;
+	}
+
 	await bumpOrderOpsDomain(domain);
 	const snapshot = await buildOrderOpsSnapshot();
 
@@ -345,6 +355,12 @@ export async function notifyOrderOpsChange(
 
 export async function notifyOrderOpsFullBroadcast(): Promise<void> {
 	if (suppressSyncNotify || typeof window === 'undefined') {
+		return;
+	}
+
+	const { canPublishOrderOps } = await import('@/src/utils/sync_write_gate');
+	if (!canPublishOrderOps()) {
+		console.warn('[sync-gate] block notifyOrderOpsFullBroadcast');
 		return;
 	}
 
@@ -406,12 +422,29 @@ export async function applyOrderOpsSnapshot(
 			const beforeIds = new Set(beforeOrders.map((order) => order.id));
 
 			const maintained = maintainOrders(payload.orders, Date.now());
-			newOrderIds = maintained
+			const historyOrders = Array.isArray(payload.orderHistory)
+				? payload.orderHistory
+				: [];
+			const billedIds = new Set(
+				historyOrders
+					.filter((o) => o.billedAt != null && o.id)
+					.map((o) => o.id)
+			);
+			const withoutResurrected = maintained.filter((order) => {
+				if (billedIds.has(order.id)) {
+					console.warn(
+						`[sync] strip resurrected billed order ${order.id}`
+					);
+					return false;
+				}
+				return true;
+			});
+			newOrderIds = withoutResurrected
 				.filter((order) => !beforeIds.has(order.id))
 				.map((order) => order.id);
 
 			await localforage.setItem<TOrdersStore>(ORDERS_KEY, {
-				orders: maintained,
+				orders: withoutResurrected,
 			});
 
 			if (payload.orderHistory) {
@@ -420,13 +453,13 @@ export async function applyOrderOpsSnapshot(
 					payload.orderHistory
 				);
 			} else {
-				await upsertOrdersInHistory(maintained);
+				await upsertOrdersInHistory(withoutResurrected);
 			}
 
 			await applyDailyOrderNumberSnapshot(
 				payload.businessDate,
 				payload.nextOrderNumber,
-				maintained,
+				withoutResurrected,
 				payload.orderHistory ?? []
 			);
 
@@ -697,12 +730,15 @@ export async function detectSyncConflict(
 		return null;
 	}
 
+	// Hub present → auto-sync from hub; never show source picker.
 	const hubPeer = peers.find((peer) => peer.isSyncHub);
-	const recommendedPeer =
-		hubPeer ??
-		peers.reduce((best, peer) =>
-			peer.stateVersion > best.stateVersion ? peer : best
-		);
+	if (hubPeer) {
+		return null;
+	}
+
+	const recommendedPeer = peers.reduce((best, peer) =>
+		peer.stateVersion > best.stateVersion ? peer : best
+	);
 
 	return {
 		businessDate: today,
@@ -783,21 +819,24 @@ export async function maybeRequestSyncFromPeers(
 	publish: (payload: SyncRequestMessage) => Promise<void>,
 	members: PresenceMember[],
 	selfClientId: string
-): Promise<void> {
+): Promise<{ requested: boolean; reason: string }> {
 	if (syncConflictBlocking) {
-		return;
+		return { requested: false, reason: 'conflict_blocking' };
 	}
 
 	const today = getTodayDateKey();
 	const meta = await getOrderOpsMeta();
 
 	if (meta.businessDate !== today) {
-		return;
+		return { requested: false, reason: 'wrong_date' };
 	}
 
 	const source = pickSyncSourcePeer(members, selfClientId, today);
 	if (!source) {
-		return;
+		if (hasSyncHubMember(members, selfClientId, today)) {
+			return { requested: false, reason: 'hub_not_ready' };
+		}
+		return { requested: false, reason: 'no_peers' };
 	}
 
 	const sourceVersions = getPeerVersions(source);
@@ -805,7 +844,7 @@ export async function maybeRequestSyncFromPeers(
 	const needsCatchUp = isAnyDomainBehind(meta.versions, sourceVersions);
 
 	if (!needsInitialSync && !needsCatchUp) {
-		return;
+		return { requested: false, reason: 'already_current' };
 	}
 
 	if (
@@ -813,12 +852,12 @@ export async function maybeRequestSyncFromPeers(
 		!needsCatchUp &&
 		maxOrderOpsVersion(meta.versions) > 0
 	) {
-		return;
+		return { requested: false, reason: 'initialized_local' };
 	}
 
 	const now = Date.now();
 	if (now - lastSyncRequestAt < SYNC_REQUEST_COOLDOWN_MS) {
-		return;
+		return { requested: false, reason: 'cooldown' };
 	}
 	lastSyncRequestAt = now;
 
@@ -831,6 +870,10 @@ export async function maybeRequestSyncFromPeers(
 	};
 
 	await publish(payload);
+	return {
+		requested: true,
+		reason: peerIsSyncHub(source) ? 'from_hub' : 'from_peer',
+	};
 }
 
 export async function handleSyncResponse(
@@ -855,6 +898,23 @@ export async function handleStateDelta(
 	}
 
 	return applyOrderOpsSnapshot(message);
+}
+
+export function orderIdsContentHash(orders: { id: string }[]): string {
+	return orders
+		.map((order) => order.id)
+		.sort()
+		.join('|');
+}
+
+export function isSyncHubOnlineAmong(
+	members: PresenceMember[],
+	selfClientId: string,
+	today: string
+): boolean {
+	return peersForToday(members, selfClientId, today).some((member) =>
+		peerIsSyncHub(member)
+	);
 }
 
 export function pickOldestMember(
@@ -884,3 +944,44 @@ export function isNewestMember(
 
 	return members.every((member) => member.timestamp <= self.timestamp);
 }
+
+/** Mark order as KOT-printed locally (idempotent). Hub also patches SoT; this covers manual KOT when hub is down. */
+export async function applyKotPrintedAck(
+	orderId: string,
+	printedAt = Date.now()
+): Promise<void> {
+	if (!orderId || typeof window === 'undefined') {
+		return;
+	}
+	const { getOrdersStore, saveOrdersStore } = await import(
+		'@/src/utils/order_utils'
+	);
+	const store = await getOrdersStore();
+	let changed = false;
+	const nextOrders = store.orders.map((order) => {
+		if (order.id !== orderId) {
+			return order;
+		}
+		if (order.kotPrintedAt != null && order.kotPrintedAt >= printedAt) {
+			return order;
+		}
+		changed = true;
+		return { ...order, kotPrintedAt: printedAt };
+	});
+	if (!changed) {
+		return;
+	}
+	await runWithoutSyncNotify(async () => {
+		await saveOrdersStore({ orders: nextOrders });
+	});
+	dispatchOrderOpsUpdated();
+}
+
+export type KotPrintAckMessage = {
+	orderId?: string;
+	printJobId?: string;
+	printedAt?: number;
+	error?: string;
+	deviceId?: string;
+};
+

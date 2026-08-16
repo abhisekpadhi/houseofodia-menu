@@ -12,7 +12,20 @@ import {
 	getMaxEditableQty,
 	getTodayDateKey,
 } from "@/src/utils/inventory_utils";
-import { formatOrderTime, isOrderMarkedDone, updateOrderItems } from "@/src/utils/order_utils";
+import {
+	formatOrderTime,
+	getOrdersStore,
+	isOrderMarkedDone,
+	normalizeOrderItemsAfterEdit,
+	updateOrders,
+} from "@/src/utils/order_utils";
+import {
+	canEditSession,
+	claimSessionLockForOrder,
+	findOrderGroupForOrder,
+	getGroupSessionLock,
+} from "@/src/utils/session_lock";
+import { useOrderOpsSync } from "@/context/order-ops-sync";
 import { useEffect, useMemo, useState } from "react";
 
 type EditOrderModalProps = {
@@ -48,6 +61,7 @@ function EditOrderBlockedModal({ onClose }: { onClose: () => void }) {
 }
 
 function EditOrderModalContent({ order, onClose, onSaved }: EditOrderModalProps) {
+	const { deviceId, deviceName } = useOrderOpsSync();
 	const [draftItems, setDraftItems] = useState<TOrderItem[]>(() =>
 		order.items.map((item) => ({ ...item }))
 	);
@@ -127,6 +141,19 @@ function EditOrderModalContent({ order, onClose, onSaved }: EditOrderModalProps)
 
 		setSaving(true);
 		try {
+			const store = await getOrdersStore();
+			const group = findOrderGroupForOrder(store.orders, order.id);
+			if (group && !canEditSession(group, deviceId)) {
+				const lock = getGroupSessionLock(group);
+				alert(
+					lock
+						? `Locked by ${lock.deviceName}. Acquire the lock from ⋮ on the orders screen first.`
+						: "This session is locked on another device."
+				);
+				setSaving(false);
+				return;
+			}
+
 			const nextItems: TDish[] = draftItems.map((item) => ({
 				name: item.name,
 				qty: item.qty,
@@ -155,7 +182,29 @@ function EditOrderModalContent({ order, onClose, onSaved }: EditOrderModalProps)
 				originalItems,
 				nextItems
 			);
-			await updateOrderItems(order.id, draftItems);
+			const freshStore = await getOrdersStore();
+			const index = freshStore.orders.findIndex((entry) => entry.id === order.id);
+			if (index === -1) {
+				throw new Error("Order not found");
+			}
+			const updated = normalizeOrderItemsAfterEdit(
+				freshStore.orders[index],
+				draftItems
+			);
+			const nextOrders = [...freshStore.orders];
+			if (updated.items.length === 0) {
+				nextOrders.splice(index, 1);
+			} else {
+				nextOrders[index] = updated;
+			}
+			await updateOrders(
+				claimSessionLockForOrder(
+					nextOrders,
+					order.id,
+					deviceId,
+					deviceName
+				)
+			);
 			onSaved();
 			onClose();
 		} catch (error) {
