@@ -69,7 +69,13 @@ function CloseIcon({ className }: { className?: string }) {
 	);
 }
 
-const DRAWER_LINKS = [
+type DrawerLink = {
+	href: string;
+	label: string;
+	adminOnly?: boolean;
+};
+
+const DRAWER_LINKS: DrawerLink[] = [
 	{ href: '/order/inventory', label: 'Dish inventory' },
 	{ href: '/freeflow', label: 'Old bill' },
 	{ href: '/order/history', label: "Today's order history" },
@@ -81,7 +87,7 @@ const DRAWER_LINKS = [
 	{ href: '/order/menu-sop', label: 'Menu SOP' },
 	{ href: '/order/waitlist', label: 'Waiting list' },
 	{ href: '/order/staff-users', label: 'Staff users', adminOnly: true },
-] as const;
+];
 
 export function OpsDrawerProvider({ children }: { children: ReactNode }) {
 	const [open, setOpen] = useState(false);
