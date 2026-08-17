@@ -6,6 +6,9 @@ const nextConfig = {
 			{ protocol: 'https', hostname: 'img.clerk.com' },
 		],
 	},
+	experimental: {
+		missingSuspenseWithCSRBailout: false,
+	},
 };
 
 module.exports = nextConfig;
