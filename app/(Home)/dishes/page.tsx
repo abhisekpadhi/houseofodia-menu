@@ -3,7 +3,7 @@
 import { TCart, TDish, TStorage } from "@/src/models/common";
 import localforage from "localforage";
 import { useRouter, useSearchParams } from "next/navigation";
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 
 const DishesScreen = () => {
   const params = useSearchParams();
@@ -129,4 +129,10 @@ const DishesScreen = () => {
   );
 };
 
-export default DishesScreen;
+export default function DishesPage() {
+  return (
+    <Suspense fallback={null}>
+      <DishesScreen />
+    </Suspense>
+  );
+}

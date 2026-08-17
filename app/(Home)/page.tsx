@@ -6,7 +6,7 @@ import axios from "axios";
 import clsx from "clsx";
 import { Niconne } from "next/font/google";
 import { useSearchParams } from "next/navigation";
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 
 const niconne = Niconne({ subsets: ["latin"], weight: "400" });
 
@@ -205,4 +205,10 @@ const MenuItem: React.FC<MenuItemProps> = ({ category, items }) => {
   );
 };
 
-export default Menu;
+export default function MenuPage() {
+  return (
+    <Suspense fallback={null}>
+      <Menu />
+    </Suspense>
+  );
+}
