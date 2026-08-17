@@ -3,7 +3,19 @@
 import { useOrderOpsSync } from '@/context/order-ops-sync';
 import { maxOrderOpsVersion } from '@/src/models/order_ops';
 import { formatStateVersionDisplay } from '@/src/utils/format_state_version';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { useInFlightLock } from '@/src/utils/in_flight';
+
+const SYNC_MODAL_OVERLAY =
+	'fixed inset-0 z-[80] flex items-center justify-center bg-black/40 px-4';
+
+function renderSyncModal(node: ReactNode) {
+	if (typeof document === 'undefined') {
+		return null;
+	}
+	return createPortal(node, document.body);
+}
 
 type ModalMode = 'connect' | 'status' | 'conflict' | null;
 
@@ -58,6 +70,7 @@ export function OrderOpsSyncIndicator({
 	const [savingName, setSavingName] = useState(false);
 	const [resolvingConflict, setResolvingConflict] = useState(false);
 	const [keepLocalConfirm, setKeepLocalConfirm] = useState(false);
+	const syncActionLock = useInFlightLock();
 
 	useEffect(() => {
 		if (sync.connected && modal === 'connect') {
@@ -92,6 +105,9 @@ export function OrderOpsSyncIndicator({
 	};
 
 	const handleConnect = async () => {
+		if (!syncActionLock.tryLock()) {
+			return;
+		}
 		setConnecting(true);
 		try {
 			await sync.connect();
@@ -99,6 +115,7 @@ export function OrderOpsSyncIndicator({
 			// Error state is surfaced via sync.error
 		} finally {
 			setConnecting(false);
+			syncActionLock.unlock();
 		}
 	};
 
@@ -106,6 +123,9 @@ export function OrderOpsSyncIndicator({
 		const trimmed = nameDraft.trim();
 		if (!trimmed) {
 			alert('Device name is required.');
+			return;
+		}
+		if (!syncActionLock.tryLock()) {
 			return;
 		}
 		setSavingName(true);
@@ -120,6 +140,7 @@ export function OrderOpsSyncIndicator({
 			);
 		} finally {
 			setSavingName(false);
+			syncActionLock.unlock();
 		}
 	};
 
@@ -127,6 +148,9 @@ export function OrderOpsSyncIndicator({
 		resolution: 'newest' | 'peer' | 'local',
 		peerClientId?: string
 	) => {
+		if (!syncActionLock.tryLock()) {
+			return;
+		}
 		setResolvingConflict(true);
 		try {
 			await sync.resolveSyncConflict(resolution, peerClientId);
@@ -134,6 +158,7 @@ export function OrderOpsSyncIndicator({
 			setKeepLocalConfirm(false);
 		} finally {
 			setResolvingConflict(false);
+			syncActionLock.unlock();
 		}
 	};
 
@@ -175,9 +200,10 @@ export function OrderOpsSyncIndicator({
 			</button>
 			{sync.syncing ? <span className="sr-only">Syncing</span> : null}
 
-			{modal === 'connect' && (
+			{modal === 'connect' &&
+				renderSyncModal(
 				<div
-					className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+					className={SYNC_MODAL_OVERLAY}
 					onClick={() => {
 						if (!connecting) {
 							setModal(null);
@@ -222,11 +248,12 @@ export function OrderOpsSyncIndicator({
 						</div>
 					</div>
 				</div>
-			)}
+				)}
 
-			{modal === 'status' && (
+			{modal === 'status' &&
+				renderSyncModal(
 				<div
-					className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+					className={SYNC_MODAL_OVERLAY}
 					onClick={() => setModal(null)}
 				>
 					<div
@@ -314,11 +341,13 @@ export function OrderOpsSyncIndicator({
 						</button>
 					</div>
 				</div>
-			)}
+				)}
 
-			{modal === 'conflict' && sync.syncConflict && (
+			{modal === 'conflict' &&
+				sync.syncConflict &&
+				renderSyncModal(
 				<div
-					className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+					className={SYNC_MODAL_OVERLAY}
 					onClick={() => {
 						if (!resolvingConflict) {
 							setModal(null);
@@ -432,7 +461,7 @@ export function OrderOpsSyncIndicator({
 						</div>
 					</div>
 				</div>
-			)}
+				)}
 		</>
 	);
 }

@@ -24,6 +24,7 @@ import { buildMenuFromApiItems, stringToColor, getMenuDisplayName, menuItemMatch
 import localforage from "localforage";
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useInFlightLock } from "@/src/utils/in_flight";
 
 function RefreshIcon({ className }: { className?: string }) {
   return (
@@ -59,6 +60,8 @@ const FreeflowPage: React.FC = () => {
     {}
   );
   const [categories, setCategories] = useState<string[]>([]);
+  const [goingToCart, setGoingToCart] = useState(false);
+  const cartLock = useInFlightLock();
 
   const applyMenuItems = useCallback((items: TMenuApiItem[]) => {
     setMenu(buildMenuFromApiItems(items));
@@ -186,6 +189,11 @@ const FreeflowPage: React.FC = () => {
   }, [allItems, selectedCategory, searchTerm]);
 
   const goToCart = async () => {
+    if (!cartLock.tryLock()) {
+      return;
+    }
+    setGoingToCart(true);
+    try {
     let context =
       await localforage.getItem<BillingContext>(BILLING_CONTEXT_KEY);
     if (!context || context.source !== "freeflow" || !context.sessionId) {
@@ -204,6 +212,12 @@ const FreeflowPage: React.FC = () => {
     await saveBillingSession(context, cart);
     await notifyOrderOpsChange("billing");
     router.push("/cart");
+    } catch (error) {
+      console.error("Failed to open cart:", error);
+      alert("Failed to open cart. Please try again.");
+      setGoingToCart(false);
+      cartLock.unlock();
+    }
   };
 
   const updateCartAndQuantities = (
@@ -291,7 +305,9 @@ const FreeflowPage: React.FC = () => {
             <RefreshIcon className="w-4 h-4" />
           </TouchIconButton>
           <TouchActionButton
-            onClick={goToCart}
+            onClick={() => void goToCart()}
+            loading={goingToCart}
+            disabled={goingToCart}
             className="bg-green-500 text-white active:bg-green-600 min-w-[72px]"
           >
             Cart

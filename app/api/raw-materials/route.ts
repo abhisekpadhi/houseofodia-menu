@@ -1,3 +1,4 @@
+import { auth } from '@clerk/nextjs/server';
 import axios from 'axios';
 import { NextResponse } from 'next/server';
 
@@ -44,6 +45,7 @@ function parseRawMaterialRows(values: string[][] | undefined): RawMaterialSheetI
 }
 
 export async function GET(request: Request) {
+	await auth.protect();
 	const apiKey = process.env.GOOGLE_SHEETS_API_KEY;
 	const sheetId =
 		process.env.GOOGLE_RAW_MATERIALS_SHEET_ID?.trim() || DEFAULT_SHEET_ID;

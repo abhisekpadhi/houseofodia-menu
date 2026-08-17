@@ -1,4 +1,5 @@
 import { getOrderOpsChannel } from '@/src/models/order_ops';
+import { auth } from '@clerk/nextjs/server';
 import Ably from 'ably';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -6,6 +7,7 @@ const DEVICE_ID_PATTERN =
 	/^device-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export async function GET(request: NextRequest) {
+	await auth.protect();
 	const deviceId = request.nextUrl.searchParams.get('deviceId');
 
 	if (!deviceId || !DEVICE_ID_PATTERN.test(deviceId)) {

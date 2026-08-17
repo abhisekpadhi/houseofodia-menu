@@ -29,6 +29,7 @@ import {
 } from "@/src/utils/order_ops_sync";
 import { isBillPrinterOnline } from "@/src/utils/print_servers";
 import { useOrderOpsSync } from "@/context/order-ops-sync";
+import { useInFlightLock } from "@/src/utils/in_flight";
 import { buildDishInternalNameMap } from "@/src/utils/menu_utils";
 import { saveBillToBackend } from "@/src/utils/tangify_api";
 import localforage from "localforage";
@@ -176,11 +177,13 @@ function CustomerPhoneModal({
   onChange,
   onConfirm,
   onCancel,
+  confirming = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   onConfirm: () => void;
   onCancel: () => void;
+  confirming?: boolean;
 }) {
   const [visibleViewport, setVisibleViewport] = useState<{
     top: number;
@@ -269,6 +272,8 @@ function CustomerPhoneModal({
           onConfirm={onConfirm}
           confirmLabel={value ? "Save phone" : "Clear phone"}
           confirmDisabled={value.length > 0 && !isValid}
+          confirming={confirming}
+          cancelDisabled={confirming}
         />
       </div>
     </div>
@@ -288,6 +293,7 @@ function CustomDiscountModal({
   onConfirm,
   onRemove,
   onCancel,
+  confirming = false,
 }: {
   amount: string;
   unit: CustomDiscountUnit;
@@ -301,6 +307,7 @@ function CustomDiscountModal({
   onConfirm: () => void;
   onRemove: () => void;
   onCancel: () => void;
+  confirming?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [visibleViewport, setVisibleViewport] = useState<{
@@ -517,7 +524,8 @@ function CustomDiscountModal({
             <button
               type="button"
               onClick={onRemove}
-              className="w-full min-h-[44px] rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm font-semibold touch-manipulation active:bg-red-100"
+              disabled={confirming}
+              className="w-full min-h-[44px] rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm font-semibold touch-manipulation active:bg-red-100 disabled:opacity-60"
             >
               Remove discount
             </button>
@@ -528,6 +536,8 @@ function CustomDiscountModal({
           onConfirm={onConfirm}
           confirmLabel="Apply discount"
           confirmDisabled={!amountValid || !reasonValid}
+          confirming={confirming}
+          cancelDisabled={confirming}
         />
       </div>
     </div>
@@ -567,6 +577,7 @@ const Receipt = () => {
     Record<string, string>
   >({});
   const billReceiptRef = useRef<HTMLDivElement>(null);
+  const billActionLock = useInFlightLock();
   const isBusy = saving || processing;
   const controlsDisabled = isBusy || downloadingImage;
   useEffect(() => {
@@ -713,7 +724,7 @@ const Receipt = () => {
   };
 
   const handleMembershipSelect = (value: "monthly" | "yearly") => {
-    if (isBusy) {
+    if (isBusy || !billActionLock.tryLock()) {
       return;
     }
     const nextMembership = membership === value ? "none" : value;
@@ -723,6 +734,8 @@ const Receipt = () => {
       staffWelfare,
       null
     );
+    setBusyMessage("Updating bill…");
+    setSaving(true);
     void updateBill({
       ...bill,
       ...totals,
@@ -732,6 +745,9 @@ const Receipt = () => {
       customDiscountReason: undefined,
       backendStatus: "idle",
       updatedAt: Date.now(),
+    }).finally(() => {
+      setSaving(false);
+      billActionLock.unlock();
     });
   };
 
@@ -764,6 +780,9 @@ const Receipt = () => {
     ) {
       return;
     }
+    if (!billActionLock.tryLock()) {
+      return;
+    }
     const custom: CustomDiscountInput = {
       value: roundCurrency(parsed),
       unit: customUnitDraft,
@@ -774,6 +793,8 @@ const Receipt = () => {
       staffWelfare,
       custom
     );
+    setBusyMessage("Updating bill…");
+    setSaving(true);
     void updateBill({
       ...bill,
       ...totals,
@@ -783,12 +804,15 @@ const Receipt = () => {
       customDiscountReason: reason,
       backendStatus: "idle",
       updatedAt: Date.now(),
+    }).finally(() => {
+      setSaving(false);
+      billActionLock.unlock();
     });
     setCustomDiscountModalOpen(false);
   };
 
   const handleRemoveCustomDiscount = () => {
-    if (isBusy) {
+    if (isBusy || !billActionLock.tryLock()) {
       return;
     }
     const totals = calculateBillAmounts(
@@ -797,6 +821,8 @@ const Receipt = () => {
       staffWelfare,
       null
     );
+    setBusyMessage("Updating bill…");
+    setSaving(true);
     void updateBill({
       ...bill,
       ...totals,
@@ -806,6 +832,9 @@ const Receipt = () => {
       customDiscountReason: undefined,
       backendStatus: "idle",
       updatedAt: Date.now(),
+    }).finally(() => {
+      setSaving(false);
+      billActionLock.unlock();
     });
     setCustomDiscountModalOpen(false);
   };
@@ -823,11 +852,19 @@ const Receipt = () => {
     if (trimmed && !isValidCustomerPhone(trimmed)) {
       return;
     }
+    if (!billActionLock.tryLock()) {
+      return;
+    }
+    setBusyMessage("Updating bill…");
+    setSaving(true);
     void updateBill({
       ...bill,
       customerPhone: trimmed || undefined,
       backendStatus: "idle",
       updatedAt: Date.now(),
+    }).finally(() => {
+      setSaving(false);
+      billActionLock.unlock();
     });
     setPhoneModalOpen(false);
   };
@@ -870,12 +907,12 @@ const Receipt = () => {
   };
 
   const handleSave = async () => {
-    if (!billingContext || isBusy) {
+    if (!billingContext) {
       return;
     }
     const needsSave =
       !bill.backendBillId || bill.backendSavedAt !== bill.updatedAt;
-    if (!needsSave) {
+    if (!needsSave || !billActionLock.tryLock()) {
       return;
     }
     setBusyMessage("Saving bill…");
@@ -897,15 +934,19 @@ const Receipt = () => {
       setSaveFailureOpen(true);
     } finally {
       setSaving(false);
+      billActionLock.unlock();
     }
   };
 
   const handlePrint = async () => {
-    if (!billingContext || isBusy) {
+    if (!billingContext) {
       return;
     }
     if (bill.backendBillId) {
       window.print();
+      return;
+    }
+    if (!billActionLock.tryLock()) {
       return;
     }
     setBusyMessage("Saving bill…");
@@ -931,16 +972,19 @@ const Receipt = () => {
       setSaveFailureOpen(true);
     } finally {
       setSaving(false);
+      billActionLock.unlock();
     }
   };
 
   const sendBillToPrintServer = async () => {
-    if (!billingContext || controlsDisabled || printServerState === "sending") {
+    if (!billingContext || bill.cart.items.length === 0) {
+      if (bill.cart.items.length === 0) {
+        setPrintServerState("error");
+        setPrintServerError("No items to print");
+      }
       return;
     }
-    if (bill.cart.items.length === 0) {
-      setPrintServerState("error");
-      setPrintServerError("No items to print");
+    if (!billActionLock.tryLock()) {
       return;
     }
 
@@ -991,6 +1035,8 @@ const Receipt = () => {
           ? error.message
           : "Could not reach Bill Printer"
       );
+    } finally {
+      billActionLock.unlock();
     }
   };
 
@@ -1037,7 +1083,7 @@ const Receipt = () => {
   };
 
   const onClickCloseTable = async () => {
-    if (isBusy) {
+    if (!billActionLock.tryLock()) {
       return;
     }
     setBusyMessage("Closing table…");
@@ -1047,6 +1093,8 @@ const Receipt = () => {
       const context = await resolveBillingContext();
       if (!context) {
         alert("Billing session is missing.");
+        setProcessing(false);
+        billActionLock.unlock();
         return;
       }
 
@@ -1066,13 +1114,13 @@ const Receipt = () => {
     } catch {
       setFallbackAction("close");
       setSaveFailureOpen(true);
-    } finally {
       setProcessing(false);
+      billActionLock.unlock();
     }
   };
 
   const handleDownloadBillImage = async () => {
-    if (!billReceiptRef.current || controlsDisabled) {
+    if (!billReceiptRef.current || !billActionLock.tryLock()) {
       return;
     }
     setDownloadingImage(true);
@@ -1182,6 +1230,7 @@ const Receipt = () => {
       alert("Could not download bill image. Please try again.");
     } finally {
       setDownloadingImage(false);
+      billActionLock.unlock();
     }
   };
 
@@ -1226,7 +1275,7 @@ const Receipt = () => {
           }}
         />
       ) : null}
-      <div className="sticky top-0 z-20 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2 bg-transparent pointer-events-none print:hidden">
+      <div className="sticky top-[var(--ops-top-banner-height,0px)] z-20 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2 bg-transparent pointer-events-none print:hidden">
         <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 pointer-events-auto">
           <button
             type="button"
@@ -1547,8 +1596,13 @@ const Receipt = () => {
         <CustomerPhoneModal
           value={phoneDraft}
           onChange={setPhoneDraft}
-          onCancel={() => setPhoneModalOpen(false)}
+          onCancel={() => {
+            if (!isBusy) {
+              setPhoneModalOpen(false);
+            }
+          }}
           onConfirm={handleSaveCustomerPhone}
+          confirming={isBusy}
         />
       ) : null}
       {customDiscountModalOpen ? (
@@ -1565,9 +1619,14 @@ const Receipt = () => {
           onAmountChange={setCustomAmountDraft}
           onUnitChange={setCustomUnitDraft}
           onReasonChange={setCustomReasonDraft}
-          onCancel={() => setCustomDiscountModalOpen(false)}
+          onCancel={() => {
+            if (!isBusy) {
+              setCustomDiscountModalOpen(false);
+            }
+          }}
           onConfirm={handleApplyCustomDiscount}
           onRemove={handleRemoveCustomDiscount}
+          confirming={isBusy}
         />
       ) : null}
       {isBusy ? (

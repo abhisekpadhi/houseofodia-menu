@@ -15,6 +15,7 @@ import {
 } from '@/src/utils/day_checklist_utils';
 import { ORDER_OPS_EVENT } from '@/src/models/order_ops';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useInFlightLock } from '@/src/utils/in_flight';
 
 function formatTodayLabel(dateKey: string): string {
 	const [year, month, day] = dateKey.split('-').map(Number);
@@ -41,6 +42,7 @@ export function DayChecklistPage({ kind, title }: DayChecklistPageProps) {
 	const [savedChecked, setSavedChecked] = useState<DayChecklistState>({});
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
+	const saveLock = useInFlightLock();
 
 	useEffect(() => {
 		const syncDateKey = () => {
@@ -102,6 +104,9 @@ export function DayChecklistPage({ kind, title }: DayChecklistPageProps) {
 			return;
 		}
 
+		if (!saveLock.tryLock()) {
+			return;
+		}
 		setSaving(true);
 		try {
 			await saveDayChecklistForDate(today, kind, checked);
@@ -111,6 +116,7 @@ export function DayChecklistPage({ kind, title }: DayChecklistPageProps) {
 			alert('Failed to save checklist. Please try again.');
 		} finally {
 			setSaving(false);
+			saveLock.unlock();
 		}
 	};
 

@@ -34,6 +34,7 @@ import {
 import axios from "axios";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useInFlightLock } from "@/src/utils/in_flight";
 
 type MenuRow = {
 	category: string;
@@ -92,6 +93,7 @@ export default function InventoryPage() {
 	const [editingItems, setEditingItems] = useState<Set<string>>(new Set());
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
+	const saveLock = useInFlightLock();
 	const [searchTerm, setSearchTerm] = useState("");
 	const [pendingShortcut, setPendingShortcut] =
 		useState<InventoryShortcut | null>(null);
@@ -249,6 +251,9 @@ export default function InventoryPage() {
 	};
 
 	const handleSave = async () => {
+		if (!saveLock.tryLock()) {
+			return;
+		}
 		setSaving(true);
 		try {
 			const items: Record<string, number> = {};
@@ -261,10 +266,14 @@ export default function InventoryPage() {
 			console.error("Failed to save inventory:", error);
 			alert("Failed to save inventory. Please try again.");
 			setSaving(false);
+			saveLock.unlock();
 		}
 	};
 
 	const handleApplyShortcut = async (shortcut: InventoryShortcutId) => {
+		if (!saveLock.tryLock()) {
+			return;
+		}
 		setApplyingShortcut(true);
 		try {
 			setQuantities((current) =>
@@ -274,6 +283,7 @@ export default function InventoryPage() {
 			setPendingShortcut(null);
 		} finally {
 			setApplyingShortcut(false);
+			saveLock.unlock();
 		}
 	};
 

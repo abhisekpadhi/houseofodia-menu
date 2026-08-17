@@ -49,6 +49,8 @@ import localforage from 'localforage';
 
 const ORDERS_KEY = 'orders';
 const SYNC_REQUEST_COOLDOWN_MS = 2_000;
+/** Wait this long for a ready hub / sync:response before P2P fallback. */
+export const HUB_SYNC_WAIT_MS = 4_000;
 
 let suppressSyncNotify = false;
 let publishStateDelta: ((snapshot: OrderOpsSnapshot) => Promise<void>) | null =
@@ -616,58 +618,25 @@ export function peerIsSyncHub(member: PresenceMember): boolean {
 	);
 }
 
+function isHubRole(member: PresenceMember): boolean {
+	return member.data?.role === 'syncHub' || member.data?.isSyncHub === true;
+}
+
 /** True if a sync-hub process is on the channel (ready or still booting). */
 export function hasSyncHubMember(
 	members: PresenceMember[],
 	selfClientId: string,
 	today: string
 ): boolean {
-	return peersForToday(members, selfClientId, today).some(
-		(member) =>
-			member.data?.role === 'syncHub' || member.data?.isSyncHub === true
-	);
+	return peersForToday(members, selfClientId, today).some(isHubRole);
 }
 
-/**
- * If a hub is present: sync only from a ready hub (never other peers).
- * If no hub: highest-version peer (current P2P behaviour).
- */
-export function pickSyncSourcePeer(
-	members: PresenceMember[],
-	selfClientId: string,
-	today: string
+function pickHighestVersionPeer(
+	candidates: PresenceMember[]
 ): PresenceMember | null {
-	const todayPeers = peersForToday(members, selfClientId, today);
-	if (todayPeers.length === 0) {
+	if (candidates.length === 0) {
 		return null;
 	}
-
-	const hubsReady = todayPeers.filter(peerIsSyncHub);
-	if (hubsReady.length > 0) {
-		return hubsReady.reduce((best, member) => {
-			const version = getPeerStateVersion(member);
-			const bestVersion = getPeerStateVersion(best);
-			if (version > bestVersion) {
-				return member;
-			}
-			if (version === bestVersion && member.timestamp < best.timestamp) {
-				return member;
-			}
-			return best;
-		});
-	}
-
-	// Hub is online but not ready yet — wait; do not fall back to P2P.
-	if (hasSyncHubMember(members, selfClientId, today)) {
-		return null;
-	}
-
-	const pool = todayPeers.filter(
-		(member) =>
-			getPeerInitialized(member) || getPeerStateVersion(member) > 0
-	);
-	const candidates = pool.length > 0 ? pool : todayPeers;
-
 	return candidates.reduce((best, member) => {
 		const version = getPeerStateVersion(member);
 		const bestVersion = getPeerStateVersion(best);
@@ -679,6 +648,45 @@ export function pickSyncSourcePeer(
 		}
 		return best;
 	});
+}
+
+export type PickSyncSourceOptions = {
+	/**
+	 * When true, if no ready hub is present, sync from tablets (pre-hub P2P).
+	 * When false, a booting/silent hub blocks P2P so callers can wait then retry.
+	 */
+	p2pFallback?: boolean;
+};
+
+/**
+ * Prefer a ready hub. If none: wait (unless p2pFallback) then highest-version peer.
+ */
+export function pickSyncSourcePeer(
+	members: PresenceMember[],
+	selfClientId: string,
+	today: string,
+	options?: PickSyncSourceOptions
+): PresenceMember | null {
+	const todayPeers = peersForToday(members, selfClientId, today);
+	if (todayPeers.length === 0) {
+		return null;
+	}
+
+	const readyHub = pickHighestVersionPeer(todayPeers.filter(peerIsSyncHub));
+	if (readyHub) {
+		return readyHub;
+	}
+
+	if (hasSyncHubMember(members, selfClientId, today) && !options?.p2pFallback) {
+		return null;
+	}
+
+	const p2pPeers = todayPeers.filter((member) => !isHubRole(member));
+	const pool = p2pPeers.filter(
+		(member) => getPeerInitialized(member) || getPeerStateVersion(member) > 0
+	);
+	const candidates = pool.length > 0 ? pool : p2pPeers;
+	return pickHighestVersionPeer(candidates);
 }
 
 function peersForToday(
@@ -818,7 +826,8 @@ export function resetSyncRequestCooldown(): void {
 export async function maybeRequestSyncFromPeers(
 	publish: (payload: SyncRequestMessage) => Promise<void>,
 	members: PresenceMember[],
-	selfClientId: string
+	selfClientId: string,
+	options?: PickSyncSourceOptions
 ): Promise<{ requested: boolean; reason: string }> {
 	if (syncConflictBlocking) {
 		return { requested: false, reason: 'conflict_blocking' };
@@ -831,9 +840,12 @@ export async function maybeRequestSyncFromPeers(
 		return { requested: false, reason: 'wrong_date' };
 	}
 
-	const source = pickSyncSourcePeer(members, selfClientId, today);
+	const source = pickSyncSourcePeer(members, selfClientId, today, options);
 	if (!source) {
-		if (hasSyncHubMember(members, selfClientId, today)) {
+		if (
+			hasSyncHubMember(members, selfClientId, today) &&
+			!options?.p2pFallback
+		) {
 			return { requested: false, reason: 'hub_not_ready' };
 		}
 		return { requested: false, reason: 'no_peers' };

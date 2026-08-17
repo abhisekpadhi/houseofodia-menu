@@ -89,6 +89,7 @@ import {
 import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
 import { saveBillingSession } from "@/src/utils/billing_state";
 import { notifyOrderOpsChange } from "@/src/utils/order_ops_sync";
+import { useInFlightLock } from "@/src/utils/in_flight";
 import {
 	canEditSession,
 	claimGroupSessionLock,
@@ -1939,10 +1940,11 @@ function WaterBottlesModal({
 							type="text"
 							inputMode="numeric"
 							value={value}
+							disabled={confirming}
 							onChange={(event) =>
 								onChange(event.target.value.replace(/\D/g, "").slice(0, 3))
 							}
-							className="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm text-center touch-manipulation"
+							className="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm text-center touch-manipulation disabled:opacity-60"
 						/>
 						<button
 							type="button"
@@ -2191,6 +2193,7 @@ function ItemGroupCard({
 		wasFulfilled: boolean;
 	} | null>(null);
 	const [confirmingToggle, setConfirmingToggle] = useState(false);
+	const toggleLock = useInFlightLock();
 
 	const pendingUnit =
 		pendingAction != null ? group.units[pendingAction.unitIndex] : null;
@@ -2404,6 +2407,9 @@ function ItemGroupCard({
 					}}
 					onConfirm={() => {
 						void (async () => {
+							if (!toggleLock.tryLock()) {
+								return;
+							}
 							setConfirmingToggle(true);
 							try {
 								await onToggleUnit(
@@ -2413,6 +2419,7 @@ function ItemGroupCard({
 								setPendingAction(null);
 							} finally {
 								setConfirmingToggle(false);
+								toggleLock.unlock();
 							}
 						})();
 					}}
@@ -2617,6 +2624,7 @@ export default function OrderPage() {
 	const dishCategoryMapRef = useRef(dishCategoryMap);
 	dishCategoryMapRef.current = dishCategoryMap;
 	const hasLoadedOnceRef = useRef(false);
+	const inFlightActionsRef = useRef(new Set<string>());
 
 	const readyOrders = useMemo(() => getReadyOrders(orders), [orders]);
 
@@ -2683,10 +2691,15 @@ export default function OrderPage() {
 
 	const runPendingAction = useCallback(
 		async (key: string, action: () => Promise<void>) => {
+			if (inFlightActionsRef.current.has(key)) {
+				return;
+			}
+			inFlightActionsRef.current.add(key);
 			setPendingActions((current) => ({ ...current, [key]: true }));
 			try {
 				await action();
 			} finally {
+				inFlightActionsRef.current.delete(key);
 				setPendingActions((current) => {
 					const next = { ...current };
 					delete next[key];
@@ -2699,10 +2712,15 @@ export default function OrderPage() {
 
 	const runConfirmingAction = useCallback(
 		async (key: string, action: () => Promise<void>) => {
+			if (inFlightActionsRef.current.has(key)) {
+				return;
+			}
+			inFlightActionsRef.current.add(key);
 			setConfirmingAction(key);
 			try {
 				await action();
 			} finally {
+				inFlightActionsRef.current.delete(key);
 				setConfirmingAction(null);
 			}
 		},
@@ -3277,7 +3295,7 @@ export default function OrderPage() {
 		await localforage.setItem<TCart>("cart", cart);
 		await localforage.setItem(BILLING_CONTEXT_KEY, billingContext);
 		await saveBillingSession(billingContext, cart);
-		await notifyOrderOpsChange("billing");
+		void notifyOrderOpsChange("billing");
 		router.push("/cart");
 	};
 
@@ -3314,20 +3332,28 @@ export default function OrderPage() {
 		}
 
 		const groupKey = pendingBillGroup.key;
-		await runPendingAction(`bill:${groupKey}`, async () => {
+		if (isActionPending(`bill:${groupKey}`)) {
+			return;
+		}
+
+		await runConfirmingAction(`bill:${groupKey}`, async () => {
+			const liveGroup =
+				groups.find((group) => group.key === groupKey) ??
+				groupOrdersByTable(orders).find((group) => group.key === groupKey) ??
+				pendingBillGroup;
 			const waterPrice = await getWaterBottlePrice();
-			const currentQty = getGroupWaterBottleCount(pendingBillGroup);
-			let billingGroup = pendingBillGroup;
+			const currentQty = getGroupWaterBottleCount(liveGroup);
+			let billingGroup = liveGroup;
 
 			if (targetQty !== currentQty) {
 				const delta = targetQty - currentQty;
 				const updatedOrders = syncGroupWaterBottleCount(
 					orders,
-					pendingBillGroup,
+					liveGroup,
 					targetQty,
 					waterPrice
 				);
-				await persistGroupEdit(pendingBillGroup, updatedOrders);
+				await persistGroupEdit(liveGroup, updatedOrders);
 
 				const dateKey = getTodayDateKey();
 				const waterItem = {
@@ -3462,7 +3488,7 @@ export default function OrderPage() {
 
 	return (
 		<div className="ops-app-screen">
-			<div className="sticky top-0 z-20 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2 bg-transparent pointer-events-none">
+			<div className="sticky top-[var(--ops-top-banner-height,0px)] z-20 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2 bg-transparent pointer-events-none">
 				<div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 pointer-events-auto">
 					<OpsMenuButton />
 					<div className="flex justify-center min-w-0 px-1">
@@ -3789,9 +3815,9 @@ export default function OrderPage() {
 					groupLabel={pendingBillGroup.label}
 					value={waterBottleDraft}
 					onChange={setWaterBottleDraft}
-					confirming={confirmingAction === `bill:${pendingBillGroup.key}`}
+					confirming={isActionPending(`bill:${pendingBillGroup.key}`)}
 					onCancel={() => {
-						if (confirmingAction === `bill:${pendingBillGroup.key}`) {
+						if (isActionPending(`bill:${pendingBillGroup.key}`)) {
 							return;
 						}
 						setPendingBillGroup(null);

@@ -14,6 +14,7 @@ import {
 import { requestKotPrint } from "@/src/utils/order_ops_sync";
 import { isKotPrinterOnline } from "@/src/utils/print_servers";
 import { useOrderOpsSync } from "@/context/order-ops-sync";
+import { useInFlightLock } from "@/src/utils/in_flight";
 import axios from "axios";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
@@ -50,6 +51,7 @@ function KotContent() {
 		"idle" | "sending" | "sent" | "error"
 	>("idle");
 	const [printServerError, setPrintServerError] = useState<string | null>(null);
+	const printLock = useInFlightLock();
 
 	useEffect(() => {
 		if (!orderId) {
@@ -78,7 +80,7 @@ function KotContent() {
 	}, [orderId]);
 
 	const sendToPrintServer = async () => {
-		if (!order) return;
+		if (!order || !printLock.tryLock()) return;
 		setPrintServerState("sending");
 		setPrintServerError(null);
 		try {
@@ -96,6 +98,8 @@ function KotContent() {
 					? error.message
 					: "Could not reach KOT Printer"
 			);
+		} finally {
+			printLock.unlock();
 		}
 	};
 
@@ -148,7 +152,7 @@ function KotContent() {
 					}}
 				/>
 			) : null}
-			<div className="sticky top-0 z-20 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2 bg-transparent pointer-events-none print:hidden">
+			<div className="sticky top-[var(--ops-top-banner-height,0px)] z-20 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2 bg-transparent pointer-events-none print:hidden">
 				<div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 pointer-events-auto">
 					<button
 						type="button"

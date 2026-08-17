@@ -16,6 +16,7 @@ import {
 import type { SupplyInventoryKind } from '@/src/constants/supply_inventory';
 import axios from 'axios';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useInFlightLock } from '@/src/utils/in_flight';
 
 type RawMaterialItem = {
 	category: string;
@@ -201,6 +202,7 @@ export function RawMaterialsInventoryPage() {
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [sharing, setSharing] = useState(false);
+	const saveLock = useInFlightLock();
 	const [searchTerm, setSearchTerm] = useState('');
 	const [keyboardInset, setKeyboardInset] = useState(0);
 	const hasUnsavedChangesRef = useRef(false);
@@ -366,6 +368,9 @@ export function RawMaterialsInventoryPage() {
 	};
 
 	const handleSave = async () => {
+		if (!saveLock.tryLock()) {
+			return;
+		}
 		setSaving(true);
 		try {
 			const nextSaved: Record<string, RawMaterialQty> = {};
@@ -384,11 +389,12 @@ export function RawMaterialsInventoryPage() {
 			alert('Failed to save inventory. Please try again.');
 		} finally {
 			setSaving(false);
+			saveLock.unlock();
 		}
 	};
 
 	const handleShare = async () => {
-		if (sharing || !hasSavedToday) {
+		if (!hasSavedToday || !saveLock.tryLock()) {
 			return;
 		}
 		setSharing(true);
@@ -412,6 +418,7 @@ export function RawMaterialsInventoryPage() {
 			alert('Could not share inventory. Please try again.');
 		} finally {
 			setSharing(false);
+			saveLock.unlock();
 		}
 	};
 

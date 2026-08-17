@@ -26,6 +26,7 @@ import {
 	getGroupSessionLock,
 } from "@/src/utils/session_lock";
 import { useOrderOpsSync } from "@/context/order-ops-sync";
+import { useInFlightLock } from "@/src/utils/in_flight";
 import { useEffect, useMemo, useState } from "react";
 
 type EditOrderModalProps = {
@@ -67,6 +68,7 @@ function EditOrderModalContent({ order, onClose, onSaved }: EditOrderModalProps)
 	);
 	const [inventory, setInventory] = useState<Record<string, number>>({});
 	const [saving, setSaving] = useState(false);
+	const saveLock = useInFlightLock();
 
 	const originalItems = useMemo(
 		(): TDish[] =>
@@ -130,11 +132,15 @@ function EditOrderModalContent({ order, onClose, onSaved }: EditOrderModalProps)
 	};
 
 	const handleSave = async () => {
+		if (!saveLock.tryLock()) {
+			return;
+		}
 		if (draftItems.length === 0) {
 			const confirmed = window.confirm(
 				"Remove all items from this order?"
 			);
 			if (!confirmed) {
+				saveLock.unlock();
 				return;
 			}
 		}
@@ -151,6 +157,7 @@ function EditOrderModalContent({ order, onClose, onSaved }: EditOrderModalProps)
 						: "This session is locked on another device."
 				);
 				setSaving(false);
+				saveLock.unlock();
 				return;
 			}
 
@@ -173,6 +180,7 @@ function EditOrderModalContent({ order, onClose, onSaved }: EditOrderModalProps)
 				) {
 					alert(`Not enough stock for ${item.name}.`);
 					setSaving(false);
+					saveLock.unlock();
 					return;
 				}
 			}
@@ -211,6 +219,7 @@ function EditOrderModalContent({ order, onClose, onSaved }: EditOrderModalProps)
 			console.error("Failed to update order:", error);
 			alert("Failed to update order. Please try again.");
 			setSaving(false);
+			saveLock.unlock();
 		}
 	};
 

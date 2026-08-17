@@ -14,6 +14,7 @@ import {
 } from '@/src/utils/supply_inventory_utils';
 import { ORDER_OPS_EVENT } from '@/src/models/order_ops';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useInFlightLock } from '@/src/utils/in_flight';
 
 function formatTodayLabel(dateKey: string): string {
 	const [year, month, day] = dateKey.split('-').map(Number);
@@ -50,6 +51,7 @@ export function SupplyInventoryPage({ kind }: SupplyInventoryPageProps) {
 	const [editingItems, setEditingItems] = useState<Set<string>>(new Set());
 	const [loading, setLoading] = useState(true);
 	const [saving, setSaving] = useState(false);
+	const saveLock = useInFlightLock();
 	const [searchTerm, setSearchTerm] = useState('');
 
 	const load = useCallback(async () => {
@@ -126,6 +128,9 @@ export function SupplyInventoryPage({ kind }: SupplyInventoryPageProps) {
 	};
 
 	const handleSave = async () => {
+		if (!saveLock.tryLock()) {
+			return;
+		}
 		setSaving(true);
 		try {
 			const items: Record<string, number> = {};
@@ -140,6 +145,7 @@ export function SupplyInventoryPage({ kind }: SupplyInventoryPageProps) {
 			alert('Failed to save inventory. Please try again.');
 		} finally {
 			setSaving(false);
+			saveLock.unlock();
 		}
 	};
 

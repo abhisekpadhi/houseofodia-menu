@@ -20,6 +20,7 @@ import {
 	isValidCustomerPhone,
 } from '@/src/utils/order_utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useInFlightLock } from '@/src/utils/in_flight';
 
 function PhoneIcon({ className }: { className?: string }) {
 	return (
@@ -61,6 +62,7 @@ export function WaitlistPage() {
 	const [adding, setAdding] = useState(false);
 	const [pendingCheckId, setPendingCheckId] = useState<string | null>(null);
 	const [checking, setChecking] = useState(false);
+	const waitlistLock = useInFlightLock();
 
 	const pendingCheckEntry = useMemo(
 		() => entries.find((entry) => entry.id === pendingCheckId) ?? null,
@@ -137,7 +139,7 @@ export function WaitlistPage() {
 	};
 
 	const confirmMarkSeated = async () => {
-		if (!pendingCheckId) {
+		if (!pendingCheckId || !waitlistLock.tryLock()) {
 			return;
 		}
 		setChecking(true);
@@ -146,6 +148,7 @@ export function WaitlistPage() {
 			setPendingCheckId(null);
 		} finally {
 			setChecking(false);
+			waitlistLock.unlock();
 		}
 	};
 
@@ -167,6 +170,9 @@ export function WaitlistPage() {
 			return;
 		}
 
+		if (!waitlistLock.tryLock()) {
+			return;
+		}
 		setAdding(true);
 		try {
 			const next: WaitlistEntry[] = [
@@ -186,10 +192,14 @@ export function WaitlistPage() {
 			setPax('');
 		} finally {
 			setAdding(false);
+			waitlistLock.unlock();
 		}
 	};
 
 	const handleShare = async () => {
+		if (!waitlistLock.tryLock()) {
+			return;
+		}
 		setSharing(true);
 		try {
 			await shareWaitlistAsExcel(entries, dateKey);
@@ -198,6 +208,7 @@ export function WaitlistPage() {
 			alert('Failed to share waiting list.');
 		} finally {
 			setSharing(false);
+			waitlistLock.unlock();
 		}
 	};
 

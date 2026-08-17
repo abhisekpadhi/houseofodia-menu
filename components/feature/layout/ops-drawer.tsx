@@ -1,5 +1,7 @@
 'use client';
 
+import { UserButton, useUser } from '@clerk/nextjs';
+import { hasAdminEmail } from '@/src/utils/staff_admins';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -7,6 +9,7 @@ import {
 	useCallback,
 	useContext,
 	useEffect,
+	useMemo,
 	useState,
 	type ReactNode,
 } from 'react';
@@ -77,11 +80,20 @@ const DRAWER_LINKS = [
 	{ href: '/order/raw-materials', label: 'Raw material inventory' },
 	{ href: '/order/menu-sop', label: 'Menu SOP' },
 	{ href: '/order/waitlist', label: 'Waiting list' },
+	{ href: '/order/staff-users', label: 'Staff users', adminOnly: true },
 ] as const;
 
 export function OpsDrawerProvider({ children }: { children: ReactNode }) {
 	const [open, setOpen] = useState(false);
 	const pathname = usePathname();
+	const { user } = useUser();
+	const isAdmin = hasAdminEmail(
+		user?.emailAddresses.map((address) => address.emailAddress) ?? []
+	);
+	const drawerLinks = useMemo(
+		() => DRAWER_LINKS.filter((link) => !link.adminOnly || isAdmin),
+		[isAdmin]
+	);
 
 	const openDrawer = useCallback(() => setOpen(true), []);
 	const closeDrawer = useCallback(() => setOpen(false), []);
@@ -128,7 +140,7 @@ export function OpsDrawerProvider({ children }: { children: ReactNode }) {
 						</div>
 						<nav className="flex-1 overflow-y-auto py-2">
 							<ul>
-								{DRAWER_LINKS.map((link) => {
+								{drawerLinks.map((link) => {
 									const active = pathname === link.href;
 									return (
 										<li key={link.href}>
@@ -148,7 +160,13 @@ export function OpsDrawerProvider({ children }: { children: ReactNode }) {
 								})}
 							</ul>
 						</nav>
-						<div className="border-t px-4 py-3">
+						<div className="border-t px-4 py-3 space-y-3">
+							<div className="flex items-center justify-between">
+								<span className="text-sm font-semibold text-gray-700">
+									Account
+								</span>
+								<UserButton />
+							</div>
 							<Link
 								href="/order"
 								onClick={closeDrawer}

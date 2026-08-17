@@ -1,9 +1,11 @@
+import { auth } from '@clerk/nextjs/server';
 import axios from 'axios';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic'; // Opt out of caching
 
 export async function GET() {
+    await auth.protect();
     const { GITHUB_ACCESS_TOKEN, GIST_ID } = process.env;
     try {
         const response = await axios.get(`https://api.github.com/gists/${GIST_ID}`, {
@@ -23,6 +25,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+    await auth.protect();
     const { bill_no } = await request.json();
     const { GITHUB_ACCESS_TOKEN, GIST_ID } = process.env;
     try {

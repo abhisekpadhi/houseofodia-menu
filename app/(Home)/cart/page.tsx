@@ -20,6 +20,7 @@ import {
 	groupOrdersByTable,
 } from "@/src/utils/order_utils";
 import { notifyOrderOpsChange } from "@/src/utils/order_ops_sync";
+import { useInFlightLock } from "@/src/utils/in_flight";
 import localforage from "localforage";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -38,6 +39,8 @@ const Cart = () => {
 	const [attribute, setAttribute] = useState("");
 	const [changeTo, setChangeTo] = useState("");
 	const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+	const [clearing, setClearing] = useState(false);
+	const cartActionLock = useInFlightLock();
 
 	useEffect(() => {
 		localforage.getItem<TCart>("cart").then((data) => {
@@ -50,23 +53,34 @@ const Cart = () => {
 		});
 	}, []);
 
+	const isFreeflowCart = billingContext?.source === "freeflow";
+
 	const handleClear = async () => {
-		setCart({ items: [] });
-		await localforage.setItem("cart", { items: [] });
-		await localforage.removeItem(BILLING_CONTEXT_KEY);
-		await localforage.setItem("bill", null);
-		if (billingContext?.sessionId) {
-			await removeBillingSession(billingContext.sessionId);
-			await notifyOrderOpsChange("billing");
+		if (!isFreeflowCart || !cartActionLock.tryLock()) {
+			return;
 		}
-		setClearConfirmOpen(false);
-		router.push(
-			billingContext?.source === "orders" ? "/order" : "/freeflow"
-		);
+		setClearing(true);
+		try {
+			setCart({ items: [] });
+			await localforage.setItem("cart", { items: [] });
+			await localforage.removeItem(BILLING_CONTEXT_KEY);
+			await localforage.setItem("bill", null);
+			if (billingContext.sessionId) {
+				await removeBillingSession(billingContext.sessionId);
+				await notifyOrderOpsChange("billing");
+			}
+			setClearConfirmOpen(false);
+			router.push("/freeflow");
+		} catch (error) {
+			console.error("Failed to clear cart:", error);
+			alert("Failed to clear cart. Please try again.");
+			setClearing(false);
+			cartActionLock.unlock();
+		}
 	};
 
 	const requestClear = () => {
-		if (cart.items.length === 0) {
+		if (!isFreeflowCart || cart.items.length === 0) {
 			return;
 		}
 		setClearConfirmOpen(true);
@@ -84,7 +98,7 @@ const Cart = () => {
 	);
 
 	const onClickPay = async () => {
-		if (cart.items.length === 0) {
+		if (cart.items.length === 0 || !cartActionLock.tryLock()) {
 			return;
 		}
 
@@ -171,8 +185,8 @@ const Cart = () => {
 			router.push("/bill");
 		} catch (error) {
 			alert("Failed to prepare bill, err:" + error);
-		} finally {
 			setProcessing(false);
+			cartActionLock.unlock();
 		}
 	};
 
@@ -265,9 +279,9 @@ const Cart = () => {
 	};
 
 	return (
-		<div className="ops-app-screen flex h-dvh max-h-dvh flex-col overflow-hidden pb-0">
-			<div className="sticky top-0 z-20 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2 bg-transparent pointer-events-none shrink-0">
-				<div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 pointer-events-auto">
+		<div className="ops-app-screen ops-app-screen-flush flex h-dvh max-h-dvh flex-col overflow-hidden overscroll-none">
+			<div className="shrink-0 z-20 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2 bg-gray-50">
+				<div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
 					<button
 						type="button"
 						onClick={handleBack}
@@ -283,18 +297,22 @@ const Cart = () => {
 							</h1>
 						</div>
 					</div>
-					<button
-						type="button"
-						onClick={requestClear}
-						disabled={cart.items.length === 0}
-						className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-white text-red-600 hover:bg-red-50 border border-gray-200/80 shadow-md touch-manipulation shrink-0 px-3 text-sm font-semibold disabled:opacity-40 disabled:hover:bg-white"
-					>
-						Clear
-					</button>
+					{isFreeflowCart ? (
+						<button
+							type="button"
+							onClick={requestClear}
+							disabled={cart.items.length === 0}
+							className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-white text-red-600 hover:bg-red-50 border border-gray-200/80 shadow-md touch-manipulation shrink-0 px-3 text-sm font-semibold disabled:opacity-40 disabled:hover:bg-white"
+						>
+							Clear
+						</button>
+					) : (
+						<div className="min-h-[44px] min-w-[44px]" aria-hidden />
+					)}
 				</div>
 			</div>
 
-			<div className="min-h-0 flex-1 overflow-auto px-4 sm:px-6">
+			<div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white">
 				{cart.items.length === 0 ? (
 					<div className="text-center py-16 text-gray-500 text-sm">
 						Cart is empty
@@ -323,7 +341,7 @@ const Cart = () => {
 				)}
 			</div>
 
-			<div className="shrink-0 bg-white border-t px-6 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-lg">
+			<div className="shrink-0 bg-white border-t px-6 pt-3 pb-[calc(10px+env(safe-area-inset-bottom,0px))] shadow-[0_-4px_12px_rgba(0,0,0,0.06)]">
 				<button
 					type="button"
 					disabled={attribute === ""}
@@ -401,10 +419,14 @@ const Cart = () => {
 				</div>
 			</div>
 
-			{clearConfirmOpen ? (
+			{isFreeflowCart && clearConfirmOpen ? (
 				<div
 					className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-					onClick={() => setClearConfirmOpen(false)}
+					onClick={() => {
+						if (!clearing) {
+							setClearConfirmOpen(false);
+						}
+					}}
 				>
 					<div
 						className="w-full max-w-sm rounded-xl bg-white shadow-xl"
@@ -419,9 +441,15 @@ const Cart = () => {
 							</p>
 						</div>
 						<ConfirmModalActions
-							onCancel={() => setClearConfirmOpen(false)}
-							onConfirm={handleClear}
+							onCancel={() => {
+								if (!clearing) {
+									setClearConfirmOpen(false);
+								}
+							}}
+							onConfirm={() => void handleClear()}
 							confirmLabel="Clear cart"
+							confirming={clearing}
+							cancelDisabled={clearing}
 						/>
 					</div>
 				</div>

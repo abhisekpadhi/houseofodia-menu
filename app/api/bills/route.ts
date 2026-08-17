@@ -1,8 +1,10 @@
+import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
 export async function PUT(request: Request) {
+	await auth.protect();
 	const baseUrl = process.env.NEXT_PUBLIC_TANGIFY_API_BASE_URL?.replace(/\/$/, '');
 	const token = process.env.TANGIFY_BILLING_TOKEN?.trim();
 	const billingEnvironment =

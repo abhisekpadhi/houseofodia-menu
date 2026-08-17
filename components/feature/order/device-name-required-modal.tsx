@@ -2,6 +2,7 @@
 
 import { useOrderOpsSync } from '@/context/order-ops-sync';
 import { hasDeviceDisplayName } from '@/src/utils/order_ops_meta';
+import { useInFlightLock } from '@/src/utils/in_flight';
 import { useEffect, useState } from 'react';
 
 export function DeviceNameRequiredModal() {
@@ -10,6 +11,7 @@ export function DeviceNameRequiredModal() {
 	const [draft, setDraft] = useState('');
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const saveLock = useInFlightLock();
 
 	useEffect(() => {
 		setNeedsName(!hasDeviceDisplayName());
@@ -27,6 +29,9 @@ export function DeviceNameRequiredModal() {
 			setError('Device name is required.');
 			return;
 		}
+		if (!saveLock.tryLock()) {
+			return;
+		}
 		setSaving(true);
 		setError(null);
 		try {
@@ -41,6 +46,7 @@ export function DeviceNameRequiredModal() {
 			);
 		} finally {
 			setSaving(false);
+			saveLock.unlock();
 		}
 	};
 

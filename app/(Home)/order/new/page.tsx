@@ -47,6 +47,7 @@ import {
 } from "@/src/utils/session_lock";
 import { useOrderOpsSync } from "@/context/order-ops-sync";
 import { allocateNextDailyOrderNumber } from "@/src/utils/daily_order_number";
+import { useInFlightLock } from "@/src/utils/in_flight";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -217,6 +218,7 @@ function AddOrderContent() {
 	const [customerName, setCustomerName] = useState("");
 	const [customerPhone, setCustomerPhone] = useState("");
 	const [placing, setPlacing] = useState(false);
+	const placeOrderLock = useInFlightLock();
 	const [cartModalOpen, setCartModalOpen] = useState(false);
 	const [inStockOnly, setInStockOnly] = useState(false);
 	const [kidMenuEnabled, setKidMenuEnabled] = useState(false);
@@ -584,22 +586,30 @@ function AddOrderContent() {
 	};
 
 	const handlePlaceOrder = async () => {
+		if (!placeOrderLock.tryLock()) {
+			return;
+		}
+
 		if (cartItems.length === 0) {
+			placeOrderLock.unlock();
 			alert("Add at least one item to the order.");
 			return;
 		}
 
 		if (orderKind === "table" && selectedTables.length === 0) {
+			placeOrderLock.unlock();
 			alert("Select at least one table number.");
 			return;
 		}
 
 		if (needsCustomerDetails && !hasValidCustomerPhone) {
+			placeOrderLock.unlock();
 			alert(`Enter a valid ${CUSTOMER_PHONE_DIGITS}-digit phone number, or leave phone blank.`);
 			return;
 		}
 
 		if (!hasValidPax) {
+			placeOrderLock.unlock();
 			alert("Enter a valid pax count (at least 1).");
 			return;
 		}
@@ -660,6 +670,7 @@ function AddOrderContent() {
 						: "This session is locked on another device."
 				);
 				setPlacing(false);
+				placeOrderLock.unlock();
 				return;
 			}
 
@@ -710,6 +721,7 @@ function AddOrderContent() {
 			console.error("Failed to place order:", error);
 			alert("Failed to place order. Please try again.");
 			setPlacing(false);
+			placeOrderLock.unlock();
 		}
 	};
 
