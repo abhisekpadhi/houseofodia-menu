@@ -13,7 +13,9 @@ import {
 	getInventoryForDate,
 	getTodayDateKey,
 	isInfiniteInventoryDish,
+	isUnlimitedInventoryQty,
 	saveInventoryForDate,
+	UNLIMITED_INVENTORY_QTY,
 } from "@/src/utils/inventory_utils";
 import {
 	applyInventoryShortcut,
@@ -75,11 +77,21 @@ function formatTodayLabel(dateKey: string): string {
 
 function parseInventoryQty(value: string | undefined): number {
 	const raw = value?.trim() ?? "";
-	if (raw === "") {
-		return 0;
+	if (raw === "" || raw === "∞" || raw === "-1") {
+		return UNLIMITED_INVENTORY_QTY;
 	}
 	const parsed = parseInt(raw, 10);
-	return Number.isNaN(parsed) ? 0 : Math.max(0, parsed);
+	if (Number.isNaN(parsed)) {
+		return UNLIMITED_INVENTORY_QTY;
+	}
+	if (parsed < 0) {
+		return UNLIMITED_INVENTORY_QTY;
+	}
+	return parsed;
+}
+
+function formatInventoryQty(qty: number): string {
+	return isUnlimitedInventoryQty(qty) ? "∞" : String(qty);
 }
 
 export default function InventoryPage() {
@@ -159,7 +171,7 @@ export default function InventoryPage() {
 			const nextQuantities: Record<string, string> = {};
 			const nextSaved: Record<string, number> = {};
 			rows.forEach((row) => {
-				const qty = savedInventory[row.name] ?? 0;
+				const qty = savedInventory[row.name] ?? UNLIMITED_INVENTORY_QTY;
 				nextQuantities[row.name] = String(qty);
 				nextSaved[row.name] = qty;
 			});
@@ -223,7 +235,7 @@ export default function InventoryPage() {
 		return menuRows.some(
 			(row) =>
 				parseInventoryQty(quantities[row.name]) !==
-				(savedQuantities[row.name] ?? 0)
+				(savedQuantities[row.name] ?? UNLIMITED_INVENTORY_QTY)
 		);
 	}, [loading, menuRows, quantities, savedQuantities]);
 
@@ -245,6 +257,13 @@ export default function InventoryPage() {
 				}));
 			} else {
 				next.add(dishName);
+				setQuantities((current) => {
+					const qty = parseInventoryQty(current[dishName]);
+					return {
+						...current,
+						[dishName]: isUnlimitedInventoryQty(qty) ? "" : String(qty),
+					};
+				});
 			}
 			return next;
 		});
@@ -335,8 +354,8 @@ export default function InventoryPage() {
 				<p className="text-xs font-medium text-gray-600 mb-1">Today</p>
 				<p className="text-sm font-semibold">{formatTodayLabel(dateKey)}</p>
 				<p className="text-xs text-gray-500 mt-2">
-					Unsaved days inherit remaining stock from the previous day. New menu
-					items start at 0.
+					Unsaved days inherit remaining stock from the previous day. Dishes
+					default to unlimited (∞). Use OOS to set 0.
 				</p>
 			</div>
 
@@ -387,7 +406,11 @@ export default function InventoryPage() {
 								<div className="space-y-2">
 									{group.rows.map((row) => {
 										const isEditing = editingItems.has(row.name);
-										const oos = isDishOos(row.name);
+										const qty = parseInventoryQty(quantities[row.name]);
+										const oos = qty === 0;
+										const displayQty = isEditing
+											? (quantities[row.name] ?? "")
+											: formatInventoryQty(qty);
 
 										return (
 											<div
@@ -433,7 +456,7 @@ export default function InventoryPage() {
 														inputMode="numeric"
 														pattern="[0-9]*"
 														readOnly={!isEditing}
-														value={quantities[row.name] ?? "0"}
+														value={displayQty}
 														onChange={(e) =>
 															handleQtyChange(row.name, e.target.value)
 														}

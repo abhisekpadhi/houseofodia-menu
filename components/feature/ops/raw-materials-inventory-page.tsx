@@ -197,7 +197,7 @@ export function RawMaterialsInventoryPage() {
 	const [savedQuantities, setSavedQuantities] = useState<
 		Record<string, RawMaterialQty>
 	>({});
-	const [hasSavedToday, setHasSavedToday] = useState(false);
+	const [hasSaved, setHasSaved] = useState(false);
 	const [loading, setLoading] = useState(true);
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
@@ -268,7 +268,7 @@ export function RawMaterialsInventoryPage() {
 			setItems(nextItems);
 			setQuantities(nextQuantities);
 			setSavedQuantities(nextSaved);
-			setHasSavedToday(alreadySaved);
+			setHasSaved(alreadySaved);
 		} catch (error) {
 			console.error(`Failed to load ${activeTab.label} inventory:`, error);
 			setLoadError(
@@ -383,7 +383,7 @@ export function RawMaterialsInventoryPage() {
 			await saveSupplyInventoryForDate(dateKey, activeTab.kind, nextSaved);
 			setSavedQuantities(nextSaved);
 			setQuantities(nextDrafts);
-			setHasSavedToday(true);
+			setHasSaved(true);
 		} catch (error) {
 			console.error(`Failed to save ${activeTab.label} inventory:`, error);
 			alert('Failed to save inventory. Please try again.');
@@ -394,7 +394,7 @@ export function RawMaterialsInventoryPage() {
 	};
 
 	const handleShare = async () => {
-		if (!hasSavedToday || !saveLock.tryLock()) {
+		if (!hasSaved || !saveLock.tryLock()) {
 			return;
 		}
 		setSharing(true);
@@ -475,7 +475,7 @@ export function RawMaterialsInventoryPage() {
 								'Save inventory'
 							)}
 						</button>
-						{hasSavedToday ? (
+						{hasSaved ? (
 							<button
 								type="button"
 								disabled={loading || saving || sharing}

@@ -21,8 +21,10 @@ import {
 	isAnyDomainBehind,
 	maxOrderOpsVersion,
 	mergeOrderOpsVersions,
+	ORDER_OPS_DOMAINS,
 } from '@/src/models/order_ops';
 import {
+	buildOrderOpsDomainSnapshot,
 	buildOrderOpsSnapshot,
 	bumpAllOrderOpsDomains,
 	bumpOrderOpsDomain,
@@ -345,7 +347,7 @@ export async function notifyOrderOpsChange(
 	}
 
 	await bumpOrderOpsDomain(domain);
-	const snapshot = await buildOrderOpsSnapshot();
+	const snapshot = await buildOrderOpsDomainSnapshot(domain);
 
 	if (updatePresenceData) {
 		await updatePresenceData(snapshot);
@@ -355,7 +357,7 @@ export async function notifyOrderOpsChange(
 		await publishStateDelta(snapshot);
 	}
 
-	dispatchOrderOpsUpdated();
+	dispatchOrderOpsUpdated(domain);
 }
 
 export async function notifyOrderOpsFullBroadcast(): Promise<void> {
@@ -380,7 +382,7 @@ export async function notifyOrderOpsFullBroadcast(): Promise<void> {
 		await publishStateDelta(snapshot);
 	}
 
-	dispatchOrderOpsUpdated();
+	dispatchOrderOpsUpdated('all');
 }
 
 function shouldApplyDomain(
@@ -555,12 +557,16 @@ export async function applyOrderOpsSnapshot(
 		await setOrderOpsMetaVersions(appliedVersions, payload.businessDate);
 
 		if (updatePresenceData) {
-			const snapshot = await buildOrderOpsSnapshot();
-			await updatePresenceData(snapshot);
+			await updatePresenceData(payload);
 		}
 	});
 
-	dispatchOrderOpsUpdated();
+	const changedDomains = ORDER_OPS_DOMAINS.filter(
+		(domain) => appliedVersions[domain] !== localVersions[domain]
+	);
+	dispatchOrderOpsUpdated(
+		changedDomains.length === 1 ? changedDomains[0] : 'all'
+	);
 	if (newOrderIds.length > 0) {
 		dispatchNewOrdersSynced(newOrderIds);
 	}
@@ -989,7 +995,7 @@ export async function applyKotPrintedAck(
 	await runWithoutSyncNotify(async () => {
 		await saveOrdersStore({ orders: nextOrders });
 	});
-	dispatchOrderOpsUpdated();
+	dispatchOrderOpsUpdated('orders');
 }
 
 export type KotPrintAckMessage = {

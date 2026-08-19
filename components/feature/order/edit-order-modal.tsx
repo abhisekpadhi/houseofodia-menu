@@ -11,6 +11,7 @@ import {
 	getInventoryForDate,
 	getMaxEditableQty,
 	getTodayDateKey,
+	isUnlimitedStock,
 } from "@/src/utils/inventory_utils";
 import {
 	formatOrderTime,
@@ -259,12 +260,17 @@ function EditOrderModalContent({ order, onClose, onSaved }: EditOrderModalProps)
 						<ul className="space-y-3">
 							{draftItems.map((item, index) => {
 								const originalQty = originalQtyByName[item.name] ?? 0;
+								const unlimitedStock = isUnlimitedStock(
+									inventory,
+									item.name
+								);
 								const maxQty = getMaxEditableQty(
 									inventory,
 									item.name,
 									originalQty
 								);
-								const canIncrement = item.qty < maxQty;
+								const canIncrement =
+									unlimitedStock || item.qty < maxQty;
 
 								return (
 									<li
@@ -276,7 +282,10 @@ function EditOrderModalContent({ order, onClose, onSaved }: EditOrderModalProps)
 												{item.name}
 											</p>
 											<p className="text-xs text-gray-500 mt-0.5">
-												₹{item.price} each · max {maxQty}
+												₹{item.price} each
+												{unlimitedStock
+													? " · unlimited stock"
+													: ` · max ${maxQty}`}
 											</p>
 										</div>
 										<div className="flex items-center gap-2 shrink-0">

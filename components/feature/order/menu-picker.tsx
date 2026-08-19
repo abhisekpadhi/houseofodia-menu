@@ -5,8 +5,8 @@ import {
 	getAvailableQty,
 	getInventoryForDate,
 	getTodayDateKey,
-	isInfiniteInventoryDish,
 	isOutOfStock,
+	isUnlimitedStock,
 } from "@/src/utils/inventory_utils";
 import { stringToColor, buildMenuFromApiItems, getMenuDisplayName, menuItemMatchesSearch, shouldShowMenuBillName } from "@/src/utils/menu_utils";
 import axios from "axios";
@@ -272,10 +272,10 @@ export function MenuPicker({
       <div ref={resultsRef} className="space-y-3 scroll-mt-24">
         {visibleItems.map((item, index) => {
           const cartQty = quantities[item.name] ?? 0;
-          const infiniteStock = isInfiniteInventoryDish(item.name);
+          const unlimitedStock = isUnlimitedStock(inventory, item.name);
           const availableQty = getAvailableQty(inventory, item.name, cartQty);
           const oos = isOutOfStock(inventory, item.name, cartQty);
-          const canIncrement = infiniteStock || availableQty > 0;
+          const canIncrement = unlimitedStock || availableQty > 0;
 
           return (
             <div
@@ -310,7 +310,7 @@ export function MenuPicker({
                     {item.category}
                   </p>
                   <p className="text-[10px] font-medium text-gray-600">
-                    Stock: {infiniteStock ? "∞" : availableQty}
+                    Stock: {unlimitedStock ? "∞" : availableQty}
                   </p>
                 </div>
               </div>

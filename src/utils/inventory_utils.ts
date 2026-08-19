@@ -4,7 +4,14 @@ import localforage from 'localforage';
 
 export const PACKAGING_CHARGE_DISH_NAME = 'Packaging charge';
 
+/** Stored qty meaning unlimited stock. Missing dishes also read as this. */
+export const UNLIMITED_INVENTORY_QTY = -1;
+
 const INFINITE_INVENTORY_QTY = Number.MAX_SAFE_INTEGER;
+
+export function isUnlimitedInventoryQty(qty: number): boolean {
+	return qty < 0;
+}
 
 export function isInfiniteInventoryDish(dishName: string): boolean {
 	return dishName.trim().toLowerCase() === PACKAGING_CHARGE_DISH_NAME.toLowerCase();
@@ -89,15 +96,36 @@ export async function saveInventoryForDate(
 	}
 }
 
-/** Missing entries default to 0 for the day. Infinite-inventory dishes always read as unlimited. */
+function hasInventoryEntry(
+	inventory: Record<string, number>,
+	dishName: string
+): boolean {
+	return Object.prototype.hasOwnProperty.call(inventory, dishName);
+}
+
+/** Missing entries default to unlimited (-1). Packaging charge is always unlimited. */
 export function getInventoryQty(
 	inventory: Record<string, number>,
 	dishName: string
 ): number {
 	if (isInfiniteInventoryDish(dishName)) {
-		return INFINITE_INVENTORY_QTY;
+		return UNLIMITED_INVENTORY_QTY;
 	}
-	return inventory[dishName] ?? 0;
+	if (!hasInventoryEntry(inventory, dishName)) {
+		return UNLIMITED_INVENTORY_QTY;
+	}
+	const qty = inventory[dishName];
+	if (typeof qty !== 'number' || !Number.isFinite(qty)) {
+		return UNLIMITED_INVENTORY_QTY;
+	}
+	return Math.floor(qty);
+}
+
+export function isUnlimitedStock(
+	inventory: Record<string, number>,
+	dishName: string
+): boolean {
+	return isUnlimitedInventoryQty(getInventoryQty(inventory, dishName));
 }
 
 export function getAvailableQty(
@@ -105,7 +133,7 @@ export function getAvailableQty(
 	dishName: string,
 	cartQty: number
 ): number {
-	if (isInfiniteInventoryDish(dishName)) {
+	if (isUnlimitedStock(inventory, dishName)) {
 		return INFINITE_INVENTORY_QTY;
 	}
 	return Math.max(0, getInventoryQty(inventory, dishName) - cartQty);
@@ -116,7 +144,7 @@ export function isOutOfStock(
 	dishName: string,
 	cartQty = 0
 ): boolean {
-	if (isInfiniteInventoryDish(dishName)) {
+	if (isUnlimitedStock(inventory, dishName)) {
 		return false;
 	}
 	return getAvailableQty(inventory, dishName, cartQty) <= 0;
@@ -153,7 +181,10 @@ async function adjustInventoryDelta(
 		if (isInfiniteInventoryDish(item.name)) {
 			continue;
 		}
-		const current = dayInventory[item.name] ?? 0;
+		const current = getInventoryQty(dayInventory, item.name);
+		if (isUnlimitedInventoryQty(current)) {
+			continue;
+		}
 		if (mode === 'decrement') {
 			dayInventory[item.name] = Math.max(0, current - item.qty);
 		} else {
@@ -220,6 +251,9 @@ export function getMaxEditableQty(
 	dishName: string,
 	originalQty: number
 ): number {
+	if (isUnlimitedStock(inventory, dishName)) {
+		return INFINITE_INVENTORY_QTY;
+	}
 	return originalQty + getInventoryQty(inventory, dishName);
 }
 

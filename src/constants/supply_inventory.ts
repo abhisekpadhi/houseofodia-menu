@@ -56,13 +56,13 @@ export const SUPPLY_INVENTORY_CONFIGS: Record<
 	'raw-materials': {
 		kind: 'raw-materials',
 		title: 'Raw material inventory',
-		/** Item list is loaded from the Google Sheet "raw material" tab. */
+		/** Item list is loaded from the Google Sheet "raw material" tab. Counts persist across days. */
 		items: [],
 	},
 	dish: {
 		kind: 'dish',
 		title: 'Dish inventory',
-		/** Item list is loaded from the Google Sheet "dish" tab. */
+		/** Item list is loaded from the Google Sheet "dish" tab. Counts persist across days. */
 		items: [],
 	},
 };

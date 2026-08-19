@@ -2,7 +2,9 @@
 
 import { useOrderOpsSync } from '@/context/order-ops-sync';
 import { isKotPrinterOnline } from '@/src/utils/print_servers';
-import { useLayoutEffect, useRef } from 'react';
+import { LoadingSpinner } from '@/components/ui/touch-controls';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useInFlightLock } from '@/src/utils/in_flight';
 
 function offlineServicesBanner(
 	hubOnline: boolean,
@@ -26,11 +28,33 @@ export function SyncWriteGateOverlay() {
 		catchUpUi,
 		syncHubOnline,
 		connected,
+		connectionState,
 		writeGate,
 		kotPrintFailure,
 		memberDeviceNames,
+		connect,
 	} = useOrderOpsSync();
 	const topBannerRef = useRef<HTMLDivElement>(null);
+	const [browserOnline, setBrowserOnline] = useState(() =>
+		typeof navigator === 'undefined' ? true : navigator.onLine
+	);
+	const [checkingStatus, setCheckingStatus] = useState(false);
+	const checkLock = useInFlightLock();
+
+	useEffect(() => {
+		const updateOnline = () => setBrowserOnline(navigator.onLine);
+		updateOnline();
+		window.addEventListener('online', updateOnline);
+		window.addEventListener('offline', updateOnline);
+		return () => {
+			window.removeEventListener('online', updateOnline);
+			window.removeEventListener('offline', updateOnline);
+		};
+	}, []);
+
+	const isOffline = !browserOnline || connectionState !== 'connected';
+	const checking =
+		checkingStatus || connectionState === 'connecting';
 
 	const kotPrinterOnline = isKotPrinterOnline(memberDeviceNames);
 	const offlineBanner =
@@ -67,6 +91,24 @@ export function SyncWriteGateOverlay() {
 		};
 	}, [showTopBanner, showCatchUpBanner, offlineBanner]);
 
+	const handleCheckStatus = async () => {
+		if (!checkLock.tryLock()) {
+			return;
+		}
+		setCheckingStatus(true);
+		setBrowserOnline(navigator.onLine);
+		try {
+			if (navigator.onLine && connectionState !== 'connected') {
+				await connect();
+			}
+		} catch {
+			// Connection error stays on the overlay until websocket is up.
+		} finally {
+			setCheckingStatus(false);
+			checkLock.unlock();
+		}
+	};
+
 	return (
 		<>
 			{showCatchUpBanner ? (
@@ -85,13 +127,43 @@ export function SyncWriteGateOverlay() {
 				</div>
 			) : null}
 
-			{catchUpUi === 'fullscreen' ? (
+			{!isOffline && catchUpUi === 'fullscreen' ? (
 				<div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-6">
 					<div className="w-full max-w-sm rounded-2xl bg-white px-6 py-8 text-center shadow-xl">
 						<div className="mx-auto mb-4 h-10 w-10 rounded-full border-4 border-gray-200 border-t-black animate-spin" />
 						<p className="text-lg font-bold text-gray-900">
 							Catching up... please be patient.
 						</p>
+					</div>
+				</div>
+			) : null}
+
+			{isOffline ? (
+				<div
+					className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 px-6"
+					role="alertdialog"
+					aria-modal="true"
+					aria-labelledby="ops-offline-title"
+				>
+					<div className="w-full max-w-sm rounded-2xl bg-white px-6 py-8 text-center shadow-xl">
+						<h2
+							id="ops-offline-title"
+							className="text-lg font-bold text-gray-900"
+						>
+							You are offline, get online to continue
+						</h2>
+						<button
+							type="button"
+							onClick={() => void handleCheckStatus()}
+							disabled={checking}
+							className="mt-6 w-full min-h-[48px] inline-flex items-center justify-center rounded-lg bg-black text-white text-sm font-bold touch-manipulation active:bg-gray-800 disabled:opacity-60"
+						>
+							{checking ? (
+								<LoadingSpinner className="h-4 w-4 text-white" />
+							) : (
+								'Check status'
+							)}
+						</button>
 					</div>
 				</div>
 			) : null}

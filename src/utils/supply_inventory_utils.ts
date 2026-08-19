@@ -3,6 +3,13 @@ import localforage from 'localforage';
 
 export const SUPPLY_INVENTORY_KEY = 'supplyInventory';
 
+const PERSISTENT_KINDS = new Set<SupplyInventoryKind>([
+	'utensils',
+	'tableware',
+	'raw-materials',
+	'dish',
+]);
+
 export type RawMaterialQty = {
 	kg: number;
 	gm: number;
@@ -52,8 +59,58 @@ export function normalizeSupplyNumber(value: unknown): number {
 	return 0;
 }
 
+function isPersistentKind(kind: SupplyInventoryKind): boolean {
+	return PERSISTENT_KINDS.has(kind);
+}
+
 function storeKey(dateKey: string, kind: SupplyInventoryKind): string {
+	if (isPersistentKind(kind)) {
+		return `persistent:${kind}`;
+	}
 	return `${dateKey}:${kind}`;
+}
+
+function isEmptyDayStore(items: SupplyInventoryDayStore | undefined): boolean {
+	return !items || Object.keys(items).length === 0;
+}
+
+function latestDatedStore(
+	store: SupplyInventoryStore,
+	kind: SupplyInventoryKind
+): SupplyInventoryDayStore | undefined {
+	const keys = Object.keys(store)
+		.filter(
+			(key) =>
+				key.endsWith(`:${kind}`) && !key.startsWith('persistent:')
+		)
+		.sort();
+	for (let index = keys.length - 1; index >= 0; index -= 1) {
+		const value = store[keys[index]];
+		if (!isEmptyDayStore(value)) {
+			return value;
+		}
+	}
+	return undefined;
+}
+
+function resolveKindStore(
+	store: SupplyInventoryStore,
+	dateKey: string,
+	kind: SupplyInventoryKind
+): { items: SupplyInventoryDayStore; migrated: boolean } {
+	const key = storeKey(dateKey, kind);
+	if (Object.prototype.hasOwnProperty.call(store, key)) {
+		return { items: store[key] ?? {}, migrated: false };
+	}
+	if (!isPersistentKind(kind)) {
+		return { items: {}, migrated: false };
+	}
+	const dated = latestDatedStore(store, kind);
+	if (!dated) {
+		return { items: {}, migrated: false };
+	}
+	store[key] = { ...dated };
+	return { items: store[key], migrated: true };
 }
 
 export async function getSupplyInventoryStore(): Promise<SupplyInventoryStore> {
@@ -67,15 +124,19 @@ export async function getSupplyInventoryForDate(
 	kind: SupplyInventoryKind
 ): Promise<SupplyInventoryDayStore> {
 	const store = await getSupplyInventoryStore();
-	return store[storeKey(dateKey, kind)] ?? {};
+	const { items, migrated } = resolveKindStore(store, dateKey, kind);
+	if (migrated) {
+		await localforage.setItem(SUPPLY_INVENTORY_KEY, store);
+	}
+	return items;
 }
 
 export async function hasSupplyInventoryForDate(
 	dateKey: string,
 	kind: SupplyInventoryKind
 ): Promise<boolean> {
-	const store = await getSupplyInventoryStore();
-	return Object.prototype.hasOwnProperty.call(store, storeKey(dateKey, kind));
+	const items = await getSupplyInventoryForDate(dateKey, kind);
+	return !isEmptyDayStore(items);
 }
 
 export async function saveSupplyInventoryForDate(
@@ -124,11 +185,28 @@ export async function applySupplyInventorySnapshot(
 	}
 ): Promise<void> {
 	const store = await getSupplyInventoryStore();
-	store[storeKey(dateKey, 'utensils')] = { ...snapshot.utensils };
-	store[storeKey(dateKey, 'tableware')] = { ...snapshot.tableware };
-	store[storeKey(dateKey, 'raw-materials')] = { ...snapshot['raw-materials'] };
-	if (snapshot.dish) {
-		store[storeKey(dateKey, 'dish')] = { ...snapshot.dish };
-	}
+
+	const applyKind = (
+		kind: SupplyInventoryKind,
+		incoming: SupplyInventoryDayStore | undefined
+	) => {
+		if (incoming == null) {
+			return;
+		}
+		const key = storeKey(dateKey, kind);
+		if (isPersistentKind(kind) && isEmptyDayStore(incoming)) {
+			const existing = store[key] ?? latestDatedStore(store, kind);
+			if (!isEmptyDayStore(existing)) {
+				return;
+			}
+		}
+		store[key] = { ...incoming };
+	};
+
+	applyKind('utensils', snapshot.utensils);
+	applyKind('tableware', snapshot.tableware);
+	applyKind('raw-materials', snapshot['raw-materials']);
+	applyKind('dish', snapshot.dish);
+
 	await localforage.setItem(SUPPLY_INVENTORY_KEY, store);
 }

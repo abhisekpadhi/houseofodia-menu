@@ -1,6 +1,6 @@
 "use client";
 
-import { ItemGroup, OrderGroup, TBill, TCart, TMenuApiItem, TOrder, TOrdersStore, BillingContext, BILLING_CONTEXT_KEY, ItemCancelReason, TABLE_COUNT, isCounterOrderKind } from "@/src/models/common";
+import { ItemGroup, OrderGroup, TBill, TCart, TOrder, TOrdersStore, BillingContext, BILLING_CONTEXT_KEY, ItemCancelReason, TABLE_COUNT, isCounterOrderKind } from "@/src/models/common";
 import {
 	formatOrderLabel,
 	formatOrderTime,
@@ -92,6 +92,9 @@ import {
 import { ORDER_OPS_EVENT } from "@/src/models/order_ops";
 import { saveBillingSession } from "@/src/utils/billing_state";
 import { notifyOrderOpsChange } from "@/src/utils/order_ops_sync";
+import { getMenuItemsPreferCache } from "@/src/utils/menu_cache";
+import type { OrderOpsUpdatedDetail } from "@/src/utils/order_ops_meta";
+import { LateClockProvider, useLateClock } from "@/components/feature/order/late-clock";
 import { useInFlightLock } from "@/src/utils/in_flight";
 import {
 	canEditSession,
@@ -103,7 +106,6 @@ import {
 	isSessionLockedByOther,
 } from "@/src/utils/session_lock";
 import { useOrderOpsSync } from "@/context/order-ops-sync";
-import axios from "axios";
 import localforage from "localforage";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
@@ -1088,7 +1090,6 @@ function OrderRow({
 
 function IndividualOrderCard({
 	order,
-	now,
 	sessionEditable = true,
 	onEdit,
 	onKotPrint,
@@ -1098,7 +1099,6 @@ function IndividualOrderCard({
 	onRequestToggleFulfill,
 }: {
 	order: TOrder;
-	now: number;
 	sessionEditable?: boolean;
 	onEdit: (order: TOrder) => void;
 	onKotPrint: (order: TOrder) => void;
@@ -1119,6 +1119,7 @@ function IndividualOrderCard({
 		unitIndex: number
 	) => void;
 }) {
+	const now = useLateClock();
 	const isLate = order.kind === "table" && isOrderLate(order, now);
 	const lateByMs = isLate ? getOrderLateByMs(order, now) : 0;
 
@@ -1425,7 +1426,6 @@ function GroupPhoneModal({
 
 function TableOrderCard({
 	group,
-	now,
 	deviceId,
 	isActionPending,
 	onBill,
@@ -1446,7 +1446,6 @@ function TableOrderCard({
 	onAcquireLock,
 }: {
 	group: OrderGroup;
-	now: number;
 	deviceId: string;
 	isActionPending: (key: string) => boolean;
 	onBill: (group: OrderGroup) => void;
@@ -1478,6 +1477,7 @@ function TableOrderCard({
 	onChangeTable: (group: OrderGroup) => void;
 	onAcquireLock: (group: OrderGroup) => void;
 }) {
+	const now = useLateClock();
 	const addOrderHref =
 		group.kind === "table" && group.tableNumbers?.length
 			? `/order/new?tables=${group.tableNumbers.join(",")}`
@@ -2625,7 +2625,6 @@ export default function OrderPage() {
 		{}
 	);
 	const [confirmingAction, setConfirmingAction] = useState<string | null>(null);
-	const [now, setNow] = useState(() => Date.now());
 	const [checklistProgress, setChecklistProgress] = useState<{
 		open: ChecklistProgress;
 		close: ChecklistProgress;
@@ -2638,6 +2637,8 @@ export default function OrderPage() {
 	);
 	const dishCategoryMapRef = useRef(dishCategoryMap);
 	dishCategoryMapRef.current = dishCategoryMap;
+	const ordersRef = useRef(orders);
+	ordersRef.current = orders;
 	const hasLoadedOnceRef = useRef(false);
 	const inFlightActionsRef = useRef(new Set<string>());
 
@@ -2782,17 +2783,23 @@ export default function OrderPage() {
 			setLoading(true);
 		}
 
+		const loadMenu = options?.background
+			? getMenuItemsPreferCache()
+			: getMenuItemsPreferCache({ refresh: true });
+
 		Promise.all([
 			localforage.getItem<TOrdersStore>(ORDERS_KEY),
-			axios.get<TMenuApiItem[]>("/api/menu", {
-				headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
-			}),
+			Object.keys(dishCategoryMapRef.current).length > 0 && options?.background
+				? Promise.resolve(null)
+				: loadMenu,
 		])
-			.then(async ([store, menuResponse]) => {
+			.then(async ([store, menuItems]) => {
 				const rawOrders = store?.orders ?? [];
-				const categoryMap = buildDishCategoryMap(menuResponse.data);
-		const maintained = maintainOrders(rawOrders, Date.now());
-				applyOrderState(maintained, categoryMap);
+				const categoryMap = menuItems
+					? buildDishCategoryMap(menuItems)
+					: dishCategoryMapRef.current;
+				const maintained = maintainOrders(rawOrders, Date.now());
+				applyOrderState(maintained, menuItems ? categoryMap : undefined);
 				if (ordersStoreChanged(rawOrders, maintained)) {
 					const { canPublishOrderOps } = await import(
 						"@/src/utils/sync_write_gate"
@@ -2833,42 +2840,43 @@ export default function OrderPage() {
 	}, [pathname, loadOrders, loadChecklistProgress]);
 
 	useEffect(() => {
-		const onOrderOpsUpdated = () => {
-			loadOrders({ background: true });
-			void loadChecklistProgress();
+		const onOrderOpsUpdated = (event: Event) => {
+			const domain = (event as CustomEvent<OrderOpsUpdatedDetail>).detail
+				?.domain;
+			if (!domain || domain === "all" || domain === "orders") {
+				loadOrders({ background: true });
+			}
+			if (!domain || domain === "all" || domain === "dayChecklists") {
+				void loadChecklistProgress();
+			}
 		};
 		window.addEventListener(ORDER_OPS_EVENT, onOrderOpsUpdated);
 		return () => window.removeEventListener(ORDER_OPS_EVENT, onOrderOpsUpdated);
 	}, [loadOrders, loadChecklistProgress]);
 
 	useEffect(() => {
-		const interval = setInterval(() => {
-			setNow(Date.now());
-		}, 15_000);
-		return () => clearInterval(interval);
-	}, []);
-
-	useEffect(() => {
-		if (loading || orders.length === 0) {
-			return;
-		}
-
-		const maintained = maintainOrders(orders, now);
-		if (!ordersStoreChanged(orders, maintained)) {
-			return;
-		}
-
-		void (async () => {
-			const { canPublishOrderOps } = await import(
-				"@/src/utils/sync_write_gate"
-			);
-			if (!canPublishOrderOps()) {
+		const interval = window.setInterval(() => {
+			const current = ordersRef.current;
+			if (current.length === 0) {
 				return;
 			}
-			const saved = await updateOrders(maintained, now);
-			applyOrderState(saved);
-		})();
-	}, [now, loading, orders, applyOrderState]);
+			const maintained = maintainOrders(current, Date.now());
+			if (!ordersStoreChanged(current, maintained)) {
+				return;
+			}
+			void (async () => {
+				const { canPublishOrderOps } = await import(
+					"@/src/utils/sync_write_gate"
+				);
+				if (!canPublishOrderOps()) {
+					return;
+				}
+				const saved = await updateOrders(maintained, Date.now());
+				applyOrderState(saved);
+			})();
+		}, 15_000);
+		return () => window.clearInterval(interval);
+	}, [applyOrderState]);
 
 	useEffect(() => {
 		if (readyOrders.length === 0) {
@@ -3536,6 +3544,7 @@ export default function OrderPage() {
 	]);
 
 	return (
+		<LateClockProvider>
 		<div className="ops-app-screen">
 			<div className="sticky top-[var(--ops-top-banner-height,0px)] z-20 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2 bg-transparent pointer-events-none">
 				<div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 pointer-events-auto">
@@ -3602,7 +3611,6 @@ export default function OrderPage() {
 									<IndividualOrderCard
 										key={order.id}
 										order={order}
-										now={now}
 										sessionEditable={orderSessionEditable(order)}
 										onEdit={setEditingOrder}
 										onKotPrint={handleKotPrint}
@@ -3631,7 +3639,6 @@ export default function OrderPage() {
 								<TableOrderCard
 									key={group.key}
 									group={group}
-									now={now}
 									deviceId={deviceId}
 									isActionPending={isActionPending}
 									onBill={handleBill}
@@ -4031,5 +4038,6 @@ export default function OrderPage() {
 				/>
 			)}
 		</div>
+		</LateClockProvider>
 	);
 }

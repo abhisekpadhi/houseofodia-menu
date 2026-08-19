@@ -274,11 +274,100 @@ export async function buildOrderOpsSnapshot(): Promise<OrderOpsSnapshot> {
 	};
 }
 
-export function dispatchOrderOpsUpdated(): void {
+function emptySnapshotBase(
+	meta: OrderOpsMeta,
+	businessDate: string
+): OrderOpsSnapshot {
+	return {
+		deviceId: meta.deviceId,
+		versions: meta.versions,
+		stateVersion: maxOrderOpsVersion(meta.versions),
+		businessDate,
+		orders: [],
+		inventory: {},
+		orderHistory: [],
+		sentAt: Date.now(),
+	};
+}
+
+/** Live notify payload: only the changed domain. Catch-up still uses the full snapshot. */
+export async function buildOrderOpsDomainSnapshot(
+	domain: OrderOpsDomain
+): Promise<OrderOpsSnapshot> {
+	const meta = await getOrderOpsMeta();
+	const businessDate = getTodayDateKey();
+	const base = emptySnapshotBase(meta, businessDate);
+
+	if (domain === 'orders') {
+		const store: TOrdersStore = await getOrdersStore();
+		const [orderHistory, nextOrderNumber] = await Promise.all([
+			getTodayOrderHistory(),
+			getDailyOrderNumberSnapshot(),
+		]);
+		return {
+			...base,
+			orders: maintainOrders(store.orders, Date.now()),
+			orderHistory,
+			nextOrderNumber,
+		};
+	}
+
+	if (domain === 'inventory') {
+		return {
+			...base,
+			inventory: await getInventorySnapshotForDate(businessDate),
+		};
+	}
+
+	if (domain === 'dayChecklists') {
+		return {
+			...base,
+			dayChecklists: await getDayChecklistSnapshotForDate(businessDate),
+		};
+	}
+
+	if (domain === 'supplyInventory') {
+		return {
+			...base,
+			supplyInventory: await getSupplyInventorySnapshotForDate(businessDate),
+		};
+	}
+
+	if (domain === 'waitlist') {
+		return {
+			...base,
+			waitlist: await getWaitlistSnapshotForDate(businessDate),
+		};
+	}
+
+	if (domain === 'serviceRequests') {
+		return {
+			...base,
+			serviceRequests: await getServiceRequestsSnapshotForDate(businessDate),
+		};
+	}
+
+	return {
+		...base,
+		billingSessions: await getBillingSessions(),
+	};
+}
+
+export type OrderOpsUpdatedDetail = {
+	domain: OrderOpsDomain | 'all';
+};
+
+export function dispatchOrderOpsUpdated(
+	domain: OrderOpsDomain | 'all' = 'all'
+): void {
 	if (typeof window === 'undefined') {
 		return;
 	}
-	window.dispatchEvent(new CustomEvent(ORDER_OPS_EVENT));
+	window.dispatchEvent(
+		new CustomEvent<OrderOpsUpdatedDetail>(ORDER_OPS_EVENT, {
+			detail: { domain },
+		})
+	);
 }
 
 export function dispatchNewOrdersSynced(orderIds: string[]): void {

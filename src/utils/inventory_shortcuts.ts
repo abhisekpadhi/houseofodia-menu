@@ -1,18 +1,12 @@
 import { isInfiniteInventoryDish } from '@/src/utils/inventory_utils';
 
 export type InventoryShortcutId =
-	| 'all-100'
 	| 'all-oos'
 	| 'chicken-off'
-	| 'chicken-100'
 	| 'mutton-off'
-	| 'mutton-100'
 	| 'fish-off'
-	| 'fish-100'
 	| 'prawn-off'
-	| 'prawn-100'
-	| 'bread-off'
-	| 'bread-100';
+	| 'bread-off';
 
 export type InventoryShortcut = {
 	id: InventoryShortcutId;
@@ -23,13 +17,6 @@ export type InventoryShortcut = {
 };
 
 export const INVENTORY_SHORTCUTS: InventoryShortcut[] = [
-	{
-		id: 'all-100',
-		label: '💯 All 100',
-		title: 'Set all dishes to 100?',
-		message: 'Every dish on today’s inventory will be set to 100.',
-		confirmLabel: 'Set all to 100',
-	},
 	{
 		id: 'all-oos',
 		label: '🚫 All OOS',
@@ -45,25 +32,11 @@ export const INVENTORY_SHORTCUTS: InventoryShortcut[] = [
 		confirmLabel: 'Chicken off',
 	},
 	{
-		id: 'chicken-100',
-		label: '🐔 Chicken 100',
-		title: 'Set chicken dishes to 100?',
-		message: 'All chicken dishes will be set to 100.',
-		confirmLabel: 'Chicken 100',
-	},
-	{
 		id: 'mutton-off',
 		label: '🐑 Mutton off',
 		title: 'Mark mutton out of stock?',
 		message: 'All mutton dishes will be set to 0.',
 		confirmLabel: 'Mutton off',
-	},
-	{
-		id: 'mutton-100',
-		label: '🐑 Mutton 100',
-		title: 'Set mutton dishes to 100?',
-		message: 'All mutton dishes will be set to 100.',
-		confirmLabel: 'Mutton 100',
 	},
 	{
 		id: 'fish-off',
@@ -73,13 +46,6 @@ export const INVENTORY_SHORTCUTS: InventoryShortcut[] = [
 		confirmLabel: 'Fish off',
 	},
 	{
-		id: 'fish-100',
-		label: '🐟 Fish 100',
-		title: 'Set fish dishes to 100?',
-		message: 'All fish dishes will be set to 100.',
-		confirmLabel: 'Fish 100',
-	},
-	{
 		id: 'prawn-off',
 		label: '🦐 Prawn off',
 		title: 'Mark prawn out of stock?',
@@ -87,25 +53,11 @@ export const INVENTORY_SHORTCUTS: InventoryShortcut[] = [
 		confirmLabel: 'Prawn off',
 	},
 	{
-		id: 'prawn-100',
-		label: '🦐 Prawn 100',
-		title: 'Set prawn dishes to 100?',
-		message: 'All prawn dishes will be set to 100.',
-		confirmLabel: 'Prawn 100',
-	},
-	{
 		id: 'bread-off',
 		label: '🫓 Bread off',
 		title: 'Mark bread out of stock?',
 		message: 'Roti and paratha will be set to 0.',
 		confirmLabel: 'Bread off',
-	},
-	{
-		id: 'bread-100',
-		label: '🫓 Bread 100',
-		title: 'Set bread dishes to 100?',
-		message: 'Roti and paratha will be set to 100.',
-		confirmLabel: 'Bread 100',
 	},
 ];
 
@@ -173,7 +125,7 @@ export function dishMatchesInventoryShortcut(
 		return false;
 	}
 
-	if (shortcut === 'all-100' || shortcut === 'all-oos') {
+	if (shortcut === 'all-oos') {
 		return true;
 	}
 
@@ -194,13 +146,6 @@ export function getShortcutTargetDishes(
 	);
 }
 
-function shortcutTargetQty(shortcut: InventoryShortcutId): '0' | '100' {
-	if (shortcut === 'all-oos' || shortcut.endsWith('-off')) {
-		return '0';
-	}
-	return '100';
-}
-
 export function isOutOfStockInventoryShortcut(
 	shortcut: InventoryShortcutId
 ): boolean {
@@ -214,16 +159,15 @@ export function applyInventoryShortcut(
 ): Record<string, string> {
 	const next = { ...quantities };
 	const targets = getShortcutTargetDishes(dishNames, shortcut);
-	const nextQty = shortcutTargetQty(shortcut);
 
 	for (const dishName of targets) {
-		next[dishName] = nextQty;
+		next[dishName] = '0';
 	}
 
 	return next;
 }
 
-/** Per-category shortcuts (e.g. chicken off / chicken 100), not all-menu shortcuts. */
+/** Per-category shortcuts (e.g. chicken off), not all-menu shortcuts. */
 export function isDishCategoryInventoryShortcut(
 	shortcut: InventoryShortcutId
 ): boolean {
