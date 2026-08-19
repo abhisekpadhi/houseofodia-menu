@@ -224,7 +224,8 @@ function KotContent() {
 					{getOrderKotLines(order).map((line, index) => {
 						const displayName = getKotDisplayName(
 							line.name,
-							internalNameByBillName
+							internalNameByBillName,
+							line.internal_name
 						);
 						return (
 							<div key={`${line.name}-${line.isParcel}-${index}`}>

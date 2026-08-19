@@ -1,6 +1,6 @@
 "use client";
 
-import { ItemGroup, OrderGroup, TCart, TMenuApiItem, TOrder, TOrdersStore, BillingContext, BILLING_CONTEXT_KEY, ItemCancelReason, TABLE_COUNT, isCounterOrderKind } from "@/src/models/common";
+import { ItemGroup, OrderGroup, TBill, TCart, TMenuApiItem, TOrder, TOrdersStore, BillingContext, BILLING_CONTEXT_KEY, ItemCancelReason, TABLE_COUNT, isCounterOrderKind } from "@/src/models/common";
 import {
 	formatOrderLabel,
 	formatOrderTime,
@@ -39,10 +39,13 @@ import {
 	closeTableFromBilling,
 	discardOrderGroup,
 	ordersStoreChanged,
-	getGroupWaterBottleCount,
+	emptyWaterBottleCounts,
+	emptyWaterBottleDrafts,
+	getGroupWaterBottleCounts,
 	syncGroupWaterBottleCount,
-	getWaterBottlePrice,
-	WATER_DISH_NAME,
+	getWaterBottlePrices,
+	WATER_DISH_NAMES,
+	type WaterDishName,
 	canMoveTableGroupToTables,
 	formatTableGroupLabel,
 	getOccupiedTableNumbers,
@@ -1846,21 +1849,19 @@ function ChangeTableSheetModal({
 
 function WaterBottlesModal({
 	groupLabel,
-	value,
+	values,
 	onChange,
 	onConfirm,
 	onCancel,
 	confirming,
 }: {
 	groupLabel: string;
-	value: string;
-	onChange: (value: string) => void;
+	values: Record<WaterDishName, string>;
+	onChange: (dishName: WaterDishName, value: string) => void;
 	onConfirm: () => void;
 	onCancel: () => void;
 	confirming?: boolean;
 }) {
-	const parsedCount = parseInt(value.trim(), 10);
-	const count = Number.isNaN(parsedCount) ? 0 : parsedCount;
 	const [visibleViewport, setVisibleViewport] = useState<{
 		top: number;
 		height: number;
@@ -1888,14 +1889,6 @@ function WaterBottlesModal({
 		};
 	}, []);
 
-	const decrement = () => {
-		onChange(String(Math.max(0, count - 1)));
-	};
-
-	const increment = () => {
-		onChange(String(Math.min(999, count + 1)));
-	};
-
 	return (
 		<div
 			className="fixed left-0 right-0 z-50 flex items-center justify-center overflow-y-auto bg-black/40 px-4 py-4 transition-[top,height] duration-150"
@@ -1922,43 +1915,63 @@ function WaterBottlesModal({
 					<p className="text-sm text-gray-600 mt-2">
 						How many water bottles for {groupLabel}?
 					</p>
-					<label htmlFor="water-bottle-count" className="sr-only">
-						Water bottle count
-					</label>
-					<div className="mt-4 flex items-center justify-center gap-3">
-						<button
-							type="button"
-							onClick={decrement}
-							disabled={confirming || count <= 0}
-							className="w-10 h-10 flex items-center justify-center rounded-full bg-red-100 text-red-700 text-xl leading-none touch-manipulation disabled:opacity-40"
-							aria-label="Decrease water bottles"
-						>
-							-
-						</button>
-						<input
-							id="water-bottle-count"
-							type="text"
-							inputMode="numeric"
-							value={value}
-							disabled={confirming}
-							onChange={(event) =>
-								onChange(event.target.value.replace(/\D/g, "").slice(0, 3))
-							}
-							className="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm text-center touch-manipulation disabled:opacity-60"
-						/>
-						<button
-							type="button"
-							onClick={increment}
-							disabled={confirming || count >= 999}
-							className="w-10 h-10 flex items-center justify-center rounded-full bg-green-100 text-green-700 text-xl leading-none touch-manipulation disabled:opacity-40"
-							aria-label="Increase water bottles"
-						>
-							+
-						</button>
+					<div className="mt-4 space-y-4">
+						{WATER_DISH_NAMES.map((dishName) => {
+							const parsedCount = parseInt(values[dishName].trim(), 10);
+							const count = Number.isNaN(parsedCount) ? 0 : parsedCount;
+							const inputId = `water-bottle-count-${dishName.replace(/\s+/g, "-")}`;
+							return (
+								<div key={dishName}>
+									<label
+										htmlFor={inputId}
+										className="block text-sm font-medium text-gray-800"
+									>
+										{dishName}
+									</label>
+									<div className="mt-2 flex items-center justify-center gap-3">
+										<button
+											type="button"
+											onClick={() =>
+												onChange(dishName, String(Math.max(0, count - 1)))
+											}
+											disabled={confirming || count <= 0}
+											className="w-10 h-10 flex items-center justify-center rounded-full bg-red-100 text-red-700 text-xl leading-none touch-manipulation disabled:opacity-40"
+											aria-label={`Decrease ${dishName}`}
+										>
+											-
+										</button>
+										<input
+											id={inputId}
+											type="text"
+											inputMode="numeric"
+											value={values[dishName]}
+											disabled={confirming}
+											onChange={(event) =>
+												onChange(
+													dishName,
+													event.target.value.replace(/\D/g, "").slice(0, 3)
+												)
+											}
+											className="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm text-center touch-manipulation disabled:opacity-60"
+										/>
+										<button
+											type="button"
+											onClick={() =>
+												onChange(dishName, String(Math.min(999, count + 1)))
+											}
+											disabled={confirming || count >= 999}
+											className="w-10 h-10 flex items-center justify-center rounded-full bg-green-100 text-green-700 text-xl leading-none touch-manipulation disabled:opacity-40"
+											aria-label={`Increase ${dishName}`}
+										>
+											+
+										</button>
+									</div>
+								</div>
+							);
+						})}
 					</div>
-					<p className="text-xs text-gray-500 mt-2">
-						Uses the &quot;{WATER_DISH_NAME}&quot; menu item. Adjust if needed
-						before billing.
+					<p className="text-xs text-gray-500 mt-3">
+						Adjust if needed before billing.
 					</p>
 				</div>
 				<ConfirmModalActions
@@ -2558,7 +2571,9 @@ export default function OrderPage() {
 	const [pendingBillGroup, setPendingBillGroup] = useState<OrderGroup | null>(
 		null
 	);
-	const [waterBottleDraft, setWaterBottleDraft] = useState("");
+	const [waterBottleDraft, setWaterBottleDraft] = useState(
+		emptyWaterBottleDrafts
+	);
 	const [changeTableGroup, setChangeTableGroup] = useState<OrderGroup | null>(
 		null
 	);
@@ -3294,7 +3309,10 @@ export default function OrderPage() {
 		};
 		await localforage.setItem<TCart>("cart", cart);
 		await localforage.setItem(BILLING_CONTEXT_KEY, billingContext);
-		await saveBillingSession(billingContext, cart);
+		const session = await saveBillingSession(billingContext, cart);
+		if (session.bill) {
+			await localforage.setItem<TBill>("bill", session.bill);
+		}
 		void notifyOrderOpsChange("billing");
 		router.push("/cart");
 	};
@@ -3313,7 +3331,11 @@ export default function OrderPage() {
 
 		if (group.kind === "table") {
 			setPendingBillGroup(group);
-			setWaterBottleDraft(String(getGroupWaterBottleCount(group)));
+			const counts = getGroupWaterBottleCounts(group);
+			setWaterBottleDraft({
+				"Water 1L": String(counts["Water 1L"]),
+				"Water 500 ML": String(counts["Water 500 ML"]),
+			});
 			return;
 		}
 
@@ -3325,10 +3347,14 @@ export default function OrderPage() {
 			return;
 		}
 
-		const targetQty = parseInt(waterBottleDraft.trim(), 10);
-		if (Number.isNaN(targetQty) || targetQty < 0) {
-			alert("Enter a valid water bottle count.");
-			return;
+		const targetCounts = emptyWaterBottleCounts();
+		for (const dishName of WATER_DISH_NAMES) {
+			const targetQty = parseInt(waterBottleDraft[dishName].trim(), 10);
+			if (Number.isNaN(targetQty) || targetQty < 0) {
+				alert(`Enter a valid count for ${dishName}.`);
+				return;
+			}
+			targetCounts[dishName] = targetQty;
 		}
 
 		const groupKey = pendingBillGroup.key;
@@ -3341,32 +3367,55 @@ export default function OrderPage() {
 				groups.find((group) => group.key === groupKey) ??
 				groupOrdersByTable(orders).find((group) => group.key === groupKey) ??
 				pendingBillGroup;
-			const waterPrice = await getWaterBottlePrice();
-			const currentQty = getGroupWaterBottleCount(liveGroup);
+			const waterPrices = await getWaterBottlePrices();
+			const currentCounts = getGroupWaterBottleCounts(liveGroup);
 			let billingGroup = liveGroup;
+			let updatedOrders = orders;
+			const toDecrement: { name: WaterDishName; price: number; qty: number }[] =
+				[];
+			const toReplenish: { name: WaterDishName; price: number; qty: number }[] =
+				[];
 
-			if (targetQty !== currentQty) {
-				const delta = targetQty - currentQty;
-				const updatedOrders = syncGroupWaterBottleCount(
-					orders,
+			const changes = WATER_DISH_NAMES.map((dishName) => ({
+				dishName,
+				targetQty: targetCounts[dishName],
+				currentQty: currentCounts[dishName],
+			})).filter((change) => change.targetQty !== change.currentQty);
+			const orderedChanges = [
+				...changes.filter((change) => change.targetQty > change.currentQty),
+				...changes.filter((change) => change.targetQty < change.currentQty),
+			];
+
+			for (const { dishName, targetQty, currentQty } of orderedChanges) {
+				updatedOrders = syncGroupWaterBottleCount(
+					updatedOrders,
 					liveGroup,
+					dishName,
 					targetQty,
-					waterPrice
+					waterPrices[dishName]
 				);
-				await persistGroupEdit(liveGroup, updatedOrders);
-
-				const dateKey = getTodayDateKey();
+				const delta = targetQty - currentQty;
 				const waterItem = {
-					name: WATER_DISH_NAME,
-					price: waterPrice,
+					name: dishName,
+					price: waterPrices[dishName],
 					qty: Math.abs(delta),
 				};
 				if (delta > 0) {
-					await decrementInventoryForOrder(dateKey, [waterItem]);
-				} else if (delta < 0) {
-					await replenishInventoryForOrder(dateKey, [waterItem]);
+					toDecrement.push(waterItem);
+				} else {
+					toReplenish.push(waterItem);
 				}
+			}
 
+			if (orderedChanges.length > 0) {
+				await persistGroupEdit(liveGroup, updatedOrders);
+				const dateKey = getTodayDateKey();
+				if (toDecrement.length > 0) {
+					await decrementInventoryForOrder(dateKey, toDecrement);
+				}
+				if (toReplenish.length > 0) {
+					await replenishInventoryForOrder(dateKey, toReplenish);
+				}
 				const refreshedGroup = groupOrdersByTable(updatedOrders).find(
 					(group) => group.key === groupKey
 				);
@@ -3378,7 +3427,7 @@ export default function OrderPage() {
 
 			await proceedToBill(billingGroup);
 			setPendingBillGroup(null);
-			setWaterBottleDraft("");
+			setWaterBottleDraft(emptyWaterBottleDrafts());
 		});
 	};
 
@@ -3813,15 +3862,20 @@ export default function OrderPage() {
 			{pendingBillGroup && (
 				<WaterBottlesModal
 					groupLabel={pendingBillGroup.label}
-					value={waterBottleDraft}
-					onChange={setWaterBottleDraft}
+					values={waterBottleDraft}
+					onChange={(dishName, value) =>
+						setWaterBottleDraft((current) => ({
+							...current,
+							[dishName]: value,
+						}))
+					}
 					confirming={isActionPending(`bill:${pendingBillGroup.key}`)}
 					onCancel={() => {
 						if (isActionPending(`bill:${pendingBillGroup.key}`)) {
 							return;
 						}
 						setPendingBillGroup(null);
-						setWaterBottleDraft("");
+						setWaterBottleDraft(emptyWaterBottleDrafts());
 					}}
 					onConfirm={() => void handleConfirmBillWithWater()}
 				/>

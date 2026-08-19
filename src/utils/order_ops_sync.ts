@@ -286,6 +286,9 @@ function cartItemsToOrderItems(cart: TCart): TOrderItem[] {
 				name,
 				price: item.price,
 				qty: item.qty,
+				...(item.internal_name?.trim()
+					? { internal_name: item.internal_name.trim() }
+					: {}),
 				unitStates: Array.from({ length: item.qty }, () => 'pending' as const),
 				parcelUnits: Array.from({ length: item.qty }, () => isParcel),
 			};

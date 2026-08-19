@@ -22,10 +22,16 @@ type MenuItem = {
   is_veg: boolean;
 };
 
+type MenuPickerCartItem = {
+  name: string;
+  price: string;
+  internal_name?: string;
+};
+
 type MenuPickerProps = {
   quantities: Record<string, number>;
-  onAddItem: (item: { name: string; price: string }) => void;
-  onIncrement: (item: { name: string; price: string }) => void;
+  onAddItem: (item: MenuPickerCartItem) => void;
+  onIncrement: (item: MenuPickerCartItem) => void;
   onDecrement: (item: { name: string }) => void;
   headerAction?: React.ReactNode;
   /** When true, hide items with zero inventory. */

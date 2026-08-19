@@ -31,12 +31,14 @@ export async function saveBillingSession(
 ): Promise<BillingSessionState> {
 	const store =
 		(await localforage.getItem<BillingSessionsStore>(BILLING_SESSIONS_KEY)) ?? {};
-	const updatedAt = bill?.updatedAt ?? Date.now();
-	const session = {
+	const previous = store[context.sessionId];
+	const nextBill = bill ?? previous?.bill;
+	const updatedAt = nextBill?.updatedAt ?? Date.now();
+	const session: BillingSessionState = {
 		sessionId: context.sessionId,
 		context,
 		cart,
-		...(bill ? { bill } : {}),
+		...(nextBill ? { bill: nextBill } : {}),
 		updatedAt,
 	};
 	store[context.sessionId] = session;

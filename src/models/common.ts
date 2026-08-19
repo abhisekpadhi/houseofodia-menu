@@ -17,7 +17,13 @@ export type TMenu = {
 
 export type TStorage = {menu: TMenu, created_at: number}
 
-export type TDish = {name: string, price: number, qty: number}
+export type TDish = {
+	name: string;
+	price: number;
+	qty: number;
+	/** Kitchen-facing label; billing still uses `name`. */
+	internal_name?: string;
+};
 
 export type ItemCancelReason =
 	| 'customer_cancel'

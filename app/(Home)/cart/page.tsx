@@ -128,7 +128,10 @@ const Cart = () => {
 			}
 
 			const existingSession = await getBillingSession(context.sessionId);
-			const existingBill = existingSession?.bill;
+			const storedBill = await localforage.getItem<TBill>("bill");
+			const existingBill =
+				existingSession?.bill ??
+				(storedBill?.sessionId === context.sessionId ? storedBill : null);
 			const cgst = Math.round(totalAmount * 0.025 * 100) / 100;
 			const sgst = Math.round(totalAmount * 0.025 * 100) / 100;
 			const preRoundPayable =

@@ -1,5 +1,5 @@
 import type { TOrder } from '@/src/models/common';
-import { getOrderKotLines, WATER_DISH_NAME } from '@/src/utils/order_utils';
+import { getOrderKotLines, isWaterBottleDish } from '@/src/utils/order_utils';
 
 function kotLineKey(line: { name: string; isParcel: boolean }): string {
 	return `${line.name}|${line.isParcel ? '1' : '0'}`;
@@ -7,7 +7,7 @@ function kotLineKey(line: { name: string; isParcel: boolean }): string {
 
 /** Kitchen-facing KOT lines — excludes water bottles (not cooked). */
 function getKitchenKotLines(order: TOrder) {
-	return getOrderKotLines(order).filter((line) => line.name !== WATER_DISH_NAME);
+	return getOrderKotLines(order).filter((line) => !isWaterBottleDish(line.name));
 }
 
 function linesMap(

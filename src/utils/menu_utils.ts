@@ -95,14 +95,16 @@ export function buildDishInternalNameMap(
 	return map;
 }
 
-/** Kitchen-facing label for KOT; falls back to bill `name`. */
+/** Kitchen-facing label for KOT; stamped name, then live menu map, then bill `name`. */
 export function getKotDisplayName(
 	billName: string,
-	internalNameByBillName?: Record<string, string>
+	internalNameByBillName?: Record<string, string>,
+	stampedInternalName?: string
 ): string {
 	return getMenuDisplayName({
 		name: billName,
-		internal_name: internalNameByBillName?.[billName],
+		internal_name:
+			stampedInternalName?.trim() || internalNameByBillName?.[billName],
 	});
 }
 

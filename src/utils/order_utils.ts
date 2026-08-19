@@ -348,6 +348,8 @@ export type KotLine = {
 	qty: number;
 	/** Bill / order item name (without parcel suffix). */
 	name: string;
+	/** Kitchen label stamped at order time, when present. */
+	internal_name?: string;
 	isParcel: boolean;
 };
 
@@ -373,10 +375,20 @@ export function getOrderKotLines(order: TOrder): KotLine[] {
 		}
 
 		if (regularQty > 0) {
-			lines.push({ qty: regularQty, name: item.name, isParcel: false });
+			lines.push({
+				qty: regularQty,
+				name: item.name,
+				...(item.internal_name ? { internal_name: item.internal_name } : {}),
+				isParcel: false,
+			});
 		}
 		if (parcelQty > 0) {
-			lines.push({ qty: parcelQty, name: item.name, isParcel: true });
+			lines.push({
+				qty: parcelQty,
+				name: item.name,
+				...(item.internal_name ? { internal_name: item.internal_name } : {}),
+				isParcel: true,
+			});
 		}
 	}
 
@@ -522,30 +534,59 @@ export async function getPackagingChargePrice(): Promise<number> {
 	}
 }
 
-export const WATER_DISH_NAME = 'Water';
+export const WATER_DISH_NAMES = ['Water 1L', 'Water 500 ML'] as const;
+export type WaterDishName = (typeof WATER_DISH_NAMES)[number];
+
+export function isWaterBottleDish(name: string): name is WaterDishName {
+	return (WATER_DISH_NAMES as readonly string[]).includes(name);
+}
+
+export function emptyWaterBottleCounts(): Record<WaterDishName, number> {
+	return { 'Water 1L': 0, 'Water 500 ML': 0 };
+}
+
+export function emptyWaterBottleDrafts(): Record<WaterDishName, string> {
+	return { 'Water 1L': '0', 'Water 500 ML': '0' };
+}
 
 const DEFAULT_WATER_BOTTLE_PRICE = 20;
 
-export async function getWaterBottlePrice(): Promise<number> {
+export async function getWaterBottlePrices(): Promise<
+	Record<WaterDishName, number>
+> {
+	const prices = emptyWaterBottleCounts();
+	for (const name of WATER_DISH_NAMES) {
+		prices[name] = DEFAULT_WATER_BOTTLE_PRICE;
+	}
+
 	try {
 		let menuItems = await getCachedMenuItems();
 		if (!menuItems?.length) {
 			menuItems = await fetchAndCacheMenuItems();
 		}
-		const match = menuItems?.find((item) => item.name === WATER_DISH_NAME);
-		const price = match ? parseFloat(match.price) : Number.NaN;
-		return Number.isNaN(price) ? DEFAULT_WATER_BOTTLE_PRICE : price;
+		for (const name of WATER_DISH_NAMES) {
+			const match = menuItems?.find((item) => item.name === name);
+			const price = match ? parseFloat(match.price) : Number.NaN;
+			prices[name] = Number.isNaN(price)
+				? DEFAULT_WATER_BOTTLE_PRICE
+				: price;
+		}
 	} catch {
-		return DEFAULT_WATER_BOTTLE_PRICE;
+		// keep defaults
 	}
+
+	return prices;
 }
 
-export function getGroupWaterBottleCount(group: OrderGroup): number {
+export function getGroupWaterBottleCount(
+	group: OrderGroup,
+	dishName: WaterDishName
+): number {
 	let count = 0;
 
 	for (const order of group.orders) {
 		for (const item of order.items) {
-			if (item.name !== WATER_DISH_NAME) {
+			if (item.name !== dishName) {
 				continue;
 			}
 			count += getItemBillableQty(normalizeOrderItem(item));
@@ -555,9 +596,20 @@ export function getGroupWaterBottleCount(group: OrderGroup): number {
 	return count;
 }
 
+export function getGroupWaterBottleCounts(
+	group: OrderGroup
+): Record<WaterDishName, number> {
+	const counts = emptyWaterBottleCounts();
+	for (const name of WATER_DISH_NAMES) {
+		counts[name] = getGroupWaterBottleCount(group, name);
+	}
+	return counts;
+}
+
 export function syncGroupWaterBottleCount(
 	orders: TOrder[],
 	group: OrderGroup,
+	dishName: WaterDishName,
 	targetQty: number,
 	waterPrice: number
 ): TOrder[] {
@@ -565,7 +617,7 @@ export function syncGroupWaterBottleCount(
 		return orders;
 	}
 
-	const currentQty = getGroupWaterBottleCount(group);
+	const currentQty = getGroupWaterBottleCount(group, dishName);
 	if (targetQty === currentQty) {
 		return orders;
 	}
@@ -584,7 +636,7 @@ export function syncGroupWaterBottleCount(
 		const addQty = targetQty - currentQty;
 		const targetOrder =
 			groupOrders.find((order) =>
-				order.items.some((item) => item.name === WATER_DISH_NAME)
+				order.items.some((item) => item.name === dishName)
 			) ?? groupOrders[0];
 
 		if (!targetOrder) {
@@ -596,13 +648,11 @@ export function syncGroupWaterBottleCount(
 				return order;
 			}
 			const items = order.items.map((item) => ({ ...item }));
-			const waterIndex = items.findIndex(
-				(item) => item.name === WATER_DISH_NAME
-			);
+			const waterIndex = items.findIndex((item) => item.name === dishName);
 			if (waterIndex === -1) {
 				items.push(
 					normalizeOrderItem({
-						name: WATER_DISH_NAME,
+						name: dishName,
 						price: waterPrice,
 						qty: addQty,
 					})
@@ -638,7 +688,7 @@ export function syncGroupWaterBottleCount(
 			}
 
 			const item = items[itemIndex];
-			if (item.name !== WATER_DISH_NAME) {
+			if (item.name !== dishName) {
 				continue;
 			}
 

@@ -23,6 +23,7 @@ import {
 	getTodayDateKey,
 	isOutOfStock,
 } from "@/src/utils/inventory_utils";
+import { getMenuDisplayName } from "@/src/utils/menu_utils";
 import {
 	CUSTOMER_PHONE_DIGITS,
 	formatTableGroupLabel,
@@ -125,7 +126,7 @@ function OrderCartModal({
 									<div className="flex items-center justify-between gap-3">
 									<div className="min-w-0 flex-1">
 										<p className="text-sm font-semibold truncate">
-											{item.name}
+											{getMenuDisplayName(item)}
 										</p>
 										<p className="text-xs text-gray-500 mt-0.5">
 											₹{item.price} each
@@ -213,6 +214,9 @@ function AddOrderContent() {
 	const [occupiedTables, setOccupiedTables] = useState<Set<number>>(new Set());
 	const [quantities, setQuantities] = useState<Record<string, number>>({});
 	const [itemPrices, setItemPrices] = useState<Record<string, number>>({});
+	const [itemInternalNames, setItemInternalNames] = useState<
+		Record<string, string>
+	>({});
 	const [inventory, setInventory] = useState<Record<string, number>>({});
 	const [orderNotes, setOrderNotes] = useState("");
 	const [customerName, setCustomerName] = useState("");
@@ -351,12 +355,16 @@ function AddOrderContent() {
 	const cartItems = useMemo((): TDish[] => {
 		return Object.entries(quantities)
 			.filter(([, qty]) => qty > 0)
-			.map(([name, qty]) => ({
-				name,
-				qty,
-				price: itemPrices[name] ?? 0,
-			}));
-	}, [quantities, itemPrices]);
+			.map(([name, qty]) => {
+				const internalName = itemInternalNames[name]?.trim();
+				return {
+					name,
+					qty,
+					price: itemPrices[name] ?? 0,
+					...(internalName ? { internal_name: internalName } : {}),
+				};
+			});
+	}, [quantities, itemPrices, itemInternalNames]);
 
 	const cartItemCount = useMemo(
 		() => cartItems.reduce((sum, item) => sum + item.qty, 0),
@@ -513,7 +521,11 @@ function AddOrderContent() {
 		);
 	};
 
-	const handleAddItem = (item: { name: string; price: string }) => {
+	const handleAddItem = (item: {
+		name: string;
+		price: string;
+		internal_name?: string;
+	}) => {
 		if (needsTableSelection) {
 			alert("Select at least one table number.");
 			return;
@@ -525,8 +537,12 @@ function AddOrderContent() {
 
 		const priceNumber = parseFloat(item.price);
 		const price = Number.isNaN(priceNumber) ? 0 : priceNumber;
+		const internalName = item.internal_name?.trim();
 
 		setItemPrices((prev) => ({ ...prev, [item.name]: price }));
+		if (internalName) {
+			setItemInternalNames((prev) => ({ ...prev, [item.name]: internalName }));
+		}
 		const nextQty = (quantities[item.name] ?? 0) + 1;
 		setQuantities((prev) => ({
 			...prev,
@@ -542,7 +558,11 @@ function AddOrderContent() {
 		}));
 	};
 
-	const handleIncrement = (item: { name: string; price: string }) => {
+	const handleIncrement = (item: {
+		name: string;
+		price: string;
+		internal_name?: string;
+	}) => {
 		handleAddItem(item);
 	};
 
@@ -550,6 +570,16 @@ function AddOrderContent() {
 		const current = quantities[item.name] ?? 0;
 		if (current <= 1) {
 			setQuantities((prev) => {
+				const next = { ...prev };
+				delete next[item.name];
+				return next;
+			});
+			setItemPrices((prev) => {
+				const next = { ...prev };
+				delete next[item.name];
+				return next;
+			});
+			setItemInternalNames((prev) => {
 				const next = { ...prev };
 				delete next[item.name];
 				return next;
@@ -582,7 +612,11 @@ function AddOrderContent() {
 		if (!canAddMore(item.name)) {
 			return;
 		}
-		handleIncrement({ name: item.name, price: String(item.price) });
+		handleIncrement({
+			name: item.name,
+			price: String(item.price),
+			internal_name: item.internal_name,
+		});
 	};
 
 	const handlePlaceOrder = async () => {
