@@ -173,66 +173,6 @@ function filterItemGroupByTables(
 	};
 }
 
-function TableFilterBar({
-	selectedTables,
-	onToggleTable,
-	onClear,
-}: {
-	selectedTables: number[];
-	onToggleTable: (tableNumber: number) => void;
-	onClear: () => void;
-}) {
-	return (
-		<div className="flex items-center gap-1.5">
-			<div className="min-w-0 flex-1 overflow-x-auto">
-				<div className="flex gap-1 w-max">
-					{Array.from({ length: TABLE_COUNT }, (_, index) => index + 1).map(
-						(tableNumber) => {
-							const isSelected = selectedTables.includes(tableNumber);
-							return (
-								<button
-									key={tableNumber}
-									type="button"
-									onClick={() => onToggleTable(tableNumber)}
-									aria-pressed={isSelected}
-									className={`shrink-0 h-7 min-w-[1.75rem] rounded-md border px-1.5 text-xs font-semibold touch-manipulation transition-colors ${
-										isSelected
-											? "border-green-600 bg-green-500 text-white"
-											: "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-									}`}
-								>
-									{tableNumber}
-								</button>
-							);
-						}
-					)}
-				</div>
-			</div>
-			{selectedTables.length > 0 ? (
-				<button
-					type="button"
-					onClick={onClear}
-					className="shrink-0 flex h-7 w-7 items-center justify-center rounded-full text-red-600 hover:bg-red-50 active:bg-red-100 touch-manipulation"
-					aria-label="Clear table filter"
-				>
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						strokeWidth="2.5"
-						strokeLinecap="round"
-						className="h-4 w-4"
-						aria-hidden
-					>
-						<path d="M18 6L6 18M6 6l12 12" />
-					</svg>
-				</button>
-			) : null}
-		</div>
-	);
-}
-
 function FilterIcon({ className }: { className?: string }) {
 	return (
 		<svg
@@ -260,9 +200,6 @@ function OrderViewFiltersSheet({
 	onTableOrdersViewChange,
 	itemsAggregatesView,
 	onItemsAggregatesViewChange,
-	selectedTables,
-	onToggleTable,
-	onClearTables,
 	onClose,
 }: {
 	activeTab: TabId;
@@ -271,9 +208,6 @@ function OrderViewFiltersSheet({
 	onTableOrdersViewChange: (view: TableOrdersView) => void;
 	itemsAggregatesView: boolean;
 	onItemsAggregatesViewChange: (aggregates: boolean) => void;
-	selectedTables: number[];
-	onToggleTable: (tableNumber: number) => void;
-	onClearTables: () => void;
 	onClose: () => void;
 }) {
 	return (
@@ -385,16 +319,6 @@ function OrderViewFiltersSheet({
 								</>
 							)}
 						</div>
-					</div>
-					<div>
-						<p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
-							Filter by table
-						</p>
-						<TableFilterBar
-							selectedTables={selectedTables}
-							onToggleTable={onToggleTable}
-							onClear={onClearTables}
-						/>
 					</div>
 				</div>
 			</div>
@@ -3758,9 +3682,6 @@ export default function OrderPage() {
 					onTableOrdersViewChange={setTableOrdersView}
 					itemsAggregatesView={itemsAggregatesView}
 					onItemsAggregatesViewChange={setItemsAggregatesView}
-					selectedTables={selectedTableFilters}
-					onToggleTable={toggleTableFilter}
-					onClearTables={clearTableFilters}
 					onClose={() => setViewFiltersOpen(false)}
 				/>
 			) : null}
