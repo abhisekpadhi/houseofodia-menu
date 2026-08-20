@@ -49,9 +49,9 @@ function SignInShell({
 }) {
 	return (
 		<div className="flex min-h-dvh flex-col bg-neutral-50 px-[max(1.25rem,env(safe-area-inset-left))] pr-[max(1.25rem,env(safe-area-inset-right))] pt-[max(3rem,calc(env(safe-area-inset-top)+1.5rem))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:items-center sm:justify-center sm:pt-[max(2rem,env(safe-area-inset-top))]">
-			<div className="mx-auto w-full max-w-sm">
-				<h1 className="text-3xl font-bold text-gray-900">Tangify</h1>
-				<p className="mt-1 mb-8 text-base text-gray-500">{subtitle}</p>
+			<div className="mx-auto w-full max-w-sm sm:max-w-md sm:rounded-2xl sm:border sm:border-gray-200 sm:bg-white sm:p-6 sm:shadow-sm md:max-w-lg md:p-8">
+				<h1 className="text-3xl font-bold text-gray-900 sm:text-[2rem]">Tangify</h1>
+				<p className="mt-1 mb-8 text-base text-gray-500 sm:text-lg">{subtitle}</p>
 				{children}
 			</div>
 		</div>
@@ -249,7 +249,7 @@ function SignInContent() {
 							'Verify and sign in'
 						)}
 					</button>
-					<div className="grid grid-cols-2 gap-2">
+					<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
 						<button
 							type="button"
 							disabled={pending}
