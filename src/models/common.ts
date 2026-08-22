@@ -192,6 +192,8 @@ export type BillingContext = {
 	kind: OrderKind;
 	tableNumbers: number[];
 	label: string;
+	/** Frozen at bill open — close intent archives only these order ids. */
+	orderIds?: string[];
 };
 
 export const BILLING_CONTEXT_KEY = 'billingContext';

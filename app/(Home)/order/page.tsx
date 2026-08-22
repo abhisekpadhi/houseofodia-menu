@@ -3211,7 +3211,10 @@ export default function OrderPage() {
 		});
 	};
 
-	const proceedToBill = async (group: OrderGroup) => {
+	const proceedToBill = async (
+		group: OrderGroup,
+		options?: { lockAlreadyClaimed?: boolean }
+	) => {
 		if (!canEditSession(group, deviceId)) {
 			alertSessionLocked(group);
 			return;
@@ -3223,9 +3226,11 @@ export default function OrderPage() {
 			return;
 		}
 		// Claim lock before leaving for cart so peers see ownership.
-		await persistOrders(
-			claimGroupSessionLock(orders, group, deviceId, deviceName)
-		);
+		if (!options?.lockAlreadyClaimed) {
+			await persistOrders(
+				claimGroupSessionLock(orders, group, deviceId, deviceName)
+			);
+		}
 		const cart = await orderGroupToBillCart(group);
 		const oldestOrder = group.orders.reduce((oldest, order) =>
 			order.createdAt < oldest.createdAt ? order : oldest
@@ -3238,6 +3243,7 @@ export default function OrderPage() {
 			kind: group.kind,
 			tableNumbers: group.tableNumbers ?? [],
 			label: group.label,
+			orderIds: group.orders.map((order) => order.id),
 		};
 		await localforage.setItem<TCart>("cart", cart);
 		await localforage.setItem(BILLING_CONTEXT_KEY, billingContext);
@@ -3340,7 +3346,13 @@ export default function OrderPage() {
 			}
 
 			if (orderedChanges.length > 0) {
-				await persistGroupEdit(liveGroup, updatedOrders);
+				const lockedOrders = claimGroupSessionLock(
+					updatedOrders,
+					liveGroup,
+					deviceId,
+					deviceName
+				);
+				await persistGroupEdit(liveGroup, lockedOrders);
 				const dateKey = getTodayDateKey();
 				if (toDecrement.length > 0) {
 					await decrementInventoryForOrder(dateKey, toDecrement);
@@ -3348,16 +3360,17 @@ export default function OrderPage() {
 				if (toReplenish.length > 0) {
 					await replenishInventoryForOrder(dateKey, toReplenish);
 				}
-				const refreshedGroup = groupOrdersByTable(updatedOrders).find(
+				const refreshedGroup = groupOrdersByTable(lockedOrders).find(
 					(group) => group.key === groupKey
 				);
 				if (!refreshedGroup) {
 					return;
 				}
 				billingGroup = refreshedGroup;
+				await proceedToBill(billingGroup, { lockAlreadyClaimed: true });
+			} else {
+				await proceedToBill(billingGroup);
 			}
-
-			await proceedToBill(billingGroup);
 			setPendingBillGroup(null);
 			setWaterBottleDraft(emptyWaterBottleDrafts());
 		});
@@ -3380,6 +3393,7 @@ export default function OrderPage() {
 				kind: group.kind,
 				tableNumbers: group.tableNumbers ?? [],
 				label: group.label,
+				orderIds: group.orders.map((order) => order.id),
 			};
 			const remaining = await closeTableFromBilling(billingContext);
 			applyOrderState(remaining);

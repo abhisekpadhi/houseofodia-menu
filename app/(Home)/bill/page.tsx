@@ -29,6 +29,7 @@ import {
 } from "@/src/utils/order_ops_sync";
 import { isBillPrinterOnline } from "@/src/utils/print_servers";
 import { useOrderOpsSync } from "@/context/order-ops-sync";
+import { markBillSyncRedirect } from "@/src/utils/bill_sync_redirect_notice";
 import { useInFlightLock } from "@/src/utils/in_flight";
 import { buildDishInternalNameMap } from "@/src/utils/menu_utils";
 import { saveBillToBackend } from "@/src/utils/tangify_api";
@@ -580,6 +581,16 @@ const Receipt = () => {
   const billActionLock = useInFlightLock();
   const isBusy = saving || processing;
   const controlsDisabled = isBusy || downloadingImage;
+  const syncBlocked = !sync.canWrite;
+
+  useEffect(() => {
+    if (sync.writeGate !== "catching_up" || isBusy) {
+      return;
+    }
+    markBillSyncRedirect();
+    router.replace("/order");
+  }, [sync.writeGate, isBusy, router]);
+
   useEffect(() => {
     try {
       const probe = new File(
@@ -1083,6 +1094,9 @@ const Receipt = () => {
   };
 
   const onClickCloseTable = async () => {
+    if (!sync.canWrite) {
+      return;
+    }
     if (!billActionLock.tryLock()) {
       return;
     }
@@ -1504,9 +1518,15 @@ const Receipt = () => {
         ) : null}
         <button
           type="button"
-          disabled={controlsDisabled}
+          disabled={controlsDisabled || syncBlocked}
           aria-label={processing ? "Closing table" : "Close table"}
-          title={processing ? "Closing…" : "Close table"}
+          title={
+            syncBlocked
+              ? "Syncing — return to orders until catch-up finishes"
+              : processing
+                ? "Closing…"
+                : "Close table"
+          }
           className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-green-500 text-white shadow-lg hover:bg-green-600 touch-manipulation transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={() => void onClickCloseTable()}
         >

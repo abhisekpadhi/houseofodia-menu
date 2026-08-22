@@ -51,6 +51,11 @@ import {
 	getCatchUpStartedAt,
 	type WriteGateState,
 } from '@/src/utils/sync_write_gate';
+import {
+	handleTableCloseIntent,
+	registerTableClosePublisher,
+	unregisterTableClosePublisher,
+} from '@/src/utils/order_close_intent';
 import { getTodayDateKey } from '@/src/utils/inventory_utils';
 import Ably, { PresenceMessage, Realtime, RealtimeChannel } from 'ably';
 import {
@@ -701,6 +706,15 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				});
 			});
 
+			channel.subscribe('orders:close', async (message) => {
+				await runWithSyncIndicator(async () => {
+					await handleTableCloseIntent(
+						message.data as import('@/src/utils/order_close_intent').TableCloseIntent,
+					);
+					await refreshMeta();
+				});
+			});
+
 			channel.subscribe('kot:printed', async (message) => {
 				const payload = message.data as KotPrintAckMessage;
 				const orderId = payload?.orderId?.trim();
@@ -766,6 +780,14 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 					throw new Error('Sync channel is not ready');
 				}
 				await activeChannel.publish('bill:print', payload);
+			});
+
+			registerTableClosePublisher(async (intent) => {
+				const activeChannel = channelRef.current;
+				if (!activeChannel) {
+					throw new Error('Sync channel is not ready');
+				}
+				await activeChannel.publish('orders:close', intent);
 			});
 
 			registerOrderOpsPresenceUpdater(async () => {
@@ -972,6 +994,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			unregisterOrderOpsPublisher();
 			unregisterKotPrintPublisher();
 			unregisterBillPrintPublisher();
+			unregisterTableClosePublisher();
 			unregisterOrderOpsPresenceUpdater();
 			void teardownAbly(
 				realtimeRef.current,

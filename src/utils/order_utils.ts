@@ -764,16 +764,8 @@ export async function closeTableFromBilling(
 	context: BillingContext,
 	billSummary?: OrderBillSummary
 ): Promise<TOrder[]> {
-	const store = await getOrdersStore();
-	const removing = store.orders.filter((order) =>
-		orderBelongsToBillingGroup(order, context)
-	);
-	await upsertOrdersInHistory(removing, {
-		billedAt: Date.now(),
-		...(billSummary ? { billSummary } : {}),
-	});
-	const remaining = removeOrdersForBillingGroup(store.orders, context);
-	return updateOrders(remaining);
+	const { closeTableWithIntent } = await import('@/src/utils/order_close_intent');
+	return closeTableWithIntent(context, billSummary);
 }
 
 /** Permanently discard a group from active orders without writing to history/DB. */
