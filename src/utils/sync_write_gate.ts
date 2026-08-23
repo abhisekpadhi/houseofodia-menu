@@ -6,7 +6,8 @@ export type WriteGateState =
 	| 'offline'
 	| 'catching_up'
 	| 'ready'
-	| 'awaiting_choice';
+	| 'awaiting_choice'
+	| 'sync_failed';
 
 export class SyncWriteBlockedError extends Error {
 	constructor(message = 'Sync in progress — wait until catch-up finishes') {
@@ -67,7 +68,7 @@ export function setWriteGateState(
 			catchUpStartedAt = Date.now();
 		}
 	}
-	if (next === 'ready' || next === 'offline') {
+	if (next === 'ready' || next === 'offline' || next === 'sync_failed') {
 		preferFullscreenCatchUp = false;
 		catchUpStartedAt = 0;
 	}

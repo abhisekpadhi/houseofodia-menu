@@ -49,10 +49,20 @@ import { applyServiceRequestsSnapshot } from '@/src/utils/service_requests_utils
 import { applyBillingSessions } from '@/src/utils/billing_state';
 import localforage from 'localforage';
 
+import {
+	publishSyncResponseChunks,
+	SYNC_CHUNK_TIMEOUT_MS,
+	SyncResponseChunkAssembler,
+	isCompleteSyncResponse,
+	type SyncResponseWireMessage,
+	type SyncTransferProgress,
+} from '@/src/utils/sync_response_chunk';
+
 const ORDERS_KEY = 'orders';
 const SYNC_REQUEST_COOLDOWN_MS = 2_000;
-/** Wait this long for a ready hub / sync:response before P2P fallback. */
-export const HUB_SYNC_WAIT_MS = 4_000;
+
+export { SYNC_CHUNK_TIMEOUT_MS };
+export type { SyncResponseWireMessage, SyncTransferProgress };
 
 let suppressSyncNotify = false;
 let publishStateDelta: ((snapshot: OrderOpsSnapshot) => Promise<void>) | null =
@@ -789,7 +799,7 @@ export async function resolveSyncKeepLocal(): Promise<void> {
 
 export async function handleSyncRequest(
 	message: SyncRequestMessage,
-	respond: (payload: SyncResponseMessage) => Promise<void>
+	respond: (payload: SyncResponseWireMessage) => Promise<void>
 ): Promise<void> {
 	const today = getTodayDateKey();
 	const meta = await getOrderOpsMeta();
@@ -821,7 +831,7 @@ export async function handleSyncRequest(
 		return;
 	}
 
-	await respond({
+	await publishSyncResponseChunks(respond, {
 		...snapshot,
 		targetId: message.requesterId,
 		responderId: meta.deviceId,
@@ -897,16 +907,76 @@ export async function maybeRequestSyncFromPeers(
 	};
 }
 
+export type HandleSyncResponseResult = {
+	applied: boolean;
+	progress: SyncTransferProgress | null;
+};
+
 export async function handleSyncResponse(
-	message: SyncResponseMessage
-): Promise<boolean> {
+	message: SyncResponseMessage | SyncResponseWireMessage,
+	assembler?: SyncResponseChunkAssembler
+): Promise<HandleSyncResponseResult> {
 	const meta = await getOrderOpsMeta();
 
-	if (message.targetId !== meta.deviceId) {
-		return false;
+	let complete: SyncResponseMessage | null = null;
+	let progress: SyncTransferProgress | null = null;
+
+	if (assembler && !isCompleteSyncResponse(message as SyncResponseWireMessage)) {
+		const wire = message as SyncResponseWireMessage;
+		if (wire.targetId !== meta.deviceId) {
+			return { applied: false, progress: null };
+		}
+		progress = assembler.getProgress(wire);
+		complete = assembler.ingest(wire);
+		if (complete && 'totalChunks' in wire && wire.totalChunks) {
+			progress = {
+				received: wire.totalChunks,
+				total: wire.totalChunks,
+			};
+		} else if (!complete) {
+			progress = assembler.getProgress(wire);
+		}
+	} else {
+		complete = message as SyncResponseMessage;
+		progress = { received: 1, total: 1 };
 	}
 
-	return applyOrderOpsSnapshot(message);
+	if (!complete) {
+		return { applied: false, progress };
+	}
+
+	if (complete.targetId !== meta.deviceId) {
+		return { applied: false, progress: null };
+	}
+
+	const applied = await applyOrderOpsSnapshot(complete);
+	return { applied, progress };
+}
+
+export function listFallbackSyncPeers(
+	members: PresenceMember[],
+	selfClientId: string,
+	today: string
+): SyncConflictPeer[] {
+	const todayPeers = peersForToday(members, selfClientId, today);
+	return todayPeers
+		.filter(
+			(member) =>
+				!isHubRole(member) &&
+				(getPeerInitialized(member) || getPeerStateVersion(member) > 0)
+		)
+		.map((member) => {
+			const versions = getPeerVersions(member);
+			return {
+				clientId: member.clientId,
+				deviceName: getPeerDeviceName(member),
+				versions,
+				stateVersion: maxOrderOpsVersion(versions),
+				initializedForToday: getPeerInitialized(member),
+				isSyncHub: false,
+			};
+		})
+		.sort((a, b) => b.stateVersion - a.stateVersion);
 }
 
 export async function handleStateDelta(

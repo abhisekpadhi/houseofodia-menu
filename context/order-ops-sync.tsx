@@ -8,7 +8,6 @@ import {
 	SyncConflict,
 	SyncConflictResolution,
 	SyncRequestMessage,
-	SyncResponseMessage,
 	StateDeltaMessage,
 } from '@/src/models/order_ops';
 import {
@@ -38,11 +37,18 @@ import {
 	getPeerDeviceName,
 	isSyncHubOnlineAmong,
 	applyKotPrintedAck,
-	HUB_SYNC_WAIT_MS,
+	listFallbackSyncPeers,
+	SYNC_CHUNK_TIMEOUT_MS,
 	type PresenceMember,
 	type KotPrintAckMessage,
 	type PickSyncSourceOptions,
+	type SyncTransferProgress,
 } from '@/src/utils/order_ops_sync';
+import {
+	SyncResponseChunkAssembler,
+	type SyncResponseWireMessage,
+} from '@/src/utils/sync_response_chunk';
+import type { SyncConflictPeer } from '@/src/models/order_ops';
 import {
 	getWriteGateState,
 	setWriteGateState,
@@ -94,6 +100,10 @@ type OrderOpsSyncContextValue = {
 	canWrite: boolean;
 	catchUpUi: CatchUpUiMode;
 	syncHubOnline: boolean;
+	/** Chunk progress while receiving a sync transfer. */
+	syncTransferProgress: SyncTransferProgress | null;
+	/** Peers available when hub sync fails. */
+	syncFallbackPeers: SyncConflictPeer[];
 	/** Short-lived KOT print failure message (auto-clears). */
 	kotPrintFailure: string | null;
 	connect: () => Promise<void>;
@@ -102,6 +112,9 @@ type OrderOpsSyncContextValue = {
 		resolution: SyncConflictResolution,
 		peerClientId?: string
 	) => Promise<void>;
+	retryHubSync: () => Promise<void>;
+	continueWithLocalState: () => void;
+	requestSyncFromDevice: (peerClientId: string) => Promise<void>;
 };
 
 const OrderOpsSyncContext = createContext<OrderOpsSyncContextValue>({
@@ -121,10 +134,15 @@ const OrderOpsSyncContext = createContext<OrderOpsSyncContextValue>({
 	canWrite: false,
 	catchUpUi: 'none',
 	syncHubOnline: false,
+	syncTransferProgress: null,
+	syncFallbackPeers: [],
 	kotPrintFailure: null,
 	connect: async () => undefined,
 	updateDeviceName: async () => undefined,
 	resolveSyncConflict: async () => undefined,
+	retryHubSync: async () => undefined,
+	continueWithLocalState: () => undefined,
+	requestSyncFromDevice: async () => undefined,
 });
 
 export function useOrderOpsSync() {
@@ -274,6 +292,11 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 		getWriteGateState()
 	);
 	const [syncHubOnline, setSyncHubOnline] = useState(false);
+	const [syncTransferProgress, setSyncTransferProgress] =
+		useState<SyncTransferProgress | null>(null);
+	const [syncFallbackPeers, setSyncFallbackPeers] = useState<
+		SyncConflictPeer[]
+	>([]);
 	const [kotPrintFailure, setKotPrintFailure] = useState<string | null>(null);
 	const [catchUpUi, setCatchUpUi] = useState<CatchUpUiMode>('none');
 
@@ -289,7 +312,8 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 	const pendingSyncRequestRef = useRef(false);
 	const everConnectedRef = useRef(false);
 	const syncHubOnlineRef = useRef(false);
-	const hubFallbackTimerRef = useRef<number | null>(null);
+	const syncTransferTimerRef = useRef<number | null>(null);
+	const syncChunkAssemblerRef = useRef(new SyncResponseChunkAssembler());
 
 	useEffect(() => {
 		return subscribeWriteGate(() => {
@@ -345,20 +369,87 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 		setBusinessDate(meta.businessDate);
 	}, []);
 
-	const clearHubFallbackTimer = useCallback(() => {
-		if (hubFallbackTimerRef.current != null) {
-			window.clearTimeout(hubFallbackTimerRef.current);
-			hubFallbackTimerRef.current = null;
+	const clearSyncTransferTimer = useCallback(() => {
+		if (syncTransferTimerRef.current != null) {
+			window.clearTimeout(syncTransferTimerRef.current);
+			syncTransferTimerRef.current = null;
 		}
 	}, []);
 
+	const resetSyncTransfer = useCallback(() => {
+		clearSyncTransferTimer();
+		syncChunkAssemblerRef.current.abort();
+		setSyncTransferProgress(null);
+	}, [clearSyncTransferTimer]);
+
 	const finishCatchUpReady = useCallback(() => {
 		pendingSyncRequestRef.current = false;
-		clearHubFallbackTimer();
-		if (getWriteGateState() === 'catching_up') {
+		resetSyncTransfer();
+		if (
+			getWriteGateState() === 'catching_up' ||
+			getWriteGateState() === 'sync_failed'
+		) {
 			setWriteGateState('ready');
 		}
-	}, [clearHubFallbackTimer]);
+		setSyncFallbackPeers([]);
+	}, [resetSyncTransfer]);
+
+	const failSyncTransfer = useCallback(
+		async (channel: RealtimeChannel, selfClientId: string) => {
+			if (cancelledRef.current) {
+				return;
+			}
+			resetSyncTransfer();
+			pendingSyncRequestRef.current = false;
+			try {
+				const members = mapPresenceMembers(await channel.presence.get());
+				const today = getTodayDateKey();
+				setSyncFallbackPeers(
+					listFallbackSyncPeers(members, selfClientId, today)
+				);
+			} catch {
+				setSyncFallbackPeers([]);
+			}
+			setWriteGateState('sync_failed');
+			console.warn('[sync-gate] sync transfer timed out');
+		},
+		[resetSyncTransfer]
+	);
+
+	const scheduleSyncTransferTimer = useCallback(
+		(channel: RealtimeChannel, selfClientId: string) => {
+			clearSyncTransferTimer();
+			syncTransferTimerRef.current = window.setTimeout(() => {
+				void failSyncTransfer(channel, selfClientId);
+			}, SYNC_CHUNK_TIMEOUT_MS);
+		},
+		[clearSyncTransferTimer, failSyncTransfer]
+	);
+
+	const beginSyncTransfer = useCallback(
+		(channel: RealtimeChannel, selfClientId: string) => {
+			resetSyncTransfer();
+			pendingSyncRequestRef.current = true;
+			scheduleSyncTransferTimer(channel, selfClientId);
+		},
+		[resetSyncTransfer, scheduleSyncTransferTimer]
+	);
+
+	const onSyncChunkProgress = useCallback(
+		(
+			channel: RealtimeChannel,
+			selfClientId: string,
+			progress: SyncTransferProgress
+		) => {
+			setSyncTransferProgress(progress);
+			if (progress.received >= progress.total) {
+				clearSyncTransferTimer();
+				return;
+			}
+			scheduleSyncTransferTimer(channel, selfClientId);
+		},
+		[clearSyncTransferTimer, scheduleSyncTransferTimer]
+	);
 
 	const refreshMemberCount = useCallback(
 		async (
@@ -367,9 +458,9 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			options?: { checkConflict?: boolean; fullscreenCatchUp?: boolean }
 		) => {
 			const checkConflict = options?.checkConflict ?? false;
+			const hasActiveTransfer = pendingSyncRequestRef.current;
 
 			try {
-				clearHubFallbackTimer();
 				const members = await channel.presence.get();
 				if (cancelledRef.current) {
 					return;
@@ -390,6 +481,16 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				syncHubOnlineRef.current = hubOnline;
 				setSyncHubOnline(hubOnline);
 
+				if (hubOnline === false && hasActiveTransfer) {
+					resetSyncTransfer();
+					pendingSyncRequestRef.current = false;
+					setSyncFallbackPeers(
+						listFallbackSyncPeers(mapped, selfClientId, today)
+					);
+					setWriteGateState('sync_failed');
+					return;
+				}
+
 				if (checkConflict) {
 					const conflict = await detectSyncConflict(mapped, selfClientId);
 					if (conflict && !conflictResolvedRef.current) {
@@ -403,13 +504,17 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 					setSyncConflictBlocking(false);
 				}
 
+				if (hasActiveTransfer || getWriteGateState() === 'sync_failed') {
+					return;
+				}
+
 				const shouldFullscreen =
 					options?.fullscreenCatchUp === true || hubJustCameOnline;
 
-				const applySyncResult = async (
-					result: { requested: boolean; reason: string },
-					p2pFallback: boolean
-				) => {
+				const applySyncResult = async (result: {
+					requested: boolean;
+					reason: string;
+				}) => {
 					if (cancelledRef.current) {
 						return;
 					}
@@ -417,103 +522,37 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 						setWriteGateState('catching_up', {
 							fullscreen: shouldFullscreen,
 						});
-						pendingSyncRequestRef.current = true;
-						clearHubFallbackTimer();
-						hubFallbackTimerRef.current = window.setTimeout(() => {
-							if (cancelledRef.current) {
-								return;
-							}
-							if (p2pFallback) {
-								console.warn(
-									'[sync-gate] sync:response timed out — continue without hub'
-								);
-								finishCatchUpReady();
-								return;
-							}
-							void (async () => {
-								try {
-									const latest = mapPresenceMembers(
-										await channel.presence.get()
-									);
-									const fallback = await requestSyncFromPeers(
-										channel,
-										latest,
-										selfClientId,
-										{ p2pFallback: true }
-									);
-									await applySyncResult(fallback, true);
-								} catch (err) {
-									console.warn('[sync-gate] P2P fallback failed', err);
-									finishCatchUpReady();
-								}
-							})();
-						}, HUB_SYNC_WAIT_MS);
+						beginSyncTransfer(channel, selfClientId);
 						return;
 					}
-					if (result.reason === 'hub_not_ready' && !p2pFallback) {
+					if (result.reason === 'hub_not_ready') {
 						setWriteGateState('catching_up', {
 							fullscreen: shouldFullscreen,
 						});
-						pendingSyncRequestRef.current = false;
-						clearHubFallbackTimer();
-						hubFallbackTimerRef.current = window.setTimeout(() => {
+						clearSyncTransferTimer();
+						syncTransferTimerRef.current = window.setTimeout(() => {
 							if (cancelledRef.current) {
 								return;
 							}
-							void (async () => {
-								try {
-									const latest = mapPresenceMembers(
-										await channel.presence.get()
-									);
-									const fallback = await requestSyncFromPeers(
-										channel,
-										latest,
-										selfClientId,
-										{ p2pFallback: true }
-									);
-									await applySyncResult(fallback, true);
-								} catch (err) {
-									console.warn('[sync-gate] P2P fallback failed', err);
-									finishCatchUpReady();
-								}
-							})();
-						}, HUB_SYNC_WAIT_MS);
-						return;
-					}
-					if (result.reason === 'cooldown' && !p2pFallback) {
-						setWriteGateState('catching_up', {
-							fullscreen: shouldFullscreen,
-						});
-						clearHubFallbackTimer();
-						hubFallbackTimerRef.current = window.setTimeout(() => {
-							if (cancelledRef.current) {
-								return;
-							}
-							void (async () => {
-								try {
-									const latest = mapPresenceMembers(
-										await channel.presence.get()
-									);
-									const fallback = await requestSyncFromPeers(
-										channel,
-										latest,
-										selfClientId,
-										{ p2pFallback: true }
-									);
-									await applySyncResult(fallback, true);
-								} catch (err) {
-									console.warn('[sync-gate] P2P fallback failed', err);
-									finishCatchUpReady();
-								}
-							})();
-						}, HUB_SYNC_WAIT_MS);
+							void refreshMemberCount(channel, selfClientId, options);
+						}, SYNC_CHUNK_TIMEOUT_MS);
 						return;
 					}
 					if (result.reason === 'cooldown') {
+						setWriteGateState('catching_up', {
+							fullscreen: shouldFullscreen,
+						});
+						clearSyncTransferTimer();
+						syncTransferTimerRef.current = window.setTimeout(() => {
+							if (cancelledRef.current) {
+								return;
+							}
+							void refreshMemberCount(channel, selfClientId, options);
+						}, SYNC_CHUNK_TIMEOUT_MS);
 						return;
 					}
 					pendingSyncRequestRef.current = false;
-					clearHubFallbackTimer();
+					resetSyncTransfer();
 					setWriteGateState('ready');
 				};
 
@@ -524,13 +563,18 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 						selfClientId,
 						{ p2pFallback: false }
 					);
-					await applySyncResult(result, false);
+					await applySyncResult(result);
 				});
 			} catch (presenceError) {
 				console.error('Failed to read order_ops presence:', presenceError);
 			}
 		},
-		[runWithSyncIndicator, clearHubFallbackTimer, finishCatchUpReady]
+		[
+			runWithSyncIndicator,
+			beginSyncTransfer,
+			clearSyncTransferTimer,
+			resetSyncTransfer,
+		]
 	);
 
 	const setupRealtime = useCallback(
@@ -640,7 +684,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				setSyncConflictBlocking(false);
 				conflictResolvedRef.current = false;
 				pendingSyncRequestRef.current = false;
-				clearHubFallbackTimer();
+				resetSyncTransfer();
 				setWriteGateState('offline');
 				resetSyncRequestCooldown();
 			};
@@ -658,7 +702,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				setSyncConflictBlocking(false);
 				conflictResolvedRef.current = false;
 				pendingSyncRequestRef.current = false;
-				clearHubFallbackTimer();
+				resetSyncTransfer();
 				setWriteGateState('offline');
 				resetSyncRequestCooldown();
 				setError(stateChange.reason?.message ?? 'Connection failed');
@@ -680,7 +724,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				await runWithSyncIndicator(async () => {
 					await handleSyncRequest(
 						payload,
-						async (response: SyncResponseMessage) => {
+						async (response: SyncResponseWireMessage) => {
 							await channel.publish('sync:response', response);
 						}
 					);
@@ -689,13 +733,19 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 
 			channel.subscribe('sync:response', async (message) => {
 				await runWithSyncIndicator(async () => {
-					await handleSyncResponse(message.data as SyncResponseMessage);
-					await refreshMeta();
-					pendingSyncRequestRef.current = false;
-					clearHubFallbackTimer();
-					if (getWriteGateState() === 'catching_up') {
-						setWriteGateState('ready');
+					const wire = message.data as SyncResponseWireMessage;
+					const { applied, progress } = await handleSyncResponse(
+						wire,
+						syncChunkAssemblerRef.current
+					);
+					if (progress) {
+						onSyncChunkProgress(channel, selfDeviceId, progress);
 					}
+					if (!applied) {
+						return;
+					}
+					await refreshMeta();
+					finishCatchUpReady();
 				});
 			});
 
@@ -799,7 +849,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				await updateChannelPresence(activeChannel);
 			});
 		},
-		[refreshMemberCount, refreshMeta, runWithSyncIndicator, clearHubFallbackTimer]
+		[refreshMemberCount, refreshMeta, runWithSyncIndicator, resetSyncTransfer, finishCatchUpReady, onSyncChunkProgress]
 	);
 
 	const connect = useCallback(async () => {
@@ -896,6 +946,47 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 		}
 	}, []);
 
+	const retryHubSync = useCallback(async () => {
+		const channel = channelRef.current;
+		const selfClientId = selfDeviceIdRef.current;
+		if (!channel || !selfClientId) {
+			return;
+		}
+		resetSyncRequestCooldown();
+		setSyncFallbackPeers([]);
+		setWriteGateState('catching_up', { fullscreen: true });
+		await refreshMemberCount(channel, selfClientId, {
+			checkConflict: true,
+			fullscreenCatchUp: true,
+		});
+	}, [refreshMemberCount]);
+
+	const continueWithLocalState = useCallback(() => {
+		finishCatchUpReady();
+	}, [finishCatchUpReady]);
+
+	const requestSyncFromDevice = useCallback(
+		async (peerClientId: string) => {
+			const channel = channelRef.current;
+			const selfClientId = selfDeviceIdRef.current;
+			if (!channel || !selfClientId || !peerClientId) {
+				return;
+			}
+			setSyncFallbackPeers([]);
+			setWriteGateState('catching_up', { fullscreen: true });
+			resetSyncRequestCooldown();
+			beginSyncTransfer(channel, selfClientId);
+			await runWithSyncIndicator(async () => {
+				await requestSyncFromPeer(
+					async (payload) => publishSyncRequest(channel, payload),
+					selfClientId,
+					peerClientId
+				);
+			});
+		},
+		[beginSyncTransfer, runWithSyncIndicator]
+	);
+
 	const resolveSyncConflict = useCallback(
 		async (resolution: SyncConflictResolution, peerClientId?: string) => {
 			const channel = channelRef.current;
@@ -924,11 +1015,11 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 					if (!result.requested) {
 						setWriteGateState('ready');
 					} else {
-						pendingSyncRequestRef.current = true;
+						beginSyncTransfer(channel, selfClientId);
 					}
 				} else if (resolution === 'peer' && peerClientId) {
 					await requestSyncFromPeer(publish, selfClientId, peerClientId);
-					pendingSyncRequestRef.current = true;
+					beginSyncTransfer(channel, selfClientId);
 				} else if (resolution === 'local') {
 					await resolveSyncKeepLocal();
 					setWriteGateState('ready');
@@ -938,7 +1029,7 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			await refreshMeta();
 			await updateChannelPresence(channel);
 		},
-		[refreshMeta, runWithSyncIndicator]
+		[refreshMeta, runWithSyncIndicator, beginSyncTransfer]
 	);
 
 	useEffect(() => {
@@ -987,10 +1078,11 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			cancelledRef.current = true;
 			window.removeEventListener('focus', onWindowFocus);
 			document.removeEventListener('visibilitychange', onVisibilityChange);
-			if (hubFallbackTimerRef.current != null) {
-				window.clearTimeout(hubFallbackTimerRef.current);
-				hubFallbackTimerRef.current = null;
+			if (syncTransferTimerRef.current != null) {
+				window.clearTimeout(syncTransferTimerRef.current);
+				syncTransferTimerRef.current = null;
 			}
+			syncChunkAssemblerRef.current.abort();
 			unregisterOrderOpsPublisher();
 			unregisterKotPrintPublisher();
 			unregisterBillPrintPublisher();
@@ -1031,10 +1123,15 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 				canWrite: writeGate === 'ready',
 				catchUpUi,
 				syncHubOnline,
+				syncTransferProgress,
+				syncFallbackPeers,
 				kotPrintFailure,
 				connect,
 				updateDeviceName,
 				resolveSyncConflict,
+				retryHubSync,
+				continueWithLocalState,
+				requestSyncFromDevice,
 			}}
 		>
 			{children}

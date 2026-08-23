@@ -2,6 +2,7 @@
 
 import { useOrderOpsSync } from '@/context/order-ops-sync';
 import { isKotPrinterOnline } from '@/src/utils/print_servers';
+import { maxOrderOpsVersion } from '@/src/models/order_ops';
 import { LoadingSpinner } from '@/components/ui/touch-controls';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useInFlightLock } from '@/src/utils/in_flight';
@@ -32,14 +33,32 @@ export function SyncWriteGateOverlay() {
 		writeGate,
 		kotPrintFailure,
 		memberDeviceNames,
+		syncTransferProgress,
+		syncFallbackPeers,
 		connect,
+		retryHubSync,
+		continueWithLocalState,
+		requestSyncFromDevice,
 	} = useOrderOpsSync();
 	const topBannerRef = useRef<HTMLDivElement>(null);
 	const [browserOnline, setBrowserOnline] = useState(() =>
 		typeof navigator === 'undefined' ? true : navigator.onLine
 	);
 	const [checkingStatus, setCheckingStatus] = useState(false);
+	const [peerSyncTarget, setPeerSyncTarget] = useState<string | null>(null);
+	const [peerSyncBusy, setPeerSyncBusy] = useState(false);
 	const checkLock = useInFlightLock();
+
+	const catchUpProgressLabel =
+		syncTransferProgress && syncTransferProgress.total > 1
+			? `Receiving sync… ${syncTransferProgress.received}/${syncTransferProgress.total}`
+			: 'Updating… please wait';
+
+	useEffect(() => {
+		if (writeGate !== 'sync_failed') {
+			setPeerSyncTarget(null);
+		}
+	}, [writeGate]);
 
 	useEffect(() => {
 		const updateOnline = () => setBrowserOnline(navigator.onLine);
@@ -116,7 +135,7 @@ export function SyncWriteGateOverlay() {
 					ref={topBannerRef}
 					className="fixed top-0 inset-x-0 z-[60] bg-amber-500 text-amber-950 text-center text-sm font-semibold px-3 pb-2 shadow pt-[max(0.5rem,env(safe-area-inset-top,0px))]"
 				>
-					Updating… please wait
+					{catchUpProgressLabel}
 				</div>
 			) : offlineBanner ? (
 				<div
@@ -132,8 +151,123 @@ export function SyncWriteGateOverlay() {
 					<div className="w-full max-w-sm rounded-2xl bg-white px-6 py-8 text-center shadow-xl">
 						<div className="mx-auto mb-4 h-10 w-10 rounded-full border-4 border-gray-200 border-t-black animate-spin" />
 						<p className="text-lg font-bold text-gray-900">
-							Catching up... please be patient.
+							{catchUpProgressLabel}
 						</p>
+						{syncTransferProgress && syncTransferProgress.total > 1 ? (
+							<p className="mt-2 text-sm text-gray-500">
+								Large sync — this may take a minute on slow networks.
+							</p>
+						) : (
+							<p className="mt-2 text-sm text-gray-500">
+								Catching up... please be patient.
+							</p>
+						)}
+					</div>
+				</div>
+			) : null}
+
+			{!isOffline && writeGate === 'sync_failed' ? (
+				<div
+					className="fixed inset-0 z-[75] flex items-center justify-center bg-black/55 px-6"
+					role="alertdialog"
+					aria-modal="true"
+					aria-labelledby="ops-sync-failed-title"
+				>
+					<div className="w-full max-w-sm rounded-2xl bg-white px-6 py-8 shadow-xl max-h-[85vh] overflow-y-auto">
+						{peerSyncTarget ? (
+							<>
+								<h2
+									id="ops-sync-failed-title"
+									className="text-lg font-bold text-gray-900"
+								>
+									Sync from another device
+								</h2>
+								<p className="mt-2 text-sm text-gray-600">
+									Ask the staff on that device to stay online with the app open,
+									then tap Continue.
+								</p>
+								<p className="mt-3 text-sm font-semibold text-gray-800">
+									{syncFallbackPeers.find((p) => p.clientId === peerSyncTarget)
+										?.deviceName ?? 'Selected device'}
+								</p>
+								<button
+									type="button"
+									disabled={peerSyncBusy}
+									onClick={() => {
+										setPeerSyncBusy(true);
+										void requestSyncFromDevice(peerSyncTarget)
+											.catch(() => undefined)
+											.finally(() => setPeerSyncBusy(false));
+									}}
+									className="mt-6 w-full min-h-[48px] rounded-lg bg-black text-white text-sm font-bold disabled:opacity-60"
+								>
+									{peerSyncBusy ? (
+										<LoadingSpinner className="mx-auto h-4 w-4 text-white" />
+									) : (
+										'Continue'
+									)}
+								</button>
+								<button
+									type="button"
+									disabled={peerSyncBusy}
+									onClick={() => setPeerSyncTarget(null)}
+									className="mt-3 w-full min-h-[44px] rounded-lg bg-gray-100 text-gray-800 text-sm font-semibold"
+								>
+									Back
+								</button>
+							</>
+						) : (
+							<>
+								<h2
+									id="ops-sync-failed-title"
+									className="text-lg font-bold text-gray-900"
+								>
+									Sync timed out
+								</h2>
+								<p className="mt-2 text-sm text-gray-600">
+									Could not finish syncing from the hub. You can retry or copy
+									from another online device.
+								</p>
+								<button
+									type="button"
+									onClick={() => void retryHubSync()}
+									className="mt-6 w-full min-h-[48px] rounded-lg bg-black text-white text-sm font-bold"
+								>
+									Retry hub sync
+								</button>
+								{syncFallbackPeers.length > 0 ? (
+									<div className="mt-4 space-y-2">
+										<p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+											Online devices
+										</p>
+										{syncFallbackPeers.map((peer) => (
+											<button
+												key={peer.clientId}
+												type="button"
+												onClick={() => setPeerSyncTarget(peer.clientId)}
+												className="w-full min-h-[44px] rounded-lg bg-gray-100 px-3 text-left text-sm font-semibold text-gray-800"
+											>
+												{peer.deviceName}
+												<span className="block text-xs font-normal text-gray-500">
+													v{maxOrderOpsVersion(peer.versions)}
+												</span>
+											</button>
+										))}
+									</div>
+								) : (
+									<p className="mt-4 text-sm text-amber-800 bg-amber-50 rounded-lg px-3 py-2">
+										No other devices online right now.
+									</p>
+								)}
+								<button
+									type="button"
+									onClick={continueWithLocalState}
+									className="mt-4 w-full min-h-[44px] rounded-lg border border-gray-300 text-sm font-semibold text-gray-700"
+								>
+									Continue with this device&apos;s data
+								</button>
+							</>
+						)}
 					</div>
 				</div>
 			) : null}
