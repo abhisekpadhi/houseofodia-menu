@@ -32,7 +32,7 @@ import { useOrderOpsSync } from "@/context/order-ops-sync";
 import { markBillSyncRedirect } from "@/src/utils/bill_sync_redirect_notice";
 import { useInFlightLock } from "@/src/utils/in_flight";
 import { buildDishInternalNameMap } from "@/src/utils/menu_utils";
-import { saveBillToBackend } from "@/src/utils/tangify_api";
+import { fetchLoyaltyWallet, saveBillToBackend } from "@/src/utils/tangify_api";
 import localforage from "localforage";
 import { ConfirmModalActions, LoadingSpinner } from "@/components/ui/touch-controls";
 import { toPng } from "html-to-image";
@@ -51,7 +51,7 @@ import {
 } from "react-icons/fa";
 import axios from "axios";
 
-type Membership = "none" | "monthly" | "yearly" | "custom";
+type Membership = "none" | "monthly" | "yearly" | "custom" | "points";
 type CustomDiscountUnit = "rs" | "percent";
 
 type CustomDiscountInput = {
@@ -63,6 +63,13 @@ const roundCurrency = (amount: number) => Math.round(amount * 100) / 100;
 const formatCurrency = (amount: number) => roundCurrency(amount).toFixed(2);
 const BILL_SAVE_ATTEMPTS = 3;
 const BILL_SAVE_RETRY_DELAY_MS = 5_000;
+const POINT_RUPEE_VALUE = 3;
+
+const maxRedeemablePoints = (subtotal: number, balance: number) =>
+  Math.max(
+    0,
+    Math.min(Math.floor(Math.max(0, balance)), Math.floor(subtotal / POINT_RUPEE_VALUE))
+  );
 
 const wait = (duration: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, duration));
@@ -90,8 +97,12 @@ const calculateDiscountAmount = (
   subtotal: number,
   membership: Membership,
   custom?: CustomDiscountInput | null,
-  maxRupeeDiscount?: number
+  maxRupeeDiscount?: number,
+  pointsToRedeem = 0
 ) => {
+  if (membership === "points") {
+    return roundCurrency(Math.max(0, pointsToRedeem) * POINT_RUPEE_VALUE);
+  }
   if (membership === "monthly") {
     return roundCurrency(subtotal * 0.1);
   }
@@ -134,7 +145,8 @@ const calculateBillAmounts = (
   subtotal: number,
   membership: Membership,
   staffWelfare = 0,
-  custom?: CustomDiscountInput | null
+  custom?: CustomDiscountInput | null,
+  pointsToRedeem = 0
 ) => {
   const undiscountedPayable = (() => {
     const taxableAmount = subtotal;
@@ -149,7 +161,8 @@ const calculateBillAmounts = (
     subtotal,
     membership,
     custom,
-    undiscountedPayable
+    undiscountedPayable,
+    pointsToRedeem
   );
   const taxableAmount = Math.max(0, subtotal - discount);
   const cgst = roundCurrency(taxableAmount * 0.025);
@@ -563,6 +576,10 @@ const Receipt = () => {
   const [showPaymentQr, setShowPaymentQr] = useState(false);
   const [phoneModalOpen, setPhoneModalOpen] = useState(false);
   const [phoneDraft, setPhoneDraft] = useState("");
+  const [walletPoints, setWalletPoints] = useState<number | null>(null);
+  const [walletStatus, setWalletStatus] = useState<
+    "idle" | "loading" | "loaded" | "error"
+  >("idle");
   const [customDiscountModalOpen, setCustomDiscountModalOpen] = useState(false);
   const [customAmountDraft, setCustomAmountDraft] = useState("");
   const [customUnitDraft, setCustomUnitDraft] =
@@ -645,7 +662,8 @@ const Receipt = () => {
           data.subtotal,
           membership,
           data.staffWelfare,
-          custom
+          custom,
+          membership === "points" ? data.pointsToRedeem ?? 0 : 0
         );
         const sessionId = data.sessionId || context?.sessionId || `legacy:${crypto.randomUUID()}`;
 
@@ -688,6 +706,35 @@ const Receipt = () => {
     };
   }, []);
 
+  useEffect(() => {
+    const phone = bill?.customerPhone?.trim() ?? "";
+    if (!phone || !isValidCustomerPhone(phone)) {
+      setWalletPoints(null);
+      setWalletStatus("idle");
+      return;
+    }
+    let cancelled = false;
+    setWalletStatus("loading");
+    void fetchLoyaltyWallet(phone)
+      .then((wallet) => {
+        if (cancelled) {
+          return;
+        }
+        setWalletPoints(Math.max(0, Math.floor(wallet.points_balance)));
+        setWalletStatus("loaded");
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+        setWalletPoints(null);
+        setWalletStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bill?.customerPhone]);
+
   const handleBack = () => {
     if (isBusy) {
       return;
@@ -706,16 +753,30 @@ const Receipt = () => {
     bill.subtotal,
     membership,
     staffWelfare,
-    customDiscount
+    customDiscount,
+    membership === "points" ? bill.pointsToRedeem ?? 0 : 0
   );
   const discountLabel =
-    membership === "custom" && bill.customDiscountReason?.trim()
+    membership === "points"
+      ? `Discount (${bill.pointsToRedeem ?? 0} points)`
+      : membership === "custom" && bill.customDiscountReason?.trim()
       ? `Discount (${bill.customDiscountReason.trim()})`
       : membership === "monthly"
         ? "Discount (Monthly 10%)"
         : membership === "yearly"
           ? "Discount (Yearly 20%)"
           : "Discount";
+  const redeemablePoints = maxRedeemablePoints(bill.subtotal, walletPoints ?? 0);
+  const validCustomerPhone = Boolean(
+    bill.customerPhone && isValidCustomerPhone(bill.customerPhone)
+  );
+  const pointsChipDisabled =
+    controlsDisabled ||
+    (membership !== "points" &&
+      (billingContext?.source === "freeflow" ||
+        !validCustomerPhone ||
+        walletStatus !== "loaded" ||
+        redeemablePoints <= 0));
   const upiAmount = Math.max(0, bill.payable);
   // const upiId = "q030249494@ybl"; // phonepe business
   const upiId = "tangify@slc"; // slice
@@ -754,6 +815,45 @@ const Receipt = () => {
       customDiscountValue: undefined,
       customDiscountUnit: undefined,
       customDiscountReason: undefined,
+      pointsToRedeem: undefined,
+      backendStatus: "idle",
+      updatedAt: Date.now(),
+    }).finally(() => {
+      setSaving(false);
+      billActionLock.unlock();
+    });
+  };
+
+  const handlePointsSelect = () => {
+    if (isBusy || !billActionLock.tryLock()) {
+      return;
+    }
+    const nextMembership = membership === "points" ? "none" : "points";
+    const pointsToRedeem =
+      nextMembership === "points"
+        ? maxRedeemablePoints(bill.subtotal, walletPoints ?? 0)
+        : 0;
+    if (nextMembership === "points" && pointsToRedeem <= 0) {
+      billActionLock.unlock();
+      return;
+    }
+    const totals = calculateBillAmounts(
+      bill.subtotal,
+      nextMembership,
+      staffWelfare,
+      null,
+      pointsToRedeem
+    );
+    setBusyMessage("Updating bill…");
+    setSaving(true);
+    void updateBill({
+      ...bill,
+      ...totals,
+      membership: nextMembership,
+      customDiscountValue: undefined,
+      customDiscountUnit: undefined,
+      customDiscountReason: undefined,
+      pointsToRedeem: nextMembership === "points" ? pointsToRedeem : undefined,
       backendStatus: "idle",
       updatedAt: Date.now(),
     }).finally(() => {
@@ -813,6 +913,7 @@ const Receipt = () => {
       customDiscountValue: custom.value,
       customDiscountUnit: custom.unit,
       customDiscountReason: reason,
+      pointsToRedeem: undefined,
       backendStatus: "idle",
       updatedAt: Date.now(),
     }).finally(() => {
@@ -841,6 +942,7 @@ const Receipt = () => {
       customDiscountValue: undefined,
       customDiscountUnit: undefined,
       customDiscountReason: undefined,
+      pointsToRedeem: undefined,
       backendStatus: "idle",
       updatedAt: Date.now(),
     }).finally(() => {
@@ -866,10 +968,26 @@ const Receipt = () => {
     if (!billActionLock.tryLock()) {
       return;
     }
+    const previousPhone = bill.customerPhone?.trim() ?? "";
+    const keepPoints =
+      membership === "points" && Boolean(trimmed) && trimmed === previousPhone;
+    const clearPoints = membership === "points" && !keepPoints;
+    const nextMembership = clearPoints ? "none" : membership;
+    const pointsToRedeem = keepPoints ? bill.pointsToRedeem ?? 0 : 0;
+    const totals = calculateBillAmounts(
+      bill.subtotal,
+      nextMembership,
+      staffWelfare,
+      nextMembership === "custom" ? customDiscount : null,
+      pointsToRedeem
+    );
     setBusyMessage("Updating bill…");
     setSaving(true);
     void updateBill({
       ...bill,
+      ...totals,
+      membership: nextMembership,
+      ...(clearPoints ? { pointsToRedeem: undefined } : {}),
       customerPhone: trimmed || undefined,
       backendStatus: "idle",
       updatedAt: Date.now(),
@@ -882,7 +1000,8 @@ const Receipt = () => {
 
   const persistBillToBackend = async (
     billToSave: TBill,
-    context: BillingContext
+    context: BillingContext,
+    options?: { settled?: boolean }
   ): Promise<TBill> => {
     const savingBill = {
       ...billToSave,
@@ -891,7 +1010,7 @@ const Receipt = () => {
     };
     await updateBill(savingBill);
     const stored = await saveWithRetry(
-      () => saveBillToBackend(savingBill, context),
+      () => saveBillToBackend(savingBill, context, options),
       (attempt) => {
         setSaveAttempt(attempt);
         setBusyMessage(
@@ -1118,12 +1237,11 @@ const Receipt = () => {
         return;
       }
 
-      let closedBill = bill;
-      if (!bill.backendBillId || bill.backendSavedAt !== bill.updatedAt) {
-        setBusyMessage("Saving bill…");
-        closedBill = await persistBillToBackend(bill, context);
-        setBusyMessage("Closing table…");
-      }
+      setBusyMessage("Saving bill…");
+      const closedBill = await persistBillToBackend(bill, context, {
+        settled: true,
+      });
+      setBusyMessage("Closing table…");
       await finalizeCloseTable(context, closedBill);
     } catch {
       setFallbackAction("close");
@@ -1257,7 +1375,7 @@ const Receipt = () => {
     window.print();
     window.setTimeout(() => {
       window.print();
-      if (action === "close") {
+      if (action === "close" && !bill.customerPhone?.trim()) {
         void resolveBillingContext().then((context) => {
           if (context) {
             return finalizeCloseTable(context);
@@ -1315,7 +1433,7 @@ const Receipt = () => {
           <p className="text-xs font-medium text-gray-600 mb-2">
             Discount (optional)
           </p>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               disabled={controlsDisabled}
@@ -1334,6 +1452,14 @@ const Receipt = () => {
             </button>
             <button
               type="button"
+              disabled={pointsChipDisabled}
+              className={tabClass(membership === "points")}
+              onClick={handlePointsSelect}
+            >
+              Points
+            </button>
+            <button
+              type="button"
               disabled={controlsDisabled}
               className={tabClass(membership === "custom")}
               onClick={openCustomDiscountModal}
@@ -1341,7 +1467,11 @@ const Receipt = () => {
               Custom
             </button>
           </div>
-          {membership === "custom" && discount > 0 ? (
+          {membership === "points" && (bill.pointsToRedeem ?? 0) > 0 ? (
+            <p className="text-xs text-red-600 mt-2">
+              {bill.pointsToRedeem} points
+            </p>
+          ) : membership === "custom" && discount > 0 ? (
             <p className="text-xs text-red-600 mt-2">
               {bill.customDiscountUnit === "percent"
                 ? `${bill.customDiscountValue}%`
@@ -1375,6 +1505,17 @@ const Receipt = () => {
               ? `📱 +91 ${bill.customerPhone}`
               : "📱 Add customer phone"}
           </button>
+          {validCustomerPhone ? (
+            <p className="text-xs text-gray-600 mt-2">
+              {walletStatus === "loading"
+                ? "Loading points…"
+                : walletStatus === "error"
+                  ? "Couldn't load points"
+                  : walletStatus === "loaded"
+                    ? `${walletPoints ?? 0} points`
+                    : null}
+            </p>
+          ) : null}
         </div>
       </div>
       <div className="flex w-full justify-center px-4 print:contents print:px-0">
@@ -1675,6 +1816,9 @@ const Receipt = () => {
               <p className="text-sm text-gray-600 mt-2">
                 We could not save this bill after 3 attempts. Print two copies
                 and keep one copy for your records.
+                {fallbackAction === "close" && bill.customerPhone?.trim()
+                  ? " Leave the table open and try Close table again."
+                  : ""}
               </p>
             </div>
             <div className="grid grid-cols-2 gap-3 px-5 py-4">

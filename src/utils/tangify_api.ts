@@ -66,11 +66,64 @@ type BackendBill = {
 
 const toPaise = (rupees: number) => Math.round(rupees * 100);
 
+const POINT_RUPEE_VALUE = 3;
+
+export function toBillingCustomerId(phone: string): string {
+	const digits = phone.replace(/\D/g, '');
+	if (digits.length === 10) {
+		return `91${digits}`;
+	}
+	if (digits.length === 12 && digits.startsWith('91')) {
+		return digits;
+	}
+	if (digits.length === 11 && digits.startsWith('0')) {
+		return `91${digits.slice(1)}`;
+	}
+	return digits;
+}
+
+export type LoyaltyWallet = {
+	phone: string;
+	user_id: string;
+	points_balance: number;
+};
+
+export async function fetchLoyaltyWallet(phone: string): Promise<LoyaltyWallet> {
+	const customerId = toBillingCustomerId(phone);
+	const response = await fetch(
+		`/api/loyalty/wallet?phone=${encodeURIComponent(customerId)}`,
+		{
+			method: 'GET',
+			cache: 'no-store',
+			signal: AbortSignal.timeout(30_000),
+		}
+	);
+	const payload = (await response.json().catch(() => null)) as
+		| LoyaltyWallet
+		| { error?: string }
+		| null;
+	if (!response.ok) {
+		throw new Error(
+			(payload && 'error' in payload && payload.error) ||
+				'Failed to load loyalty wallet'
+		);
+	}
+	if (!payload || !('points_balance' in payload)) {
+		throw new Error('Loyalty wallet response was invalid');
+	}
+	return payload;
+}
+
 export async function saveBillToBackend(
 	bill: TBill,
-	context: BillingContext
+	context: BillingContext,
+	options?: { settled?: boolean }
 ): Promise<BackendBill> {
+	const pointsToRedeem = Math.max(0, Math.floor(bill.pointsToRedeem ?? 0));
 	const discountAmount = (() => {
+		if (bill.membership === 'points' && pointsToRedeem > 0) {
+			return toPaise(pointsToRedeem * POINT_RUPEE_VALUE);
+		}
 		if (bill.membership === 'monthly') {
 			return toPaise(bill.subtotal * 0.1);
 		}
@@ -102,11 +155,24 @@ export async function saveBillToBackend(
 	})();
 
 	const discountDescription =
-		bill.membership === 'custom'
-			? bill.customDiscountReason?.trim() || 'Custom discount'
-			: bill.membership === 'monthly' || bill.membership === 'yearly'
-				? `${bill.membership} membership`
-				: '';
+		bill.membership === 'points'
+			? `${pointsToRedeem} points`
+			: bill.membership === 'custom'
+				? bill.customDiscountReason?.trim() || 'Custom discount'
+				: bill.membership === 'monthly' || bill.membership === 'yearly'
+					? `${bill.membership} membership`
+					: '';
+
+	const discountType =
+		bill.membership === 'points'
+			? 'points'
+			: bill.membership === 'custom'
+				? 'custom'
+				: 'membership';
+
+	const customerId = bill.customerPhone
+		? toBillingCustomerId(bill.customerPhone.trim())
+		: '';
 
 	const response = await fetch('/api/bills', {
 		method: 'PUT',
@@ -116,9 +182,8 @@ export async function saveBillToBackend(
 				? { id: bill.backendBillId }
 				: { state_key: bill.stateKey }),
 			session_id: bill.sessionId,
-			...(bill.customerPhone
-				? { customer_id: bill.customerPhone.trim() }
-				: {}),
+			...(customerId ? { customer_id: customerId } : {}),
+			...(options?.settled ? { settled: true } : {}),
 			table_ids: context.tableNumbers.map((table) => `T${table}`),
 			line_items: bill.cart.items.map((item) => ({
 				name: item.name,
@@ -130,8 +195,7 @@ export async function saveBillToBackend(
 					? [
 							{
 								id: `discount-${bill.membership ?? 'none'}`,
-								type:
-									bill.membership === 'custom' ? 'custom' : 'membership',
+								type: discountType,
 								amount: discountAmount,
 								description: discountDescription,
 							},
