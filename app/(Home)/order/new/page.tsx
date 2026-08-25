@@ -495,6 +495,42 @@ function AddOrderContent() {
 		});
 	};
 
+	const menuToolbar = (
+		<div className="flex items-center gap-2 shrink-0">
+			<button
+				type="button"
+				onClick={toggleFastMode}
+				aria-pressed={fastMode}
+				aria-label={
+					fastMode ? "Switch to default menu" : "Switch to fast add mode"
+				}
+				className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors touch-manipulation ${
+					fastMode
+						? "bg-amber-400 text-black"
+						: "bg-gray-100 text-gray-700 hover:bg-gray-200"
+				}`}
+			>
+				<Zap
+					className="w-5 h-5"
+					fill={fastMode ? "currentColor" : "none"}
+				/>
+			</button>
+			<button
+				type="button"
+				onClick={() => setCartModalOpen(true)}
+				className="relative w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors touch-manipulation"
+				aria-label="View order cart"
+			>
+				<CartIcon className="w-5 h-5" />
+				{cartItemCount > 0 ? (
+					<span className="absolute -top-1 -right-1 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-green-500 text-white text-[10px] font-bold flex items-center justify-center">
+						{cartItemCount}
+					</span>
+				) : null}
+			</button>
+		</div>
+	);
+
 	const setupSummaryLabel = useMemo(() => {
 		const parts: string[] = [];
 		if (orderKind === "table") {
@@ -792,7 +828,7 @@ function AddOrderContent() {
 		<div
 			className={`ops-app-screen bg-white ${
 				fastMode
-					? "ops-app-screen-flush flex h-dvh max-h-dvh flex-col overflow-hidden"
+					? "ops-app-screen-flush flex flex-col overflow-hidden"
 					: ""
 			}`}
 			style={{
@@ -801,6 +837,23 @@ function AddOrderContent() {
 				}px)`,
 			}}
 		>
+			{fastMode ? (
+				<div className="shrink-0 border-b bg-white px-4 py-2">
+					<div className="flex items-center gap-2">
+						<button
+							type="button"
+							onClick={() => router.push("/order")}
+							className="shrink-0 text-sm font-semibold text-gray-600 hover:text-black touch-manipulation"
+						>
+							← Back
+						</button>
+						<h1 className="min-w-0 flex-1 text-center text-lg font-bold truncate">
+							New Order
+						</h1>
+						{menuToolbar}
+					</div>
+				</div>
+			) : (
 			<div className="ops-sticky-header bg-white border-b px-6 pb-3 shrink-0">
 				<div className="flex items-center justify-between">
 					<button
@@ -814,6 +867,7 @@ function AddOrderContent() {
 					<OrderOpsSyncIndicator />
 				</div>
 			</div>
+			)}
 
 			{!fastMode ? (
 			<div className="px-6 py-3 border-b bg-white shrink-0">
@@ -1076,8 +1130,10 @@ function AddOrderContent() {
 
 			<div
 				ref={menuScrollRef}
-				className={`px-6 pt-4 ${
-					fastMode ? "flex min-h-0 flex-1 flex-col overflow-hidden" : ""
+				className={`px-6 ${
+					fastMode
+						? "flex min-h-0 flex-1 flex-col overflow-hidden pt-2 pb-[calc(6rem+env(safe-area-inset-bottom))]"
+						: "pt-4"
 				}`}
 			>
 				{!fastMode ? (
@@ -1114,6 +1170,7 @@ function AddOrderContent() {
 				<MenuPicker
 					quantities={quantities}
 					fastMode={fastMode}
+					showMenuHeader={!fastMode}
 					showParcelToggle={showParcelToggle}
 					parcelUnitsByName={parcelUnitsByName}
 					onToggleParcel={toggleParcelUnit}
@@ -1121,43 +1178,7 @@ function AddOrderContent() {
 					onIncrement={handleIncrement}
 					onDecrement={handleDecrement}
 					onSearchFocus={scrollMenuIntoView}
-					headerAction={
-						<div className="flex items-center gap-2">
-							<button
-								type="button"
-								onClick={toggleFastMode}
-								aria-pressed={fastMode}
-								aria-label={
-									fastMode
-										? "Switch to default menu"
-										: "Switch to fast add mode"
-								}
-								className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors touch-manipulation ${
-									fastMode
-										? "bg-amber-400 text-black"
-										: "bg-gray-100 text-gray-700 hover:bg-gray-200"
-								}`}
-							>
-								<Zap
-									className="w-5 h-5"
-									fill={fastMode ? "currentColor" : "none"}
-								/>
-							</button>
-							<button
-								type="button"
-								onClick={() => setCartModalOpen(true)}
-								className="relative w-9 h-9 flex items-center justify-center rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors touch-manipulation"
-								aria-label="View order cart"
-							>
-								<CartIcon className="w-5 h-5" />
-								{cartItemCount > 0 ? (
-									<span className="absolute -top-1 -right-1 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-green-500 text-white text-[10px] font-bold flex items-center justify-center">
-										{cartItemCount}
-									</span>
-								) : null}
-							</button>
-						</div>
-					}
+					headerAction={fastMode ? undefined : menuToolbar}
 				/>
 				</div>
 			</div>

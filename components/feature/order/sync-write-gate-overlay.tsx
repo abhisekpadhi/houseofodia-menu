@@ -91,12 +91,16 @@ export function SyncWriteGateOverlay() {
 
 		if (!showTopBanner) {
 			applyHeight(0);
+			delete root.dataset.opsTopBanner;
 			return;
 		}
+
+		root.dataset.opsTopBanner = 'true';
 
 		const el = topBannerRef.current;
 		if (!el) {
 			applyHeight(0);
+			delete root.dataset.opsTopBanner;
 			return;
 		}
 
@@ -107,6 +111,7 @@ export function SyncWriteGateOverlay() {
 		return () => {
 			observer.disconnect();
 			applyHeight(0);
+			delete root.dataset.opsTopBanner;
 		};
 	}, [showTopBanner, showCatchUpBanner, offlineBanner]);
 

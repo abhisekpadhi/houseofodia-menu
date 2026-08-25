@@ -282,7 +282,7 @@ const Cart = () => {
 	};
 
 	return (
-		<div className="ops-app-screen ops-app-screen-flush flex h-dvh max-h-dvh flex-col overflow-hidden overscroll-none">
+		<div className="ops-app-screen ops-app-screen-flush flex flex-col overflow-hidden overscroll-none">
 			<div className="shrink-0 z-20 px-4 sm:px-6 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] pb-2 bg-gray-50">
 				<div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
 					<button

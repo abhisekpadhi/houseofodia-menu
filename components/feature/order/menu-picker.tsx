@@ -48,6 +48,8 @@ type MenuPickerProps = {
   showParcelToggle?: boolean;
   parcelUnitsByName?: Record<string, boolean[]>;
   onToggleParcel?: (name: string, unitIndex: number) => void;
+  /** When false, hide the Menu title row (e.g. toolbar lives in page header). */
+  showMenuHeader?: boolean;
   onSearchFocus?: () => void;
 };
 
@@ -229,6 +231,7 @@ export function MenuPicker({
   parcelUnitsByName = {},
   onToggleParcel,
   onSearchFocus,
+  showMenuHeader = true,
 }: MenuPickerProps) {
   const [fetchingMenu, setFetchingMenu] = React.useState(true);
   const [menu, setMenu] = React.useState<TMenu | null>(null);
@@ -384,12 +387,14 @@ export function MenuPicker({
 
   return (
     <div className={fastMode ? "flex h-full min-h-0 flex-col" : undefined}>
+      {showMenuHeader ? (
       <div className="flex items-center justify-between gap-3 mb-3 shrink-0">
         <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">
           Menu
         </h2>
         {headerAction}
       </div>
+      ) : null}
       {fastMode ? (
         <div className="flex min-h-0 flex-1 gap-2 overflow-hidden">
           <div className="flex w-[6.75rem] shrink-0 flex-col gap-1.5 overflow-hidden">
