@@ -28,6 +28,61 @@ export function menuItemMatchesSearch(item: MenuLabelItem, term: string): boolea
 	);
 }
 
+export const FAST_MODE_LETTERS = Array.from({ length: 26 }, (_, i) =>
+	String.fromCharCode(65 + i)
+);
+
+/** Staff-facing match key for fast mode — prefers `internal_name`. */
+export function getMenuInternalNameKey(item: MenuLabelItem): string {
+	return (item.internal_name?.trim() || item.name).trim().toUpperCase();
+}
+
+/**
+ * Word initials from `internal_name` (fallback `name`), letters only.
+ * e.g. "badi chura" → "BC", "saga" → "S"
+ */
+export function getMenuInternalNameInitials(item: MenuLabelItem): string {
+	const raw = (item.internal_name?.trim() || item.name).trim();
+	if (!raw) {
+		return "";
+	}
+	return raw
+		.split(/\s+/)
+		.map((word) => {
+			const letter = word.replace(/[^a-zA-Z]/g, "").charAt(0);
+			return letter ? letter.toUpperCase() : "";
+		})
+		.filter(Boolean)
+		.join("");
+}
+
+/** Match 1–2 selected letters against internal_name word initials or leading letters. */
+export function menuItemMatchesLetterPrefix(
+	item: MenuLabelItem,
+	prefix: string
+): boolean {
+	const normalized = prefix.trim().toUpperCase().replace(/[^A-Z]/g, "");
+	if (!normalized) {
+		return false;
+	}
+	const initials = getMenuInternalNameInitials(item);
+	if (initials.startsWith(normalized)) {
+		return true;
+	}
+	const leadingLetters = getMenuInternalNameKey(item).replace(/[^A-Z]/g, "");
+	return leadingLetters.startsWith(normalized);
+}
+
+/** First A–Z letter of the staff-facing name; non-letters group under `#`. */
+export function getMenuItemInitial(item: MenuLabelItem): string {
+	const first = getMenuDisplayName(item).trim().charAt(0);
+	if (!first) {
+		return "#";
+	}
+	const upper = first.toUpperCase();
+	return upper >= "A" && upper <= "Z" ? upper : "#";
+}
+
 export function stringToColor(str: string): string {
 	let hash = 0;
 	for (let i = 0; i < str.length; i++) {

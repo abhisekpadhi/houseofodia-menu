@@ -7,6 +7,7 @@ import {
 } from "@/components/feature/order/parcel-unit-buttons";
 import { OrderOpsSyncIndicator } from "@/components/feature/order/order-ops-sync-indicator";
 import { Button } from "@/components/ui/button";
+import { LoadingSpinner } from "@/components/ui/touch-controls";
 import {
 	ORDER_KIND_OPTIONS,
 	OrderKind,
@@ -49,11 +50,14 @@ import {
 import { useOrderOpsSync } from "@/context/order-ops-sync";
 import { allocateNextDailyOrderNumber } from "@/src/utils/daily_order_number";
 import { useInFlightLock } from "@/src/utils/in_flight";
+import { Zap } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 const PAX_QUICK_PICK_OPTIONS = Array.from({ length: 30 }, (_, index) => index + 1);
 const ORDER_NOTE_SHORTCUTS = ["Less spicy", "No spice", "Extra gravy"] as const;
+const MENU_FAST_MODE_STORAGE_KEY = "tangify-new-order-fast-mode";
 
 function CartIcon({ className }: { className?: string }) {
 	return (
@@ -224,7 +228,7 @@ function AddOrderContent() {
 	const [placing, setPlacing] = useState(false);
 	const placeOrderLock = useInFlightLock();
 	const [cartModalOpen, setCartModalOpen] = useState(false);
-	const [inStockOnly, setInStockOnly] = useState(false);
+	const [fastMode, setFastMode] = useState(false);
 	const [kidMenuEnabled, setKidMenuEnabled] = useState(false);
 	const [pax, setPax] = useState("");
 	const [parcelUnitsByName, setParcelUnitsByName] = useState<
@@ -237,6 +241,14 @@ function AddOrderContent() {
 
 	const isFromTableCard = preselectedTables.length > 0;
 	const isFromExistingGroup = preselectedGroupKey !== null;
+
+	useEffect(() => {
+		try {
+			setFastMode(window.localStorage.getItem(MENU_FAST_MODE_STORAGE_KEY) === "1");
+		} catch {
+			// ignore storage errors
+		}
+	}, []);
 
 	useEffect(() => {
 		getOrdersStore().then((store) => {
@@ -468,6 +480,21 @@ function AddOrderContent() {
 		menuScrollRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 	}, []);
 
+	const toggleFastMode = () => {
+		setFastMode((prev) => {
+			const next = !prev;
+			try {
+				window.localStorage.setItem(MENU_FAST_MODE_STORAGE_KEY, next ? "1" : "0");
+			} catch {
+				// ignore storage errors
+			}
+			if (next && document.activeElement instanceof HTMLElement) {
+				document.activeElement.blur();
+			}
+			return next;
+		});
+	};
+
 	const setupSummaryLabel = useMemo(() => {
 		const parts: string[] = [];
 		if (orderKind === "table") {
@@ -648,7 +675,9 @@ function AddOrderContent() {
 			return;
 		}
 
-		setPlacing(true);
+		flushSync(() => {
+			setPlacing(true);
+		});
 		try {
 			const trimmedNotes = orderNotes.trim();
 			const trimmedName = customerName.trim();
@@ -761,12 +790,18 @@ function AddOrderContent() {
 
 	return (
 		<div
-			className="ops-app-screen bg-white"
+			className={`ops-app-screen bg-white ${
+				fastMode
+					? "ops-app-screen-flush flex h-dvh max-h-dvh flex-col overflow-hidden"
+					: ""
+			}`}
 			style={{
-				paddingBottom: `calc(6rem + env(safe-area-inset-bottom) + ${keyboardInset}px)`,
+				paddingBottom: `calc(6rem + env(safe-area-inset-bottom) + ${
+					fastMode ? 0 : keyboardInset
+				}px)`,
 			}}
 		>
-			<div className="ops-sticky-header bg-white border-b px-6 pb-3">
+			<div className="ops-sticky-header bg-white border-b px-6 pb-3 shrink-0">
 				<div className="flex items-center justify-between">
 					<button
 						type="button"
@@ -780,7 +815,8 @@ function AddOrderContent() {
 				</div>
 			</div>
 
-			<div className="px-6 py-3 border-b bg-white">
+			{!fastMode ? (
+			<div className="px-6 py-3 border-b bg-white shrink-0">
 				{isSetupComplete && !setupExpanded ? (
 					<div className="flex items-start justify-between gap-3">
 						<div className="min-w-0">
@@ -1036,8 +1072,16 @@ function AddOrderContent() {
 					</div>
 				)}
 			</div>
+			) : null}
 
-			<div ref={menuScrollRef} className="px-6 pt-4">
+			<div
+				ref={menuScrollRef}
+				className={`px-6 pt-4 ${
+					fastMode ? "flex min-h-0 flex-1 flex-col overflow-hidden" : ""
+				}`}
+			>
+				{!fastMode ? (
+					<>
 				<label className="block text-xs font-medium text-gray-600 mb-1">
 					Order notes (optional)
 				</label>
@@ -1064,9 +1108,12 @@ function AddOrderContent() {
 					rows={2}
 					className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none mb-4"
 				/>
+					</>
+				) : null}
+				<div className={fastMode ? "flex min-h-0 flex-1 flex-col overflow-hidden" : undefined}>
 				<MenuPicker
 					quantities={quantities}
-					inStockOnly={inStockOnly}
+					fastMode={fastMode}
 					showParcelToggle={showParcelToggle}
 					parcelUnitsByName={parcelUnitsByName}
 					onToggleParcel={toggleParcelUnit}
@@ -1078,15 +1125,23 @@ function AddOrderContent() {
 						<div className="flex items-center gap-2">
 							<button
 								type="button"
-								onClick={() => setInStockOnly((prev) => !prev)}
-								aria-pressed={inStockOnly}
-								className={`min-h-9 px-3 rounded-lg text-xs font-semibold touch-manipulation transition-colors ${
-									inStockOnly
-										? "bg-green-500 text-white"
+								onClick={toggleFastMode}
+								aria-pressed={fastMode}
+								aria-label={
+									fastMode
+										? "Switch to default menu"
+										: "Switch to fast add mode"
+								}
+								className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors touch-manipulation ${
+									fastMode
+										? "bg-amber-400 text-black"
 										: "bg-gray-100 text-gray-700 hover:bg-gray-200"
 								}`}
 							>
-								In stock
+								<Zap
+									className="w-5 h-5"
+									fill={fastMode ? "currentColor" : "none"}
+								/>
 							</button>
 							<button
 								type="button"
@@ -1104,6 +1159,7 @@ function AddOrderContent() {
 						</div>
 					}
 				/>
+				</div>
 			</div>
 
 			<div className="fixed bottom-0 left-0 right-0 bg-white border-t px-6 py-4 shadow-lg z-20 pb-[calc(1rem+env(safe-area-inset-bottom))]">
@@ -1137,6 +1193,31 @@ function AddOrderContent() {
 					onIncrement={handleModalIncrement}
 					onDecrement={handleModalDecrement}
 				/>
+			) : null}
+			{placing ? (
+				<div
+					className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 px-6"
+					role="alertdialog"
+					aria-modal="true"
+					aria-labelledby="placing-order-title"
+					aria-describedby="placing-order-copy"
+				>
+					<div className="w-full max-w-sm rounded-xl bg-white px-6 py-8 shadow-xl text-center">
+						<LoadingSpinner className="h-8 w-8 mx-auto text-black" />
+						<p
+							id="placing-order-title"
+							className="mt-4 text-lg font-bold text-gray-900"
+						>
+							Placing order
+						</p>
+						<p
+							id="placing-order-copy"
+							className="mt-2 text-sm text-gray-600"
+						>
+							Please don&apos;t press back and don&apos;t close this page.
+						</p>
+					</div>
+				</div>
 			) : null}
 		</div>
 	);
