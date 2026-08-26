@@ -117,6 +117,14 @@ html[data-ops-top-banner] .ops-sticky-header {
   padding-top: 0.75rem;
 }
 
+.ops-fast-mode-header {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 0.5rem);
+}
+
+html[data-ops-top-banner] .ops-fast-mode-header {
+  padding-top: 0.5rem;
+}
+
 .ops-page-content {
   padding-bottom: env(safe-area-inset-bottom);
 }

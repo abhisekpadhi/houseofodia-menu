@@ -838,7 +838,7 @@ function AddOrderContent() {
 			}}
 		>
 			{fastMode ? (
-				<div className="shrink-0 border-b bg-white px-4 py-2">
+				<div className="ops-fast-mode-header shrink-0 border-b bg-white px-4 pb-2">
 					<div className="flex items-center gap-2">
 						<button
 							type="button"
