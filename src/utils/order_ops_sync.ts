@@ -910,6 +910,11 @@ export async function maybeRequestSyncFromPeers(
 export type HandleSyncResponseResult = {
 	applied: boolean;
 	progress: SyncTransferProgress | null;
+	/**
+	 * Full sync:response was addressed to this device.
+	 * Catch-up can complete even when apply is a no-op (empty / already-current SoT).
+	 */
+	completeForSelf: boolean;
 };
 
 export async function handleSyncResponse(
@@ -924,7 +929,7 @@ export async function handleSyncResponse(
 	if (assembler && !isCompleteSyncResponse(message as SyncResponseWireMessage)) {
 		const wire = message as SyncResponseWireMessage;
 		if (wire.targetId !== meta.deviceId) {
-			return { applied: false, progress: null };
+			return { applied: false, progress: null, completeForSelf: false };
 		}
 		progress = assembler.getProgress(wire);
 		complete = assembler.ingest(wire);
@@ -942,15 +947,32 @@ export async function handleSyncResponse(
 	}
 
 	if (!complete) {
-		return { applied: false, progress };
+		return { applied: false, progress, completeForSelf: false };
 	}
 
 	if (complete.targetId !== meta.deviceId) {
-		return { applied: false, progress: null };
+		return { applied: false, progress: null, completeForSelf: false };
 	}
 
 	const applied = await applyOrderOpsSnapshot(complete);
-	return { applied, progress };
+	if (applied) {
+		return { applied: true, progress, completeForSelf: true };
+	}
+
+	// Empty or already-current snapshot: still settle initial sync for today so
+	// catch-up does not hang after the transfer timer is cleared.
+	const today = getTodayDateKey();
+	if (
+		complete.businessDate === today &&
+		meta.businessDate === today &&
+		!isAnyDomainBehind(meta.versions, resolveSnapshotVersions(complete))
+	) {
+		if (!meta.initializedForToday) {
+			await setOrderOpsMetaVersions(meta.versions, today);
+		}
+	}
+
+	return { applied: false, progress, completeForSelf: true };
 }
 
 export function listFallbackSyncPeers(

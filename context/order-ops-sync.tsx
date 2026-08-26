@@ -734,17 +734,18 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 			channel.subscribe('sync:response', async (message) => {
 				await runWithSyncIndicator(async () => {
 					const wire = message.data as SyncResponseWireMessage;
-					const { applied, progress } = await handleSyncResponse(
-						wire,
-						syncChunkAssemblerRef.current
-					);
+					const { applied, progress, completeForSelf } =
+						await handleSyncResponse(wire, syncChunkAssemblerRef.current);
 					if (progress) {
 						onSyncChunkProgress(channel, selfDeviceId, progress);
 					}
-					if (!applied) {
+					// Empty / already-current SoT still clears the transfer timer via
+					// progress; finish catch-up even when nothing was applied.
+					if (!applied && !completeForSelf) {
 						return;
 					}
 					await refreshMeta();
+					await updateChannelPresence(channel);
 					finishCatchUpReady();
 				});
 			});
