@@ -831,11 +831,13 @@ function AddOrderContent() {
 					? "ops-app-screen-flush flex flex-col overflow-hidden"
 					: ""
 			}`}
-			style={{
-				paddingBottom: `calc(6rem + env(safe-area-inset-bottom) + ${
-					fastMode ? 0 : keyboardInset
-				}px)`,
-			}}
+			style={
+				fastMode
+					? undefined
+					: {
+							paddingBottom: `calc(6rem + env(safe-area-inset-bottom) + ${keyboardInset}px)`,
+						}
+			}
 		>
 			{fastMode ? (
 				<div className="ops-fast-mode-header shrink-0 border-b bg-white px-4 pb-2">

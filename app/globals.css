@@ -104,6 +104,8 @@ html {
   min-height: 0;
   height: 100dvh;
   max-height: 100dvh;
+  /* Keep flush screens inside the dynamic viewport after banner inset. */
+  box-sizing: border-box;
 }
 
 .ops-sticky-header {

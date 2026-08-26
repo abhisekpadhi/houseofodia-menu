@@ -386,7 +386,7 @@ export function MenuPicker({
   }
 
   return (
-    <div className={fastMode ? "flex h-full min-h-0 flex-col" : undefined}>
+    <div className={fastMode ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {showMenuHeader ? (
       <div className="flex items-center justify-between gap-3 mb-3 shrink-0">
         <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">
@@ -397,9 +397,9 @@ export function MenuPicker({
       ) : null}
       {fastMode ? (
         <div className="flex min-h-0 flex-1 gap-2 overflow-hidden">
-          <div className="flex w-[6.75rem] shrink-0 flex-col gap-1.5 overflow-hidden">
+          <div className="flex h-full w-[6.75rem] shrink-0 flex-col gap-1.5 overflow-hidden">
             <div
-              className="grid grid-cols-2 content-start gap-1.5 overflow-y-auto overscroll-contain pr-0.5"
+              className="grid min-h-0 flex-1 grid-cols-2 content-start gap-1.5 overflow-y-auto overscroll-contain pr-0.5"
               role="group"
               aria-label="Item initials"
             >
@@ -437,7 +437,7 @@ export function MenuPicker({
           </div>
           <div
             ref={fastResultsRef}
-            className="min-w-0 flex-1 space-y-2 overflow-y-auto overscroll-contain"
+            className="min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto overscroll-contain"
           >
             {!selectedLetters ? (
               <div className="text-center text-sm text-gray-500 py-8 px-2">
