@@ -771,6 +771,7 @@ function OrderRow({
 }) {
 	const markedDone = isOrderMarkedDone(order);
 	const editable = isOrderEditable(order) && sessionEditable;
+	const canToggleParcel = sessionEditable;
 	const kitchenReady = isOrderReady(order);
 	const canMarkDone = kitchenReady && !markedDone && sessionEditable;
 	const orderSerial = formatDailyOrderNumber(order.orderNumber);
@@ -960,7 +961,7 @@ function OrderRow({
 												/>
 											)}
 											{(display === "pending" || display === "fulfilled") &&
-											editable ? (
+											canToggleParcel ? (
 												<button
 													type="button"
 													onClick={() =>
@@ -2977,6 +2978,11 @@ export default function OrderPage() {
 	) => {
 		const item = order.items[itemIndex];
 		if (!item) {
+			return;
+		}
+		const group = findOrderGroupForOrder(orders, order.id);
+		if (group && !canEditSession(group, deviceId)) {
+			alertSessionLocked(group);
 			return;
 		}
 		const display = getOrderItemUnitDisplay(item, unitIndex);

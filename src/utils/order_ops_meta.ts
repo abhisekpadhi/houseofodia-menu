@@ -34,15 +34,24 @@ import localforage from 'localforage';
 const DEVICE_ID_PATTERN =
 	/^device-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-/** Reserved presence name for tangify-billing-server-hub — clients must not use it. */
+/** Reserved presence names for tangify-billing-server-hub — clients must not use them. */
 export const SYNC_HUB_DEVICE_NAME = 'Tangify Sync Hub';
+export const SYNC_HUB_DEV_DEVICE_NAME = 'Tangify Sync Hub Dev';
 export const KOT_PRINTER_RESERVED_NAME = KOT_PRINTER_DEVICE_NAME;
 export const BILL_PRINTER_RESERVED_NAME = BILL_PRINTER_DEVICE_NAME;
+
+function isSyncHubDeviceDisplayName(name: string): boolean {
+	const normalized = name.trim().toLowerCase();
+	return (
+		normalized === SYNC_HUB_DEVICE_NAME.toLowerCase() ||
+		normalized === SYNC_HUB_DEV_DEVICE_NAME.toLowerCase()
+	);
+}
 
 export function isReservedDeviceDisplayName(name: string): boolean {
 	const normalized = name.trim().toLowerCase();
 	return (
-		normalized === SYNC_HUB_DEVICE_NAME.toLowerCase() ||
+		isSyncHubDeviceDisplayName(normalized) ||
 		normalized === KOT_PRINTER_RESERVED_NAME.toLowerCase() ||
 		normalized === BILL_PRINTER_RESERVED_NAME.toLowerCase()
 	);

@@ -140,6 +140,7 @@ export type BillPrintRequestMessage = {
 	includePaymentQr?: boolean;
 	upiId?: string;
 	upiPayload?: string;
+	printJobId?: string;
 	requestedAt: number;
 	requesterId: string;
 };
@@ -260,6 +261,7 @@ export async function requestBillPrint(
 			? `Table ${context.tableNumbers.join('+')}`
 			: formatOrderKindLabel(context.kind));
 
+	const requestedAt = Date.now();
 	await publishBillPrintMessage({
 		bill,
 		context: {
@@ -272,7 +274,8 @@ export async function requestBillPrint(
 		includePaymentQr: options?.includePaymentQr === true,
 		upiId: options?.upiId,
 		upiPayload: options?.upiPayload,
-		requestedAt: Date.now(),
+		printJobId: `bill:${bill.billNumber}:${requestedAt}`,
+		requestedAt,
 		requesterId: meta.deviceId || getStableDeviceId(),
 	});
 }
