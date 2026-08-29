@@ -125,10 +125,12 @@ export type OrderOpsSnapshot = {
 	/** Max domain version — legacy peers compare this field */
 	stateVersion: number;
 	businessDate: string;
-	orders: TOrder[];
-	inventory: Record<string, number>;
-	/** Archived orders for today, including billed tables */
-	orderHistory: TOrder[];
+	/** Omitted on partial domain notifies (billing, inventory, …) */
+	orders?: TOrder[];
+	/** Omitted on partial domain notifies */
+	inventory?: Record<string, number>;
+	/** Archived orders for today, including billed tables; omitted on partial notifies */
+	orderHistory?: TOrder[];
 	/** Next global daily order serial to assign (starts at 1 each day; shared across all kinds); synced with orders */
 	nextOrderNumber?: number;
 	dayChecklists?: {

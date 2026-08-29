@@ -117,7 +117,7 @@ export async function fetchLoyaltyWallet(phone: string): Promise<LoyaltyWallet> 
 export async function saveBillToBackend(
 	bill: TBill,
 	context: BillingContext,
-	options?: { settled?: boolean }
+	options?: { settled?: boolean; loyaltyPhone?: string }
 ): Promise<BackendBill> {
 	const pointsToRedeem = Math.max(0, Math.floor(bill.pointsToRedeem ?? 0));
 	const discountAmount = (() => {
@@ -173,6 +173,14 @@ export async function saveBillToBackend(
 	const customerId = bill.customerPhone
 		? toBillingCustomerId(bill.customerPhone.trim())
 		: '';
+	const loyaltyPhone = (
+		bill.pointsPhone?.trim() ||
+		options?.loyaltyPhone?.trim() ||
+		''
+	);
+	const loyaltyCustomerId = loyaltyPhone
+		? toBillingCustomerId(loyaltyPhone)
+		: '';
 
 	const response = await fetch('/api/bills', {
 		method: 'PUT',
@@ -183,6 +191,7 @@ export async function saveBillToBackend(
 				: { state_key: bill.stateKey }),
 			session_id: bill.sessionId,
 			...(customerId ? { customer_id: customerId } : {}),
+			...(loyaltyCustomerId ? { loyalty_customer_id: loyaltyCustomerId } : {}),
 			...(options?.settled ? { settled: true } : {}),
 			table_ids: context.tableNumbers.map((table) => `T${table}`),
 			line_items: bill.cart.items.map((item) => ({

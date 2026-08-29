@@ -9,7 +9,6 @@ import {
 	upsertOrdersInHistory,
 } from '@/src/utils/order_history';
 import {
-	bumpOrderOpsDomain,
 	dispatchOrderOpsUpdated,
 	setOrderOpsMetaVersions,
 	getOrderOpsMeta,
@@ -210,7 +209,14 @@ export async function closeTableWithIntent(
 		await persistCloseLocally(orders, changed ? archived : [], billPatch);
 	});
 
-	await bumpOrderOpsDomain('orders');
+	const meta = await getOrderOpsMeta();
+	await setOrderOpsMetaVersions(
+		{
+			...meta.versions,
+			orders: Math.max(meta.versions.orders ?? 0, intent.sentAt),
+		},
+		meta.businessDate
+	);
 
 	if (!isSyncNotifySuppressed() && publishTableCloseIntent) {
 		await publishTableCloseIntent(intent);

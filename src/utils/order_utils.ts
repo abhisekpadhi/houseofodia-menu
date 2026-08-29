@@ -1816,3 +1816,18 @@ export async function updateOrders(orders: TOrder[], now = Date.now()): Promise<
 	await saveOrdersStore({ orders: maintained });
 	return maintained;
 }
+
+/** Route to new-order screen; `v` busts Next.js soft-nav cache so UI resets each visit. */
+export function buildNewOrderHref(
+	params?: Record<string, string | undefined>
+): string {
+	const query = new URLSearchParams({ v: String(Date.now()) });
+	if (params) {
+		for (const [key, value] of Object.entries(params)) {
+			if (value) {
+				query.set(key, value);
+			}
+		}
+	}
+	return `/order/new?${query.toString()}`;
+}

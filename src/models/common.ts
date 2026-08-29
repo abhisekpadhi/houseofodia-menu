@@ -71,8 +71,12 @@ export type TBill = {
 	customDiscountReason?: string;
 	/** Whole points applied as a bill discount (1 point = Rs 3) */
 	pointsToRedeem?: number;
-	/** 10-digit Indian mobile; sent to backend as customer_id */
+	/** 10-digit Indian mobile; sent to backend as customer_id (bill / invoice) */
 	customerPhone?: string;
+	/** WhatsApp-linked phone for loyalty earn/redeem */
+	pointsPhone?: string;
+	/** Stale balance from loyalty:wa-link Ably event */
+	pointsBalance?: number;
 	backendBillId?: string;
 	backendStatus?: 'idle' | 'saving' | 'saved' | 'failed';
 	backendSavedAt?: number;

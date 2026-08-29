@@ -63,6 +63,7 @@ import {
 	cancelItemUnit,
 	toggleItemUnitParcel,
 	setItemUnitFulfilled,
+	buildNewOrderHref,
 	CUSTOMER_PHONE_DIGITS,
 	isValidCustomerPhone,
 } from "@/src/utils/order_utils";
@@ -1405,8 +1406,8 @@ function TableOrderCard({
 	const now = useLateClock();
 	const addOrderHref =
 		group.kind === "table" && group.tableNumbers?.length
-			? `/order/new?tables=${group.tableNumbers.join(",")}`
-			: `/order/new?type=${group.kind}&groupKey=${encodeURIComponent(group.key)}`;
+			? buildNewOrderHref({ tables: group.tableNumbers.join(",") })
+			: buildNewOrderHref({ type: group.kind, groupKey: group.key });
 
 	const isLate = group.kind === "table" && isGroupLate(group, now);
 	const allDone = group.kind === "table" && isGroupFullyMarkedDone(group);
@@ -3082,7 +3083,7 @@ export default function OrderPage() {
 			setShowDayOpenWarning(true);
 			return;
 		}
-		router.push("/order/new");
+		router.push(buildNewOrderHref());
 	};
 
 	const openNotesModal = (group: OrderGroup) => {
@@ -3721,7 +3722,7 @@ export default function OrderPage() {
 					}}
 					onProceed={() => {
 						setShowDayOpenWarning(false);
-						router.push("/order/new");
+						router.push(buildNewOrderHref());
 					}}
 					onClose={() => setShowDayOpenWarning(false)}
 				/>

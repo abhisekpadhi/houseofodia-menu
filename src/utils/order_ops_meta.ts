@@ -283,18 +283,28 @@ export async function buildOrderOpsSnapshot(): Promise<OrderOpsSnapshot> {
 	};
 }
 
-function emptySnapshotBase(
+/** Version vector for a single-domain live notify — other domains stay at 0 (omitted). */
+function domainSnapshotVersions(
 	meta: OrderOpsMeta,
-	businessDate: string
+	domain: OrderOpsDomain
+): OrderOpsVersions {
+	return {
+		...ZERO_ORDER_OPS_VERSIONS,
+		[domain]: meta.versions[domain],
+	};
+}
+
+function partialSnapshotBase(
+	meta: OrderOpsMeta,
+	businessDate: string,
+	domain: OrderOpsDomain
 ): OrderOpsSnapshot {
+	const domainVersion = meta.versions[domain];
 	return {
 		deviceId: meta.deviceId,
-		versions: meta.versions,
-		stateVersion: maxOrderOpsVersion(meta.versions),
+		versions: domainSnapshotVersions(meta, domain),
+		stateVersion: domainVersion,
 		businessDate,
-		orders: [],
-		inventory: {},
-		orderHistory: [],
 		sentAt: Date.now(),
 	};
 }
@@ -305,7 +315,7 @@ export async function buildOrderOpsDomainSnapshot(
 ): Promise<OrderOpsSnapshot> {
 	const meta = await getOrderOpsMeta();
 	const businessDate = getTodayDateKey();
-	const base = emptySnapshotBase(meta, businessDate);
+	const base = partialSnapshotBase(meta, businessDate, domain);
 
 	if (domain === 'orders') {
 		const store: TOrdersStore = await getOrdersStore();

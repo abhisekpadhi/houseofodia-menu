@@ -37,6 +37,7 @@ import {
 } from '@/src/utils/order_ops_meta';
 import { getTodayDateKey } from '@/src/utils/inventory_utils';
 import {
+	getTodayOrderHistory,
 	replaceOrderHistoryFromSync,
 	upsertOrdersInHistory,
 } from '@/src/utils/order_history';
@@ -410,6 +411,39 @@ function shouldApplyDomain(
 	return remoteVersions[domain] > localVersions[domain];
 }
 
+/** True when the snapshot actually carries orders-domain payload (not a billing/inventory partial). */
+export function ordersDomainIncluded(payload: OrderOpsSnapshot): boolean {
+	if (payload.orders != null && payload.orders.length > 0) {
+		return true;
+	}
+	if (payload.orderHistory != null && payload.orderHistory.length > 0) {
+		return true;
+	}
+	// Legacy billing notifies carried empty placeholders — never treat as orders update.
+	if (payload.billingSessions != null) {
+		return false;
+	}
+	if (payload.nextOrderNumber != null) {
+		return true;
+	}
+	return false;
+}
+
+function shouldApplyOrdersDomain(
+	payload: OrderOpsSnapshot,
+	localVersions: OrderOpsVersions,
+	remoteVersions: OrderOpsVersions,
+	legacyApplyAll: boolean
+): boolean {
+	if (!shouldApplyDomain(localVersions, remoteVersions, 'orders', legacyApplyAll)) {
+		return false;
+	}
+	if (legacyApplyAll) {
+		return true;
+	}
+	return ordersDomainIncluded(payload);
+}
+
 export async function applyOrderOpsSnapshot(
 	payload: OrderOpsSnapshot
 ): Promise<boolean> {
@@ -435,21 +469,28 @@ export async function applyOrderOpsSnapshot(
 
 	await runWithoutSyncNotify(async () => {
 		if (
-			shouldApplyDomain(localVersions, remoteVersions, 'orders', legacyApplyAll)
+			shouldApplyOrdersDomain(
+				payload,
+				localVersions,
+				remoteVersions,
+				legacyApplyAll
+			)
 		) {
 			const existing = await localforage.getItem<TOrdersStore>(ORDERS_KEY);
 			const beforeOrders = existing?.orders ?? [];
 			const beforeIds = new Set(beforeOrders.map((order) => order.id));
 
-			const maintained = maintainOrders(payload.orders, Date.now());
-			const historyOrders = Array.isArray(payload.orderHistory)
+			const maintained = maintainOrders(payload.orders ?? [], Date.now());
+			const payloadHistory = Array.isArray(payload.orderHistory)
 				? payload.orderHistory
 				: [];
-			const billedIds = new Set(
-				historyOrders
-					.filter((o) => o.billedAt != null && o.id)
-					.map((o) => o.id)
-			);
+			const localHistory = await getTodayOrderHistory();
+			const billedIds = new Set<string>();
+			for (const row of [...localHistory, ...payloadHistory]) {
+				if (row.billedAt != null && row.id) {
+					billedIds.add(row.id);
+				}
+			}
 			const withoutResurrected = maintained.filter((order) => {
 				if (billedIds.has(order.id)) {
 					console.warn(
@@ -467,7 +508,7 @@ export async function applyOrderOpsSnapshot(
 				orders: withoutResurrected,
 			});
 
-			if (payload.orderHistory) {
+			if (payload.orderHistory != null && payload.orderHistory.length > 0) {
 				await replaceOrderHistoryFromSync(
 					payload.businessDate,
 					payload.orderHistory
@@ -480,7 +521,7 @@ export async function applyOrderOpsSnapshot(
 				payload.businessDate,
 				payload.nextOrderNumber,
 				withoutResurrected,
-				payload.orderHistory ?? []
+				payload.orderHistory ?? localHistory
 			);
 
 			appliedVersions.orders = remoteVersions.orders;
@@ -492,7 +533,8 @@ export async function applyOrderOpsSnapshot(
 				remoteVersions,
 				'inventory',
 				legacyApplyAll
-			)
+			) &&
+			payload.inventory != null
 		) {
 			const inventoryStore =
 				(await localforage.getItem<Record<string, Record<string, number>>>(

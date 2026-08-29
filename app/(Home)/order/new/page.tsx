@@ -57,7 +57,6 @@ import { flushSync } from "react-dom";
 
 const PAX_QUICK_PICK_OPTIONS = Array.from({ length: 30 }, (_, index) => index + 1);
 const ORDER_NOTE_SHORTCUTS = ["Less spicy", "No spice", "Extra gravy"] as const;
-const MENU_FAST_MODE_STORAGE_KEY = "tangify-new-order-fast-mode";
 
 function CartIcon({ className }: { className?: string }) {
 	return (
@@ -241,14 +240,11 @@ function AddOrderContent() {
 
 	const isFromTableCard = preselectedTables.length > 0;
 	const isFromExistingGroup = preselectedGroupKey !== null;
+	const newOrderVisitKey = searchParams.toString();
 
 	useEffect(() => {
-		try {
-			setFastMode(window.localStorage.getItem(MENU_FAST_MODE_STORAGE_KEY) === "1");
-		} catch {
-			// ignore storage errors
-		}
-	}, []);
+		setFastMode(false);
+	}, [newOrderVisitKey]);
 
 	useEffect(() => {
 		getOrdersStore().then((store) => {
@@ -483,11 +479,6 @@ function AddOrderContent() {
 	const toggleFastMode = () => {
 		setFastMode((prev) => {
 			const next = !prev;
-			try {
-				window.localStorage.setItem(MENU_FAST_MODE_STORAGE_KEY, next ? "1" : "0");
-			} catch {
-				// ignore storage errors
-			}
 			if (next && document.activeElement instanceof HTMLElement) {
 				document.activeElement.blur();
 			}

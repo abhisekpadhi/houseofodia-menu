@@ -17,6 +17,10 @@ import {
 	setDeviceDisplayName,
 } from '@/src/utils/order_ops_meta';
 import {
+	applyLoyaltyWaLink,
+	type LoyaltyWaLinkMessage,
+} from '@/src/utils/loyalty_wa_link';
+import {
 	detectSyncConflict,
 	handleStateDelta,
 	handleSyncRequest,
@@ -786,6 +790,14 @@ export function OrderOpsSyncProvider({ children }: { children: ReactNode }) {
 						? `KOT print failed (${orderId}): ${detail}`
 						: `KOT print failed for ${orderId}`
 				);
+			});
+
+			channel.subscribe('loyalty:wa-link', async (message) => {
+				try {
+					await applyLoyaltyWaLink(message.data as LoyaltyWaLinkMessage);
+				} catch (err) {
+					console.warn('[loyalty-wa-link] apply failed', err);
+				}
 			});
 
 			channel.presence.subscribe('enter', () => {
