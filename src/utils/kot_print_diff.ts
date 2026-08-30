@@ -5,26 +5,32 @@ function kotLineKey(line: { name: string; isParcel: boolean }): string {
 	return `${line.name}|${line.isParcel ? '1' : '0'}`;
 }
 
+/** Dish totals for change detection — parcel toggles do not reprint KOT. */
+function kotLineKeyForChangeDetection(line: { name: string }): string {
+	return line.name;
+}
+
 /** Kitchen-facing KOT lines — excludes water bottles (not cooked). */
 function getKitchenKotLines(order: TOrder) {
 	return getOrderKotLines(order).filter((line) => !isWaterBottleDish(line.name));
 }
 
 function linesMap(
-	lines: ReturnType<typeof getOrderKotLines>
+	lines: ReturnType<typeof getOrderKotLines>,
+	keyFn: (line: { name: string; isParcel: boolean }) => string
 ): Map<string, number> {
 	const map = new Map<string, number>();
 	for (const line of lines) {
-		const key = kotLineKey(line);
+		const key = keyFn(line);
 		map.set(key, (map.get(key) ?? 0) + line.qty);
 	}
 	return map;
 }
 
-/** True when kitchen KOT lines or notes differ (water changes ignored). */
+/** True when kitchen KOT lines or notes differ (water and parcel-only changes ignored). */
 export function hasKitchenRelevantChange(prev: TOrder, next: TOrder): boolean {
-	const before = linesMap(getKitchenKotLines(prev));
-	const after = linesMap(getKitchenKotLines(next));
+	const before = linesMap(getKitchenKotLines(prev), kotLineKeyForChangeDetection);
+	const after = linesMap(getKitchenKotLines(next), kotLineKeyForChangeDetection);
 	const keys = Array.from(
 		new Set([...Array.from(before.keys()), ...Array.from(after.keys())])
 	);

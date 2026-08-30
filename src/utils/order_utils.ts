@@ -541,6 +541,14 @@ export function isWaterBottleDish(name: string): name is WaterDishName {
 	return (WATER_DISH_NAMES as readonly string[]).includes(name);
 }
 
+/** Water bottles are served immediately — mark every billable unit fulfilled. */
+export function fulfillWaterBottleItem(item: TOrderItem): TOrderItem {
+	const states = getItemUnitStates(item).map((state) =>
+		isUnitStateCancelled(state) ? state : 'fulfilled'
+	);
+	return normalizeOrderItem({ ...item, unitStates: states });
+}
+
 export function emptyWaterBottleCounts(): Record<WaterDishName, number> {
 	return { 'Water 1L': 0, 'Water 500 ML': 0 };
 }
@@ -663,7 +671,13 @@ export function syncGroupWaterBottleCount(
 					qty: items[waterIndex].qty + addQty,
 				};
 			}
-			return normalizeOrderItemsAfterEdit(order, items);
+			const updated = normalizeOrderItemsAfterEdit(order, items);
+			return {
+				...updated,
+				items: updated.items.map((item) =>
+					item.name === dishName ? fulfillWaterBottleItem(item) : item
+				),
+			};
 		});
 	}
 
