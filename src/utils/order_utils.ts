@@ -1203,6 +1203,7 @@ export function ordersStoreChanged(before: TOrder[], after: TOrder[]): boolean {
 			order.lockHolderName !== next.lockHolderName ||
 			order.lockUpdatedAt !== next.lockUpdatedAt ||
 			order.kotPrintedAt !== next.kotPrintedAt ||
+			order.autoKot !== next.autoKot ||
 			order.items.length !== next.items.length
 		) {
 			return true;

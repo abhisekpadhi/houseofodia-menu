@@ -70,6 +70,9 @@ export function collectKotPrintIntents(
 	const intents: KotPrintIntent[] = [];
 
 	for (const next of nextOrders) {
+		// Explicit false disables auto KOT; missing/true keeps default on.
+		if (next.autoKot === false) continue;
+
 		const kitchenLines = getKitchenKotLines(next);
 		if (kitchenLines.length === 0) continue;
 

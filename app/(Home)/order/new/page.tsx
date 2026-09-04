@@ -228,6 +228,7 @@ function AddOrderContent() {
 	const placeOrderLock = useInFlightLock();
 	const [cartModalOpen, setCartModalOpen] = useState(false);
 	const [fastMode, setFastMode] = useState(false);
+	const [autoKot, setAutoKot] = useState(true);
 	const [kidMenuEnabled, setKidMenuEnabled] = useState(false);
 	const [pax, setPax] = useState("");
 	const [parcelUnitsByName, setParcelUnitsByName] = useState<
@@ -244,6 +245,7 @@ function AddOrderContent() {
 
 	useEffect(() => {
 		setFastMode(false);
+		setAutoKot(true);
 	}, [newOrderVisitKey]);
 
 	useEffect(() => {
@@ -784,6 +786,7 @@ function AddOrderContent() {
 					: {}),
 				orderNumber,
 				pax: paxNumber,
+				autoKot,
 				lockHolderDeviceId: deviceId,
 				lockHolderName: deviceName.trim() || "This device",
 				lockUpdatedAt: now,
@@ -1177,9 +1180,38 @@ function AddOrderContent() {
 			</div>
 
 			<div className="fixed bottom-0 left-0 right-0 bg-white border-t px-6 py-4 shadow-lg z-20 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-				<p className="text-sm text-gray-600 mb-3">
-					{cartItems.length} item{cartItems.length === 1 ? "" : "s"}
-				</p>
+				<div className="mb-3 flex items-center justify-between gap-3">
+					<p className="text-sm text-gray-600">
+						{cartItems.length} item{cartItems.length === 1 ? "" : "s"}
+					</p>
+					<button
+						type="button"
+						role="switch"
+						aria-checked={autoKot}
+						onClick={() => setAutoKot((prev) => !prev)}
+						className="inline-flex min-h-[40px] items-center gap-2 rounded-full border px-3 py-1.5 touch-manipulation transition-colors"
+					>
+						<span
+							className={`text-xs font-semibold ${
+								autoKot ? "text-green-800" : "text-gray-600"
+							}`}
+						>
+							Auto KOT
+						</span>
+						<span
+							aria-hidden
+							className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+								autoKot ? "bg-green-600" : "bg-gray-300"
+							}`}
+						>
+							<span
+								className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+									autoKot ? "translate-x-5" : "translate-x-0"
+								}`}
+							/>
+						</span>
+					</button>
+				</div>
 				<Button
 					className="w-full bg-green-500 hover:bg-green-600 text-white font-bold disabled:opacity-50"
 					disabled={placing || !canPlaceOrder}

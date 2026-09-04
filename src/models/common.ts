@@ -176,6 +176,11 @@ export type TOrder = {
 	lockUpdatedAt?: number;
 	/** Set when KOT printer ACKs a successful print for this order */
 	kotPrintedAt?: number;
+	/**
+	 * When false, hub skips auto KOT print for this order (new + updates).
+	 * Undefined / true = auto KOT on (default).
+	 */
+	autoKot?: boolean;
 };
 
 export type OrderBillSummary = {

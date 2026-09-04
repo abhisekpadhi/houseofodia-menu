@@ -86,6 +86,7 @@ const DRAWER_LINKS: DrawerLink[] = [
 	{ href: '/order/raw-materials', label: 'Raw material inventory' },
 	{ href: '/order/menu-sop', label: 'Menu SOP' },
 	{ href: '/order/waitlist', label: 'Waiting list' },
+	{ href: '/order/web-orders', label: 'Web orders' },
 	{ href: '/order/staff-users', label: 'Staff users', adminOnly: true },
 ];
 
