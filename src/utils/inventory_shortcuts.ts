@@ -1,12 +1,21 @@
-import { isInfiniteInventoryDish } from '@/src/utils/inventory_utils';
+import {
+	isInfiniteInventoryDish,
+	UNLIMITED_INVENTORY_QTY,
+} from '@/src/utils/inventory_utils';
 
 export type InventoryShortcutId =
 	| 'all-oos'
+	| 'all-infinity'
 	| 'chicken-off'
+	| 'chicken-on'
 	| 'mutton-off'
+	| 'mutton-on'
 	| 'fish-off'
+	| 'fish-on'
 	| 'prawn-off'
-	| 'bread-off';
+	| 'prawn-on'
+	| 'bread-off'
+	| 'bread-on';
 
 export type InventoryShortcut = {
 	id: InventoryShortcutId;
@@ -25,11 +34,25 @@ export const INVENTORY_SHORTCUTS: InventoryShortcut[] = [
 		confirmLabel: 'All OOS',
 	},
 	{
+		id: 'all-infinity',
+		label: '∞ All Infinity',
+		title: 'Mark everything unlimited?',
+		message: 'Every dish on today’s inventory will be set to unlimited (∞).',
+		confirmLabel: 'All Infinity',
+	},
+	{
 		id: 'chicken-off',
 		label: '🐔 Chicken off',
 		title: 'Mark chicken out of stock?',
 		message: 'All chicken dishes will be set to 0.',
 		confirmLabel: 'Chicken off',
+	},
+	{
+		id: 'chicken-on',
+		label: '🐔 Chicken on',
+		title: 'Mark chicken unlimited?',
+		message: 'All chicken dishes will be set to unlimited (∞).',
+		confirmLabel: 'Chicken on',
 	},
 	{
 		id: 'mutton-off',
@@ -39,11 +62,25 @@ export const INVENTORY_SHORTCUTS: InventoryShortcut[] = [
 		confirmLabel: 'Mutton off',
 	},
 	{
+		id: 'mutton-on',
+		label: '🐑 Mutton on',
+		title: 'Mark mutton unlimited?',
+		message: 'All mutton dishes will be set to unlimited (∞).',
+		confirmLabel: 'Mutton on',
+	},
+	{
 		id: 'fish-off',
 		label: '🐟 Fish off',
 		title: 'Mark fish out of stock?',
 		message: 'All fish dishes will be set to 0.',
 		confirmLabel: 'Fish off',
+	},
+	{
+		id: 'fish-on',
+		label: '🐟 Fish on',
+		title: 'Mark fish unlimited?',
+		message: 'All fish dishes will be set to unlimited (∞).',
+		confirmLabel: 'Fish on',
 	},
 	{
 		id: 'prawn-off',
@@ -53,11 +90,25 @@ export const INVENTORY_SHORTCUTS: InventoryShortcut[] = [
 		confirmLabel: 'Prawn off',
 	},
 	{
+		id: 'prawn-on',
+		label: '🦐 Prawn on',
+		title: 'Mark prawn unlimited?',
+		message: 'All prawn dishes will be set to unlimited (∞).',
+		confirmLabel: 'Prawn on',
+	},
+	{
 		id: 'bread-off',
 		label: '🫓 Bread off',
 		title: 'Mark bread out of stock?',
 		message: 'Roti and paratha will be set to 0.',
 		confirmLabel: 'Bread off',
+	},
+	{
+		id: 'bread-on',
+		label: '🫓 Bread on',
+		title: 'Mark bread unlimited?',
+		message: 'Roti and paratha will be set to unlimited (∞).',
+		confirmLabel: 'Bread on',
 	},
 ];
 
@@ -125,7 +176,7 @@ export function dishMatchesInventoryShortcut(
 		return false;
 	}
 
-	if (shortcut === 'all-oos') {
+	if (shortcut === 'all-oos' || shortcut === 'all-infinity') {
 		return true;
 	}
 
@@ -152,6 +203,12 @@ export function isOutOfStockInventoryShortcut(
 	return shortcut === 'all-oos' || shortcut.endsWith('-off');
 }
 
+export function isUnlimitedInventoryShortcut(
+	shortcut: InventoryShortcutId
+): boolean {
+	return shortcut === 'all-infinity' || shortcut.endsWith('-on');
+}
+
 export function applyInventoryShortcut(
 	quantities: Record<string, string>,
 	dishNames: string[],
@@ -159,9 +216,12 @@ export function applyInventoryShortcut(
 ): Record<string, string> {
 	const next = { ...quantities };
 	const targets = getShortcutTargetDishes(dishNames, shortcut);
+	const qty = isOutOfStockInventoryShortcut(shortcut)
+		? '0'
+		: String(UNLIMITED_INVENTORY_QTY);
 
 	for (const dishName of targets) {
-		next[dishName] = '0';
+		next[dishName] = qty;
 	}
 
 	return next;

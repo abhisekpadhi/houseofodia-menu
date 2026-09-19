@@ -23,6 +23,7 @@ import {
 	INVENTORY_SHORTCUTS,
 	isDishCategoryInventoryShortcut,
 	isOutOfStockInventoryShortcut,
+	isUnlimitedInventoryShortcut,
 	type InventoryShortcut,
 	type InventoryShortcutId,
 	shortcutConfirmMessage,
@@ -371,7 +372,9 @@ export default function InventoryPage() {
 								className={`shrink-0 bg-gray-100 text-gray-800 active:bg-gray-200 min-w-[88px] px-3 border ${
 									isOutOfStockInventoryShortcut(shortcut.id)
 										? "border-red-600"
-										: "border-gray-300"
+										: isUnlimitedInventoryShortcut(shortcut.id)
+											? "border-green-600"
+											: "border-gray-300"
 								}`}
 							>
 								{shortcut.label}
