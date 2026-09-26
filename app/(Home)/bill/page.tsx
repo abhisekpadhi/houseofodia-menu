@@ -39,6 +39,18 @@ import {
   type WaLinkCache,
 } from "@/src/utils/loyalty_wa_link";
 import { saveBillToBackend } from "@/src/utils/tangify_api";
+import {
+  POINT_RUPEE_VALUE,
+  applyBillAmountsToBill,
+  billAmountsFromBill,
+  calculateBillAmounts,
+  calculateDiscountAmount,
+  customDiscountFromBill,
+  roundCurrency,
+  type BillMembership,
+  type CustomDiscountInput,
+  type CustomDiscountUnit,
+} from "@/src/utils/bill_totals";
 import localforage from "localforage";
 import { ConfirmModalActions, LoadingSpinner } from "@/components/ui/touch-controls";
 import { toPng } from "html-to-image";
@@ -57,19 +69,11 @@ import {
 } from "react-icons/fa";
 import axios from "axios";
 
-type Membership = "none" | "monthly" | "yearly" | "custom" | "points";
-type CustomDiscountUnit = "rs" | "percent";
+type Membership = BillMembership;
 
-type CustomDiscountInput = {
-  value: number;
-  unit: CustomDiscountUnit;
-};
-
-const roundCurrency = (amount: number) => Math.round(amount * 100) / 100;
 const formatCurrency = (amount: number) => roundCurrency(amount).toFixed(2);
 const BILL_SAVE_ATTEMPTS = 3;
 const BILL_SAVE_RETRY_DELAY_MS = 5_000;
-const POINT_RUPEE_VALUE = 3;
 
 const maxRedeemablePoints = (subtotal: number, balance: number) =>
   Math.max(
@@ -98,95 +102,6 @@ async function saveWithRetry<T>(
   }
   throw lastError;
 }
-
-const calculateDiscountAmount = (
-  subtotal: number,
-  membership: Membership,
-  custom?: CustomDiscountInput | null,
-  maxRupeeDiscount?: number,
-  pointsToRedeem = 0
-) => {
-  if (membership === "points") {
-    return roundCurrency(Math.max(0, pointsToRedeem) * POINT_RUPEE_VALUE);
-  }
-  if (membership === "monthly") {
-    return roundCurrency(subtotal * 0.1);
-  }
-  if (membership === "yearly") {
-    return roundCurrency(subtotal * 0.2);
-  }
-  if (membership === "custom" && custom) {
-    const value = Math.max(0, custom.value);
-    if (custom.unit === "percent") {
-      const percent = Math.min(100, value);
-      return roundCurrency((subtotal * percent) / 100);
-    }
-    const rupeeCap = Math.min(
-      subtotal,
-      maxRupeeDiscount != null && Number.isFinite(maxRupeeDiscount)
-        ? Math.max(0, maxRupeeDiscount)
-        : subtotal
-    );
-    return roundCurrency(Math.min(rupeeCap, value));
-  }
-  return 0;
-};
-
-const customDiscountFromBill = (
-  bill: Pick<
-    TBill,
-    "customDiscountValue" | "customDiscountUnit" | "membership"
-  >
-): CustomDiscountInput | null => {
-  if (bill.membership !== "custom") {
-    return null;
-  }
-  return {
-    value: bill.customDiscountValue ?? 0,
-    unit: bill.customDiscountUnit === "percent" ? "percent" : "rs",
-  };
-};
-
-const calculateBillAmounts = (
-  subtotal: number,
-  membership: Membership,
-  staffWelfare = 0,
-  custom?: CustomDiscountInput | null,
-  pointsToRedeem = 0
-) => {
-  const undiscountedPayable = (() => {
-    const taxableAmount = subtotal;
-    const cgst = roundCurrency(taxableAmount * 0.025);
-    const sgst = roundCurrency(taxableAmount * 0.025);
-    const preRoundPayable = roundCurrency(
-      taxableAmount + cgst + sgst + staffWelfare
-    );
-    return Math.ceil(preRoundPayable);
-  })();
-  const discount = calculateDiscountAmount(
-    subtotal,
-    membership,
-    custom,
-    undiscountedPayable,
-    pointsToRedeem
-  );
-  const taxableAmount = Math.max(0, subtotal - discount);
-  const cgst = roundCurrency(taxableAmount * 0.025);
-  const sgst = roundCurrency(taxableAmount * 0.025);
-  const preRoundPayable = roundCurrency(
-    taxableAmount + cgst + sgst + staffWelfare
-  );
-  const payable = Math.ceil(preRoundPayable);
-  const roundOff = roundCurrency(payable - preRoundPayable);
-
-  return {
-    discount,
-    cgst,
-    sgst,
-    roundOff,
-    payable,
-  };
-};
 
 const Divider = () => {
   return <div className="my-2 border-t border-solid border-black" />;
@@ -884,13 +799,19 @@ const Receipt = () => {
     return <div>Loading...</div>;
   }
 
-  const staffWelfare = bill.staffWelfare ?? 0;
   const membership = bill.membership ?? "none";
   const customDiscount = customDiscountFromBill(bill);
-  const { discount } = calculateBillAmounts(
+  const {
+    discount,
+    cgst,
+    sgst,
+    roundOff,
+    payable,
+    staffWelfare,
+  } = calculateBillAmounts(
     bill.subtotal,
     membership,
-    staffWelfare,
+    0,
     customDiscount,
     membership === "points" ? bill.pointsToRedeem ?? 0 : 0
   );
@@ -936,7 +857,7 @@ const Receipt = () => {
         ? `Points (${linkedBalance})`
         : "Points";
   const pointsChipDisabled = controlsDisabled;
-  const upiAmount = Math.max(0, bill.payable);
+  const upiAmount = Math.max(0, payable);
   // const upiId = "q030249494@ybl"; // phonepe business
   const upiId = "tangify@slc"; // slice
   const upiAmountFixed = Number(upiAmount).toFixed(2);
@@ -1187,8 +1108,9 @@ const Receipt = () => {
   ): Promise<TBill> => {
     const phoneForLoyalty =
       billToSave.pointsPhone?.trim() || linkedPhone?.trim() || "";
+    const amounts = billAmountsFromBill(billToSave);
     const billForBackend: TBill = {
-      ...billToSave,
+      ...applyBillAmountsToBill(billToSave, amounts),
       ...(phoneForLoyalty ? { pointsPhone: phoneForLoyalty } : {}),
       ...(phoneForLoyalty &&
       billToSave.pointsBalance == null &&
@@ -1798,11 +1720,11 @@ const Receipt = () => {
         )}
         <div className="flex justify-between">
           <span>CGST @2.5%</span>
-          <span>{formatCurrency(bill.cgst)}</span>
+          <span>{formatCurrency(cgst)}</span>
         </div>
         <div className="flex justify-between">
           <span>SGST @2.5%</span>
-          <span>{formatCurrency(bill.sgst)}</span>
+          <span>{formatCurrency(sgst)}</span>
         </div>
         {staffWelfare > 0 && (
           <div className="flex justify-between">
@@ -1810,16 +1732,16 @@ const Receipt = () => {
             <span>{formatCurrency(staffWelfare)}</span>
           </div>
         )}
-        {(bill.roundOff ?? 0) > 0 && (
+        {roundOff > 0 && (
           <div className="flex justify-between">
             <span>Round off</span>
-            <span>{formatCurrency(bill.roundOff ?? 0)}</span>
+            <span>{formatCurrency(roundOff)}</span>
           </div>
         )}
         <Divider />
         <div className="flex justify-between">
           <span>Payable</span>
-          <span>₹{formatCurrency(bill.payable)}</span>
+          <span>₹{formatCurrency(payable)}</span>
         </div>
         <p className="text-center mt-2">Thank you. Please visit again.</p>
         <p className="text-center mt-1">UPI: {upiId}</p>

@@ -1,4 +1,8 @@
 import { BillingContext, TBill } from '@/src/models/common';
+import {
+	applyBillAmountsToBill,
+	billAmountsFromBill,
+} from '@/src/utils/bill_totals';
 
 const DEFAULT_TIMEOUT_MS = 300_000;
 
@@ -66,8 +70,6 @@ type BackendBill = {
 
 const toPaise = (rupees: number) => Math.round(rupees * 100);
 
-const POINT_RUPEE_VALUE = 3;
-
 export function toBillingCustomerId(phone: string): string {
 	const digits = phone.replace(/\D/g, '');
 	if (digits.length === 10) {
@@ -119,62 +121,33 @@ export async function saveBillToBackend(
 	context: BillingContext,
 	options?: { settled?: boolean; loyaltyPhone?: string }
 ): Promise<BackendBill> {
-	const pointsToRedeem = Math.max(0, Math.floor(bill.pointsToRedeem ?? 0));
-	const discountAmount = (() => {
-		if (bill.membership === 'points' && pointsToRedeem > 0) {
-			return toPaise(pointsToRedeem * POINT_RUPEE_VALUE);
-		}
-		if (bill.membership === 'monthly') {
-			return toPaise(bill.subtotal * 0.1);
-		}
-		if (bill.membership === 'yearly') {
-			return toPaise(bill.subtotal * 0.2);
-		}
-		if (bill.membership === 'custom') {
-			const value = Math.max(0, bill.customDiscountValue ?? 0);
-			if (bill.customDiscountUnit === 'percent') {
-				const percent = Math.min(100, value);
-				return toPaise(bill.subtotal * (percent / 100));
-			}
-			const undiscountedTaxable = bill.subtotal;
-			const undiscountedCgst = Math.round(undiscountedTaxable * 0.025 * 100) / 100;
-			const undiscountedSgst = Math.round(undiscountedTaxable * 0.025 * 100) / 100;
-			const undiscountedPayable = Math.ceil(
-				Math.round(
-					(undiscountedTaxable +
-						undiscountedCgst +
-						undiscountedSgst +
-						(bill.staffWelfare ?? 0)) *
-						100
-				) / 100
-			);
-			const rupeeCap = Math.min(bill.subtotal, undiscountedPayable);
-			return toPaise(Math.min(rupeeCap, value));
-		}
-		return 0;
-	})();
+	const amounts = billAmountsFromBill(bill);
+	const billWithTotals = applyBillAmountsToBill(bill, amounts);
+	const pointsToRedeem = Math.max(0, Math.floor(billWithTotals.pointsToRedeem ?? 0));
+	const discountAmount = toPaise(amounts.discount);
 
 	const discountDescription =
-		bill.membership === 'points'
+		billWithTotals.membership === 'points'
 			? `${pointsToRedeem} points`
-			: bill.membership === 'custom'
-				? bill.customDiscountReason?.trim() || 'Custom discount'
-				: bill.membership === 'monthly' || bill.membership === 'yearly'
-					? `${bill.membership} membership`
+			: billWithTotals.membership === 'custom'
+				? billWithTotals.customDiscountReason?.trim() || 'Custom discount'
+				: billWithTotals.membership === 'monthly' ||
+					  billWithTotals.membership === 'yearly'
+					? `${billWithTotals.membership} membership`
 					: '';
 
 	const discountType =
-		bill.membership === 'points'
+		billWithTotals.membership === 'points'
 			? 'points'
-			: bill.membership === 'custom'
+			: billWithTotals.membership === 'custom'
 				? 'custom'
 				: 'membership';
 
-	const customerId = bill.customerPhone
-		? toBillingCustomerId(bill.customerPhone.trim())
+	const customerId = billWithTotals.customerPhone
+		? toBillingCustomerId(billWithTotals.customerPhone.trim())
 		: '';
 	const loyaltyPhone = (
-		bill.pointsPhone?.trim() ||
+		billWithTotals.pointsPhone?.trim() ||
 		options?.loyaltyPhone?.trim() ||
 		''
 	);
@@ -186,15 +159,15 @@ export async function saveBillToBackend(
 		method: 'PUT',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({
-			...(bill.backendBillId
-				? { id: bill.backendBillId }
-				: { state_key: bill.stateKey }),
-			session_id: bill.sessionId,
+			...(billWithTotals.backendBillId
+				? { id: billWithTotals.backendBillId }
+				: { state_key: billWithTotals.stateKey }),
+			session_id: billWithTotals.sessionId,
 			...(customerId ? { customer_id: customerId } : {}),
 			...(loyaltyCustomerId ? { loyalty_customer_id: loyaltyCustomerId } : {}),
 			...(options?.settled ? { settled: true } : {}),
 			table_ids: context.tableNumbers.map((table) => `T${table}`),
-			line_items: bill.cart.items.map((item) => ({
+			line_items: billWithTotals.cart.items.map((item) => ({
 				name: item.name,
 				quantity: item.qty,
 				price: toPaise(item.price),
@@ -203,7 +176,7 @@ export async function saveBillToBackend(
 				discountAmount > 0
 					? [
 							{
-								id: `discount-${bill.membership ?? 'none'}`,
+								id: `discount-${billWithTotals.membership ?? 'none'}`,
 								type: discountType,
 								amount: discountAmount,
 								description: discountDescription,
@@ -215,27 +188,27 @@ export async function saveBillToBackend(
 					id: 'cgst',
 					name: 'CGST',
 					rate_in_bps: 250,
-					amount_in_paise: toPaise(bill.cgst),
+					amount_in_paise: toPaise(amounts.cgst),
 				},
 				{
 					id: 'sgst',
 					name: 'SGST',
 					rate_in_bps: 250,
-					amount_in_paise: toPaise(bill.sgst),
+					amount_in_paise: toPaise(amounts.sgst),
 				},
-				...((bill.roundOff ?? 0) > 0
+				...(amounts.roundOff > 0
 					? [
 							{
 								id: 'round_off',
 								name: 'Round off',
 								rate_in_bps: 0,
-								amount_in_paise: toPaise(bill.roundOff ?? 0),
+								amount_in_paise: toPaise(amounts.roundOff),
 							},
 						]
 					: []),
 			],
 			payment_method:
-				bill.method === 'CARD' ? 'card' : 'cash_or_upi',
+				billWithTotals.method === 'CARD' ? 'card' : 'cash_or_upi',
 			payment_status: 'pending',
 		}),
 		signal: AbortSignal.timeout(30_000),
